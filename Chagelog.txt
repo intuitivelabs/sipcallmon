@@ -1,0 +1,48 @@
+20190503 - 20190306
+
+sippcap:
+* added -forever cmd. line option to keep running in the read-from-pcap
+  file mode (-f), such that the web server can be used to inspect the
+  call state
+* added inter-packet delay option for replaying pcaps: -min_delay millisecs
+  Part of a future  max_delay, delay_factor set. For now only min_delay is
+  used, pcap timestamps are ignored.
+* web interface filtering options after: from tag, to tag, entire call key
+ (callid|fromtag|totag) and state.
+  Query param names: cid , ftag, ttag, key, state
+ e.g. http:127.0.0.1/calls/list?ftag=xxx
+      http:127.0.0.1/calls/list?fstate=xxx;re
+* web interface packet inject feature: inject a packet into the call state 
+ machine. See http://127.0.0.1:8080/inject (basic web form). The packet can
+ be pasted and the supported formats are: raw sip CRLF terminated,
+ CR or LF terminated, ngrep style CRLF escaped with '.' and C-like string
+ escaped (e.g. INVITE .. ..  \r\nVia:...\r\n). For formats that include 
+ escaped CRLF (C-Like or ngrep), non-escaped CR or LFs are ignored, so that
+  one can safely paste such a message from an email or terminal without 
+  worrying about line-wrapping.
+ The default auto-detect format works very well  Protocol is ignored for now.
+* faster live capture, avoid mem allocs, minimizes copies
+* tcp and tcp reassembly support. Lightly tested (works with sip msgs split
+ in multiple tcp packets, no real reassembly test though, hard to simulate).
+ Caveats/TODO: - no timeout for connections, no timeout for old fragments
+                 awaiting assembly ( mem. leak ) for now (mem. leak on
+                 the long run)
+               - resync if reassembly gap that cannot be resolved, works only
+                 if the gap is inside a message body, otherwise the stream
+                 will be marked as out-of-sync and ignored.
+                 However even if parts of the data are missing or we get an
+                 invalid sip msg (parse error), we could try re-syncing the
+                 stream (look for the first piece that looks like a valid
+                 sip msg and try parsing it).
+               - cmd line config options for max tcp reassembly mem. usage
+               - tcp streams and bufs should be allocated from a pool
+calltr:
+* minor ParseSipMsg() update to support ignoring msg. body (needed for tcp
+ to enable body skipping)
+
+20190407
+
+sippcap:
+* pcap replay-ing full support: -replay -min_delay -max_delay -scale_delay
+* tcp conn. garbage collection
+* more tcp stats

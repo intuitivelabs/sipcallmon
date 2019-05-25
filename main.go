@@ -16,7 +16,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"html"
+	//"html"
 	"io"
 	"net"
 	"net/http"
@@ -124,6 +124,27 @@ func DBG(f string, a ...interface{}) {
 	//fmt.Printf("DBG: "+f, a...)
 }
 
+type httpHandler struct {
+	url  string
+	desc string
+	hF   func(w http.ResponseWriter, r *http.Request)
+}
+
+var httpHandlers = [...]httpHandler{
+	{"/about", "", httpPrintVer},
+	{"/about/config", "", httpPrintConfig},
+	{"/calls", "", httpCallStats},
+	{"/calls/list", "", httpCallList},
+	{"/calls/list/query", "", httpCallListQuery},
+	{"/debug/pprof", "", nil},
+	{"/events", "", httpEventsList},
+	{"/events/blst", "", httpEventsBlst},
+	{"/events/query", "", httpEventsQuery},
+	{"/inject", "", httpInjectMsg},
+	{"/stats", "", httpPrintStats},
+	{"/stats/raw", "", httpPrintStats},
+}
+
 func main() {
 	var cfg mycfg
 	var wg *sync.WaitGroup
@@ -201,13 +222,12 @@ func main() {
 
 	// start web sever
 	if cfg.httpPort != 0 {
-		http.HandleFunc("/about", httpPrintVer)
-		http.HandleFunc("/about/config", httpPrintConfig)
-		http.HandleFunc("/stats", httpPrintStats)
-		http.HandleFunc("/stats/raw", httpPrintStats)
-		http.HandleFunc("/calls", httpCallStats)
-		http.HandleFunc("/calls/list", httpCallList)
-		http.HandleFunc("/inject", httpInjectMsg)
+		for _, h := range httpHandlers {
+			if h.hF != nil {
+				http.HandleFunc(h.url, h.hF)
+			}
+		}
+		http.HandleFunc("/", httpIndex)
 		wg = &sync.WaitGroup{}
 		wg.Add(1)
 		go func() {
@@ -308,6 +328,18 @@ func printStatsRaw(w io.Writer) {
 		strings.Replace(fmt.Sprintf("%+v", stats), " ", "\n", -1))
 }
 
+func httpIndex(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, httpHeader)
+	for i, h := range httpHandlers {
+		txt := h.desc
+		if len(txt) == 0 {
+			txt = h.url
+		}
+		fmt.Fprintf(w, "<a href=%q>[%d. %s]</a><br>", h.url, i, txt)
+	}
+	fmt.Fprintln(w, httpFooter)
+}
+
 func httpPrintVer(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s version %s\n", path.Base(os.Args[0]), version)
 }
@@ -343,7 +375,34 @@ func httpCallStats(w http.ResponseWriter, r *http.Request) {
 	var stats calltr.HStats
 	calltr.StatsHash(&stats)
 	fmt.Fprintf(w, "CallTracking Hash Stats: %+v\n", stats)
-	fmt.Fprintf(w, "Memory Stats: %+v\n", calltr.CallEntryAllocStats)
+	fmt.Fprintf(w, "Memory Stats:\n"+
+		"	TotalSize: %d NewCalls: %d FreeCalls: %d Failures: %d\n",
+		calltr.CallEntryAllocStats.TotalSize,
+		calltr.CallEntryAllocStats.NewCalls,
+		calltr.CallEntryAllocStats.FreeCalls,
+		calltr.CallEntryAllocStats.Failures,
+	)
+	for i, v := range calltr.CallEntryAllocStats.Sizes {
+		if v != 0 {
+			fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: %6d-%6d\n",
+				v, v*100/calltr.CallEntryAllocStats.NewCalls,
+				i*calltr.AllocRoundTo,
+				(i+1)*calltr.AllocRoundTo)
+		}
+	}
+	//fmt.Fprintf(w, "Memory Stats: %+v\n", calltr.CallEntryAllocStats)
+}
+
+var htmlCallFilterParams = map[string]int{
+	"cid":   calltr.FilterCallID,
+	"ftag":  calltr.FilterFromTag,
+	"ttag":  calltr.FilterToTag,
+	"key":   calltr.FilterCallKey,
+	"state": calltr.FilterState,
+}
+
+func httpCallListQuery(w http.ResponseWriter, r *http.Request) {
+	htmlQueryCallFilter(w, htmlCallFilterParams)
 }
 
 func httpCallList(w http.ResponseWriter, r *http.Request) {
@@ -356,25 +415,33 @@ func httpCallList(w http.ResponseWriter, r *http.Request) {
 
 	paramN := r.URL.Query()["n"]
 	paramS := r.URL.Query()["s"]
-	cmpSrc := map[string]int{
-		"cid":   calltr.FilterCallID,
-		"ftag":  calltr.FilterFromTag,
-		"ttag":  calltr.FilterToTag,
-		"key":   calltr.FilterCallKey,
-		"state": calltr.FilterState,
-	}
-	for k, v := range cmpSrc {
-		p := r.URL.Query()[k]
-		if len(p) > 0 && len(p[0]) > 0 {
-			// we support only one filter operand
-			tst = p[0]
+	paramVal := r.URL.Query()["val"]
+	paramFilter := r.URL.Query()["filter"]
+	// accept operands either directly, e.g.: cid=foo
+	// or for forms via filter=cid&val=foo
+	for k, v := range htmlCallFilterParams {
+		p, found := r.URL.Query()[k]
+		if found {
+			if len(p) > 0 {
+				tst = p[0]
+			}
 			operand = v
 			opName = k
+			// we support only one filter operand
 			break
 		}
 	}
+	if len(paramFilter) > 0 && len(paramFilter[0]) > 0 && len(opName) == 0 {
+		if op, ok := htmlCallFilterParams[paramFilter[0]]; ok {
+			operand = op
+			opName = paramFilter[0]
+		}
+	}
+	if len(paramVal) > 0 && len(paramVal[0]) > 0 && len(tst) == 0 {
+		tst = paramVal[0]
+	}
 	paramRe, isRe := r.URL.Query()["re"]
-	if len(paramN) > 0 {
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
 		if i, err := strconv.Atoi(paramN[0]); err == nil {
 			n = i
 		} else {
@@ -464,6 +531,156 @@ func httpInjectMsg(w http.ResponseWriter, r *http.Request) {
 	default:
 		fmt.Fprintf(w, "method %v not supported\n", r.Method)
 	}
+}
+
+var htmlEvFilterParams = map[string]EvFilterOp{
+	"name":    EvFilterName,
+	"src":     EvFilterSrc,
+	"dst":     EvFilterDst,
+	"sport":   EvFilterSport,
+	"dport":   EvFilterDport,
+	"proto":   EvFilterProto,
+	"status":  EvFilterStatus,
+	"cid":     EvFilterCallID,
+	"fu":      EvFilterFromURI,
+	"tu":      EvFilterToURI,
+	"method":  EvFilterMethod,
+	"uri":     EvFilterRURI,
+	"contact": EvFilterContact,
+	"reason":  EvFilterReason,
+	"ua":      EvFilterUA,
+	"uas":     EvFilterUAS,
+}
+
+func httpEventsQuery(w http.ResponseWriter, r *http.Request) {
+	htmlQueryEvFilter(w, htmlEvFilterParams)
+}
+
+func httpEventsList(w http.ResponseWriter, r *http.Request) {
+	n := 100 // default
+	s := 0
+	tst := ""
+	opName := ""
+	operand := EvFilterNone
+	var re *regexp.Regexp
+
+	paramN := r.URL.Query()["n"]
+	paramS := r.URL.Query()["s"]
+	paramVal := r.URL.Query()["val"]
+	paramFilter := r.URL.Query()["filter"]
+	// accept operands either directly, e.g.: cid=foo
+	// or for forms via filter=cid&val=foo
+	for k, v := range htmlEvFilterParams {
+		p, found := r.URL.Query()[k]
+		if found {
+			if len(p) > 0 && len(p[0]) > 0 {
+				// we support only one filter operand
+				tst = p[0]
+			}
+			// we support only one filter operand
+			operand = v
+			opName = k
+			break
+		}
+	}
+	if len(paramFilter) > 0 && len(paramFilter[0]) > 0 && len(opName) == 0 {
+		if op, ok := htmlEvFilterParams[paramFilter[0]]; ok {
+			operand = op
+			opName = paramFilter[0]
+		}
+	}
+	if len(paramVal) > 0 && len(paramVal[0]) > 0 && len(tst) == 0 {
+		tst = paramVal[0]
+	}
+	paramRe, isRe := r.URL.Query()["re"]
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+	if len(paramS) > 0 && len(paramS[0]) > 0 {
+		if i, err := strconv.Atoi(paramS[0]); err == nil {
+			s = i
+		} else {
+			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
+		}
+	}
+	if len(paramRe) > 0 {
+		if i, err := strconv.Atoi(paramRe[0]); err == nil {
+			if i > 0 {
+				isRe = true
+			} else {
+				isRe = false
+			}
+		}
+	}
+	var substr []byte
+	if isRe && len(tst) > 0 {
+		var err error
+		re, err = regexp.CompilePOSIX(tst)
+		if err != nil {
+			fmt.Fprintf(w, "Error bad regexp %q: %s\n", tst, err)
+			return
+		}
+	} else {
+		substr = []byte(tst)
+	}
+	fmt.Fprintf(w, "Events List (filter: from %d max %d matches,"+
+		" match %s against %q regexp %v):\n",
+		s, n, opName, tst, isRe)
+	fmt.Fprintf(w, "Total Generated: %6d	Max. Buffered: %6d\n\n",
+		eventsRing.idx, len(eventsRing.events))
+
+	var printed int
+	ItEvents := func(idx, crt int, ed *calltr.EventData) bool {
+		if idx >= s && matchEvent(ed, operand, substr, re) {
+			fmt.Fprintf(w, "%5d (%5d). %s\n\n", crt, idx, ed.String())
+			printed++
+			if printed >= n {
+				return false
+			}
+		}
+		return true
+	}
+
+	eventsRing.Iterate(ItEvents)
+}
+
+func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
+	for e := calltr.EvNone + 1; e < calltr.EvBad; e++ {
+		param, ok := r.URL.Query()[e.String()]
+		set := ok
+		if ok && len(param) > 0 && len(param[0]) > 0 {
+			if i, err := strconv.Atoi(param[0]); err == nil {
+				if i > 0 {
+					set = true
+				} else {
+					set = false
+				}
+			}
+		}
+		if set {
+			eventsRing.Ignore(e)
+		} else if ok {
+			eventsRing.UnIgnore(e)
+		}
+	}
+	param, reset := r.URL.Query()["reset"]
+	if reset {
+		if len(param) > 0 && len(param[0]) > 0 {
+			if i, err := strconv.Atoi(param[0]); err == nil {
+				if i <= 0 {
+					reset = false
+				}
+			}
+		}
+		if reset {
+			eventsRing.ResetBlst()
+		}
+	}
+	htmlQueryEvBlst(w, eventsRing.evBlst)
 }
 
 func processPCAP(fname string, cfg *mycfg) {
@@ -1113,53 +1330,3 @@ func unescapeBSlice(b *[]byte) {
 	}
 	*b = buf[:j]
 }
-
-var httpHeader string = `
-<!DOCTYPE html>
-<html>
-<body>
-`
-
-var httpFooter string = `
-</body>
-</html>
-
-`
-var injectForm string = `
-
-<h2>Inject Packet</h2>
-
-<p>Paste a sip packet (ascii text)</p>
-
-<form action="#" method="post">
-	<p>Line termination format and protocol:</p>
-	<select name="crlfformat">
-		<option value="auto">auto detect</option>
-		<option value="ngreplf">ngrep .LF</option>
-		<option value="ngrepcr">ngrep .CR</option>
-		<option value="ngrepcrlf">ngrep .CRLF</option>
-		<option value="lf">LF standard UNIX editor</option>
-		<option value="crlf">standard raw CRLF</option>
-		<option value="escaped">one line \r\n escaped</option>
-	</select>
-	<select name="proto">
-		<option value="udp">UDP</option>
-		<option value="tcp">TCP</option>
-		<option value="tls">TLS</option>
-	</select>
-	<br>
-	<p> Verbose:</p>
-	<select name="verbose">
-		<option value="yes">Yes</option>
-		<option value="no" selected>No</option>
-	</select>
-	<br>
-	<p>SIP message</p>
-	<br>
-	<textarea name="sipmsg" rows="25" cols="80" wrap="off">
-	</textarea>
-	<br>
-	<input type="submit">
-</form>
-
-`

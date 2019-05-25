@@ -39,7 +39,9 @@ import (
 
 import _ "net/http/pprof"
 
-const version = "5.0"
+const version = "6.3"
+
+var startTS time.Time
 
 type pstats struct {
 	n              uint64 // total packet count
@@ -128,6 +130,8 @@ func main() {
 
 	// save actual config for global ref.
 	runningCfg = &cfg
+
+	startTS = time.Now()
 
 	flag.BoolVar(&cfg.verbose, "verbose", false, "turn on verbose mode")
 	flag.BoolVar(&cfg.fileMode, "f", false, "read packets from pcap files")
@@ -323,10 +327,11 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "</head>\n")
 		fmt.Fprintf(w, "<body>\n")
 	*/
-	fmt.Fprintf(w, "[%s]\n", html.EscapeString(r.URL.Path))
+	//fmt.Fprintf(w, "[%s]\n", html.EscapeString(r.URL.Path))
 	if r.URL.Path == "/stats/raw" {
 		printStatsRaw(w)
 	} else {
+		fmt.Fprintf(w, "uptime: %s\n", time.Now().Sub(startTS))
 		printStats(w)
 	}
 	/*

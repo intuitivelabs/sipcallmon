@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"andrei/sipsp"
+	"andrei/sipsp/calltr"
 )
 
 type SIPStreamState uint8
@@ -136,9 +137,16 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					if s.Verbose {
 						fmt.Fprintln(s.W)
 					}
-					// parsed full message
-					// stats update
-					ok := CallTrack(&s.pmsg)
+
+					var endPoints [2]calltr.NetInfo
+					endPoints[0].SetIP(&s.srcIP)
+					endPoints[0].Port = s.sport
+					endPoints[0].SetProto(calltr.NProtoTCP)
+					endPoints[1].SetIP(&s.dstIP)
+					endPoints[1].Port = s.dport
+					endPoints[1].SetProto(calltr.NProtoTCP)
+
+					ok := CallTrack(&s.pmsg, &endPoints)
 					if ok {
 						stats.callTrTCP++
 					} else {

@@ -924,7 +924,15 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 				stats.replsN++
 				stats.repl[sipmsg.FL.Status/100]++
 			}
-			ret = CallTrack(&sipmsg)
+			var endPoints [2]calltr.NetInfo
+			endPoints[0].SetIP(sip)
+			endPoints[0].Port = uint16(sport)
+			endPoints[0].SetProto(calltr.NProtoUDP)
+			endPoints[1].SetIP(dip)
+			endPoints[1].Port = uint16(dport)
+			endPoints[1].SetProto(calltr.NProtoUDP)
+
+			ret = CallTrack(&sipmsg, &endPoints)
 			if ret {
 				stats.callTrUDP++
 			} else {

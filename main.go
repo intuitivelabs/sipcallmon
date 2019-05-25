@@ -969,8 +969,20 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 	return ret
 }
 
-func CallTrack(m *sipsp.PSIPMsg) bool {
-	return calltr.Track(m)
+var evCnt int64
+
+// per event callback
+func evHandler(ed *calltr.EventData) {
+	evCnt++
+	//fmt.Printf("Event %d: %s\n", evCnt, ed.String())
+	if !eventsRing.Add(ed) {
+		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",
+			evCnt, ed.String())
+	}
+}
+
+func CallTrack(m *sipsp.PSIPMsg, n *[2]calltr.NetInfo) bool {
+	return calltr.Track(m, n, evHandler)
 }
 
 func unescapeMsg(msg string, format string) ([]byte, error) {

@@ -14,15 +14,17 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"andrei/sipcallmon"
 )
 
 import _ "net/http/pprof"
 
 func main() {
-	cfg, err := CfgFromOSArgs(&DefaultConfig)
+	cfg, err := sipcallmon.CfgFromOSArgs(&sipcallmon.DefaultConfig)
 	if err != nil {
 		fmt.Printf("command line arguments error %s\n", err)
 		os.Exit(-1)
 	}
-	Run(&cfg)
+	sipcallmon.Run(&cfg)
 }

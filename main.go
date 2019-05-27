@@ -39,7 +39,7 @@ import (
 
 import _ "net/http/pprof"
 
-const version = "6.3"
+const version = "6.4"
 
 var startTS time.Time
 
@@ -102,23 +102,32 @@ type pstats struct {
 
 var stats pstats
 
-type mycfg struct {
-	verbose        bool
-	fileMode       bool
-	replay         bool
-	replayMinDelay time.Duration
-	replayMaxDelay time.Duration
-	replayScale    float64
-	runForever     bool
-	iface          string
-	httpPort       int
-	httpAddr       string
-	tcpGCInt       time.Duration
-	tcpReorderTo   time.Duration
-	tcpConnTo      time.Duration
+type Config struct {
+	Verbose        bool          `config:"verbose"`
+	PCAPs          string        `config:"pcap"`
+	Replay         bool          `config:"replay"`
+	ReplayMinDelay time.Duration `config:"replay_min_delay"`
+	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
+	ReplayScale    float64       `config:"replay_scale"`
+	RunForever     bool          `config:"run_forever"`
+	Iface          string        `config:"iface"`
+	BPF            string        `config:"bpf"` // packet filter
+	HTTPport       int           `config:"http_port"`
+	HTTPaddr       string        `config:"http_addr"`
+	TCPGcInt       time.Duration `config:"tcp_gc_int"`
+	TCPReorderTo   time.Duration `config:"tcp_reorder_timeout"`
+	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
 }
 
-var runningCfg *mycfg
+var DefaultConfig = Config{
+	ReplayMinDelay: 250 * time.Millisecond,
+	ReplayMaxDelay: 0,
+	TCPGcInt:       30 * time.Second,
+	TCPReorderTo:   60 * time.Second,
+	TCPConnTo:      3600 * time.Second,
+}
+
+var runningCfg *Config
 
 func DBG(f string, a ...interface{}) {
 	//fmt.Printf("DBG: "+f, a...)
@@ -145,83 +154,103 @@ var httpHandlers = [...]httpHandler{
 	{"/stats/raw", "", httpPrintStats},
 }
 
+// FromOsArgs intializes and returns a config from cmd line args and
+// passed default config (c).
+func FromOSArgs(c *Config) (Config, error) {
+	var cfg Config
+
+	flag.BoolVar(&cfg.Verbose, "verbose", c.Verbose, "turn on verbose mode")
+	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
+	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
+	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
+		"keeping simulating delays between packets")
+	flag.StringVar(&cfg.Iface, "i", c.Iface,
+		"interface to capture packets from")
+	flag.IntVar(&cfg.HTTPport, "p", c.HTTPport,
+		"port for http server, 0 == disable")
+	flag.StringVar(&cfg.HTTPaddr, "l", c.HTTPaddr,
+		"listen address for http server")
+	flag.BoolVar(&cfg.RunForever, "forever", c.RunForever,
+		"keep web server running")
+	flag.Float64Var(&cfg.ReplayScale, "delay_scale", c.ReplayScale,
+		"scale factor for inter packet delay intervals")
+	replMinDelayS := flag.String("min_delay", c.ReplayMaxDelay.String(),
+		"minimum delay when replaying pcaps")
+	replMaxDelayS := flag.String("max_delay", c.ReplayMaxDelay.String(),
+		"maximum delay when replaying pcaps")
+	tcpGCIntS := flag.String("tcp_gc_interval", c.TCPGcInt.String(),
+		"tcp garbage collection interval")
+	tcpReorderToS := flag.String("tcp_reorder_timeout", c.TCPReorderTo.String(),
+		"tcp reorder timeout")
+	tcpConnToS := flag.String("tcp_connection_timeout", c.TCPConnTo.String(),
+		"tcp connection timeout")
+
+	flag.Parse()
+	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
+		err := fmt.Errorf("at least one pcap file or a bpf expression required")
+		return cfg, err
+	}
+	// fix cmd line params
+	{
+		var perr error
+		errs := 0
+		cfg.ReplayMinDelay, perr = time.ParseDuration(*replMinDelayS)
+		if perr != nil {
+			e := fmt.Errorf("invalid minimum replay delay: %s: %v",
+				*tcpGCIntS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.ReplayMaxDelay, perr = time.ParseDuration(*replMaxDelayS)
+		if perr != nil {
+			e := fmt.Errorf("invalid maximum replay delay: %s: %v",
+				*tcpGCIntS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.TCPGcInt, perr = time.ParseDuration(*tcpGCIntS)
+		if perr != nil {
+			e := fmt.Errorf("invalid tcp gc interval: %s: %v\n",
+				*tcpGCIntS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.TCPReorderTo, perr = time.ParseDuration(*tcpReorderToS)
+		if perr != nil {
+			e := fmt.Errorf("invalid tcp gc interval: %s: %v\n",
+				*tcpReorderToS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.TCPConnTo, perr = time.ParseDuration(*tcpConnToS)
+		if perr != nil {
+			e := fmt.Errorf("invalid tcp gc interval: %s: %v",
+				*tcpConnToS, perr)
+			errs++
+			return cfg, e
+		}
+	}
+	return cfg, nil
+}
+
 func main() {
-	var cfg mycfg
 	var wg *sync.WaitGroup
+
+	cfg, err := FromOSArgs(&DefaultConfig)
+	if err != nil {
+		fmt.Printf("command line arguments error %v\n", err)
+		os.Exit(-1)
+	}
 
 	// save actual config for global ref.
 	runningCfg = &cfg
 
 	startTS = time.Now()
 
-	flag.BoolVar(&cfg.verbose, "verbose", false, "turn on verbose mode")
-	flag.BoolVar(&cfg.fileMode, "f", false, "read packets from pcap files")
-	flag.BoolVar(&cfg.replay, "replay", false, "replay packets from pcap "+
-		"keeping simulating delays between packets")
-	flag.StringVar(&cfg.iface, "i", "", "interface to capture packets from")
-	flag.IntVar(&cfg.httpPort, "p", 0, "port for http server")
-	flag.StringVar(&cfg.httpAddr, "l", "", "listen address for http server")
-	flag.BoolVar(&cfg.runForever, "forever", false, "keep web server running")
-	flag.Float64Var(&cfg.replayScale, "delay_scale", 0, "scale factor for inter packet "+
-		"delay intervals")
-	replMinDelayS := flag.String("min_delay", "250ms", "minimum delay when"+
-		"replaying pcaps")
-	replMaxDelayS := flag.String("max_delay", "0", "maximum delay when"+
-		"replaying pcaps")
-	tcpGCIntS := flag.String("tcp_gc_interval", "30s",
-		"tcp garbage collection interval")
-	tcpReorderToS := flag.String("tcp_reorder_timeout", "1m",
-		"tcp reorder timeout")
-	tcpConnToS := flag.String("tcp_connection_timeout", "60m", "tcp connection timeout")
-
-	flag.Parse()
-	if flag.NArg() == 0 {
-		fmt.Fprintf(os.Stderr,
-			"error: at least one pcap file required as argument\n")
-		os.Exit(-1)
-	}
-	// fix cmd line params
-	{
-		var perr error
-		errs := 0
-		cfg.replayMinDelay, perr = time.ParseDuration(*replMinDelayS)
-		if perr != nil {
-			fmt.Fprintf(os.Stderr, "error: invalid minimum replay delay: %s\n",
-				*tcpGCIntS)
-			errs++
-		}
-		cfg.replayMaxDelay, perr = time.ParseDuration(*replMaxDelayS)
-		if perr != nil {
-			fmt.Fprintf(os.Stderr, "error: invalid maximum replay delay: %s\n",
-				*tcpGCIntS)
-			errs++
-		}
-		cfg.tcpGCInt, perr = time.ParseDuration(*tcpGCIntS)
-		if perr != nil {
-			fmt.Fprintf(os.Stderr, "error: invalid tcp gc interval: %s\n",
-				*tcpGCIntS)
-			errs++
-		}
-		cfg.tcpReorderTo, perr = time.ParseDuration(*tcpReorderToS)
-		if perr != nil {
-			fmt.Fprintf(os.Stderr, "error: invalid tcp gc interval: %s\n",
-				*tcpReorderToS)
-			errs++
-		}
-		cfg.tcpConnTo, perr = time.ParseDuration(*tcpConnToS)
-		if perr != nil {
-			fmt.Fprintf(os.Stderr, "error: invalid tcp gc interval: %s\n",
-				*tcpConnToS)
-			errs++
-		}
-		if errs > 0 {
-			os.Exit(-1)
-		}
-	}
 	// ...
 
 	// start web sever
-	if cfg.httpPort != 0 {
+	if cfg.HTTPport != 0 {
 		for _, h := range httpHandlers {
 			if h.hF != nil {
 				http.HandleFunc(h.url, h.hF)
@@ -232,7 +261,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			addr := fmt.Sprintf("%s:%d", cfg.httpAddr, cfg.httpPort)
+			addr := fmt.Sprintf("%s:%d", cfg.HTTPaddr, cfg.HTTPport)
 			/* ListenAndServer uses ipv6 by default if ip/host is empty
 			err := http.ListenAndServe(addr, nil)
 			*/
@@ -250,17 +279,23 @@ func main() {
 			}
 		}()
 	}
-	if cfg.fileMode {
-		for i := 0; i < flag.NArg(); i++ {
-			processPCAP(flag.Arg(i), &cfg)
+	if len(cfg.PCAPs) > 0 {
+		/*
+			for i := 0; i < flag.NArg(); i++ {
+				processPCAP(flag.Arg(i), &cfg)
+			}
+		*/
+		for _, fn := range strings.Split(cfg.PCAPs, " ") {
+			processPCAP(fn, &cfg)
 		}
 	} else {
-		processLive(cfg.iface, strings.Join(flag.Args(), " "), &cfg)
+		//processLive(cfg.Iface, strings.Join(flag.Args(), " "), &cfg)
+		processLive(cfg.Iface, cfg.BPF, &cfg)
 	}
 	// print stats
 	printStats(os.Stdout)
 	//printStatsRaw(os.Stdout)
-	if cfg.runForever && wg != nil {
+	if cfg.RunForever && wg != nil {
 		wg.Wait()
 	}
 
@@ -683,7 +718,7 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 	htmlQueryEvBlst(w, eventsRing.evBlst)
 }
 
-func processPCAP(fname string, cfg *mycfg) {
+func processPCAP(fname string, cfg *Config) {
 	if fname == "" {
 		fmt.Fprintf(os.Stderr, "error: processPCAP: empty filename\n")
 		return
@@ -696,18 +731,23 @@ func processPCAP(fname string, cfg *mycfg) {
 		return
 	}
 	defer h.Close()
+	if err = h.SetBPFFilter(cfg.BPF); err != nil {
+		fmt.Fprintf(os.Stderr, "error: processLive: bpf %q: %s\n",
+			cfg.BPF, err)
+		return
+	}
 	//packetSrc := gopacket.NewPacketSource(h, h.LinkType())
 	//processPacketsSlow(packetSrc, cfg, true)
-	processPackets(h, cfg, cfg.replay)
+	processPackets(h, cfg, cfg.Replay)
 }
 
-func processLive(iface, bpf string, cfg *mycfg) {
+func processLive(iface, bpf string, cfg *Config) {
 
 	var h *pcap.Handle
 	var err error
 	// TODO: option for snap len
 	// wait forever: pcap.BlockForever
-	timeout := cfg.tcpGCInt
+	timeout := cfg.TCPGcInt
 	if timeout <= 0 {
 		timeout = pcap.BlockForever
 	}
@@ -724,16 +764,16 @@ func processLive(iface, bpf string, cfg *mycfg) {
 	processPackets(h, cfg, false)
 }
 
-func printPacket(w io.Writer, cfg *mycfg, n int, sip, dip *net.IP, sport, dport int, name string, l int) {
-	if cfg.verbose {
+func printPacket(w io.Writer, cfg *Config, n int, sip, dip *net.IP, sport, dport int, name string, l int) {
+	if cfg.Verbose {
 		fmt.Fprintf(w, "%d. %s:%d -> %s:%d %s	payload len: %d\n",
 			n, sip, sport, dip, dport, name, l)
 	}
 }
 
-func printTLPacket(w io.Writer, cfg *mycfg, n int, ipl gopacket.NetworkLayer,
+func printTLPacket(w io.Writer, cfg *Config, n int, ipl gopacket.NetworkLayer,
 	trl gopacket.TransportLayer) {
-	if cfg.verbose {
+	if cfg.Verbose {
 		fmt.Fprintf(w, "%d. %s:%s -> %s:%s %s	payload len: %d\n",
 			n, ipl.NetworkFlow().Src(), trl.TransportFlow().Src(),
 			ipl.NetworkFlow().Dst(), trl.TransportFlow().Dst(),
@@ -741,7 +781,17 @@ func printTLPacket(w io.Writer, cfg *mycfg, n int, ipl gopacket.NetworkLayer,
 	}
 }
 
-func processPackets(h *pcap.Handle, cfg *mycfg, replay bool) {
+// return true if buf content is for sure not a SIP packet
+func nonSIP(buf []byte, sip *net.IP, sport int, dip *net.IP, dport int) bool {
+	if len(buf) <= 12 ||
+		(!(buf[0] >= 'A' && buf[0] <= 'Z') &&
+			!(buf[0] >= 'a' && buf[0] <= 'z')) {
+		return true
+	}
+	return false
+}
+
+func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	n := 0
 	/* needed layers */
 	// link layers
@@ -781,7 +831,7 @@ func processPackets(h *pcap.Handle, cfg *mycfg, replay bool) {
 	default: // fallback
 		layerType = h.LinkType().LayerType()
 	}
-	if cfg.verbose {
+	if cfg.Verbose {
 		fmt.Printf("LinkType %s => layerType %s)\n", h.LinkType(),
 			layerType)
 	}
@@ -799,30 +849,30 @@ func processPackets(h *pcap.Handle, cfg *mycfg, replay bool) {
 		bufSize: 4096,
 	}
 	tcpStreamFactory.SIPStreamOptions =
-		SIPStreamOptions{Verbose: cfg.verbose, W: os.Stdout}
+		SIPStreamOptions{Verbose: cfg.Verbose, W: os.Stdout}
 	tcpStreamPool := tcpassembly.NewStreamPool(tcpStreamFactory)
 	tcpAssembler := tcpassembly.NewAssembler(tcpStreamPool)
 	// TODO: config options
 	tcpAssembler.MaxBufferedPagesTotal = 1024 * 25
 	tcpAssembler.MaxBufferedPagesPerConnection = 256
 
-	tcpGCRun := time.Now().Add(cfg.tcpGCInt)
+	tcpGCRun := time.Now().Add(cfg.TCPGcInt)
 	var last time.Time
 nextpkt:
 	for {
 		now := time.Now()
-		if cfg.tcpGCInt > 0 && now.After(tcpGCRun) {
-			tcpGCRun = now.Add(cfg.tcpGCInt)
+		if cfg.TCPGcInt > 0 && now.After(tcpGCRun) {
+			tcpGCRun = now.Add(cfg.TCPGcInt)
 			flushed, closed := tcpAssembler.FlushWithOptions(
 				tcpassembly.FlushOptions{
-					T:        now.Add(-cfg.tcpConnTo),
+					T:        now.Add(-cfg.TCPConnTo),
 					CloseAll: true,
 				})
 			stats.tcpExpReorder += uint64(flushed)
 			stats.tcpStreamTo += uint64(closed)
 			flushed, closed = tcpAssembler.FlushWithOptions(
 				tcpassembly.FlushOptions{
-					T:        now.Add(-cfg.tcpReorderTo),
+					T:        now.Add(-cfg.TCPReorderTo),
 					CloseAll: false,
 				})
 			stats.tcpExpReorder += uint64(flushed)
@@ -861,7 +911,7 @@ nextpkt:
 				stats.decodeErrs++
 			}
 		}
-		if cfg.verbose {
+		if cfg.Verbose {
 			fmt.Printf("link type %s: layer type: %s: packet %d size %d- decoded layers %v\n", h.LinkType(), layerType, n, len(buf), decodedLayers)
 		}
 		var sport, dport int
@@ -904,12 +954,14 @@ nextpkt:
 					continue nextpkt
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
-				if udp.SrcPort != 5060 && udp.DstPort != 5060 {
-					if cfg.verbose {
-						fmt.Printf("ignoring...\n\n")
+				/*
+					if udp.SrcPort != 5060 && udp.DstPort != 5060 {
+						if cfg.Verbose {
+							fmt.Printf("ignoring...\n\n")
+						}
+						break nextlayer
 					}
-					break nextlayer
-				}
+				*/
 				/*? check if udp truncated: parser.Truncated ? */
 				/*
 					if parser.Truncated {
@@ -918,8 +970,10 @@ nextpkt:
 				*/
 				stats.seen++
 				var payload []byte = tl.LayerPayload()
-				udpSIPMsg(os.Stdout, payload, n, &sip, sport, &dip, dport,
-					cfg.verbose)
+				if !nonSIP(payload, &sip, sport, &dip, dport) {
+					udpSIPMsg(os.Stdout, payload, n, &sip, sport, &dip, dport,
+						cfg.Verbose)
+				}
 				break nextlayer // exit the loop
 
 			case layers.LayerTypeTCP:
@@ -962,7 +1016,7 @@ nextpkt:
 					continue nextpkt
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
-				if cfg.verbose {
+				if cfg.Verbose {
 					fmt.Printf("ignoring SCTP for now...\n\n")
 				}
 			case layers.LayerTypeTLS:
@@ -971,7 +1025,7 @@ nextpkt:
 				} else {
 					stats.dtlsN++
 				}
-				if cfg.verbose {
+				if cfg.Verbose {
 					fmt.Printf("ignoring TLS for now...\n\n")
 				}
 			}
@@ -985,15 +1039,15 @@ nextpkt:
 			if !last.IsZero() {
 				wait := ts.Sub(last)
 				DBG("replay: wait %s\n", wait)
-				if cfg.replayScale > 0 {
-					wait = time.Duration(uint64(float64(wait) * cfg.replayScale))
+				if cfg.ReplayScale > 0 {
+					wait = time.Duration(uint64(float64(wait) * cfg.ReplayScale))
 					DBG("replay: wait scaled to %s\n", wait)
 				}
-				if cfg.replayMinDelay > wait {
-					wait = cfg.replayMinDelay
+				if cfg.ReplayMinDelay > wait {
+					wait = cfg.ReplayMinDelay
 				}
-				if cfg.replayMaxDelay != 0 && wait > cfg.replayMaxDelay {
-					wait = cfg.replayMaxDelay
+				if cfg.ReplayMaxDelay != 0 && wait > cfg.ReplayMaxDelay {
+					wait = cfg.ReplayMaxDelay
 				}
 				DBG("replay: final %s\n", wait)
 				if wait > 0 {
@@ -1013,7 +1067,7 @@ nextpkt:
 }
 
 /*
-func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay bool) {
+func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *Config, replay bool) {
 	n := 0
 	for pkt := range packetSrc.Packets() {
 		n++
@@ -1025,7 +1079,7 @@ func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay boo
 		fmt.Println()
 		ll := pkt.LinkLayer()
 		if ll == nil {
-			if cfg.verbose {
+			if cfg.Verbose {
 				fmt.Printf("packet %d with empty link layer...\n", n)
 			}
 			continue
@@ -1033,7 +1087,7 @@ func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay boo
 		llsrc, lldst := ll.LinkFlow().Endpoints()
 		nl := pkt.NetworkLayer() // ip
 		if nl == nil {
-			if cfg.verbose {
+			if cfg.Verbose {
 				fmt.Printf("packet %d  %s - %s no network layer (non-IP?)\n",
 					n, llsrc, lldst)
 			}
@@ -1042,7 +1096,7 @@ func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay boo
 		nlsrc, nldst := nl.NetworkFlow().Endpoints()
 		tl := pkt.TransportLayer()
 		if tl == nil {
-			if cfg.verbose {
+			if cfg.Verbose {
 				fmt.Printf("packet %d  %s - %s  %s - %s no transport layer\n",
 					n, llsrc, lldst, nlsrc, nldst)
 			}
@@ -1056,13 +1110,13 @@ func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay boo
 			stats.udpN++
 			udp, _ := tl.(*layers.UDP)
 			//fmt.Printf("udp %d -> %d\n", udp.SrcPort, udp.DstPort)
-			if cfg.verbose {
+			if cfg.Verbose {
 				fmt.Printf("%d. %s:%d -> %s:%d UDP	payload len: %d\n",
 					n, nlsrc, udp.SrcPort, nldst, udp.DstPort,
 					len(udp.LayerPayload()))
 			}
 			if udp.SrcPort != 5060 && udp.DstPort != 5060 {
-				if cfg.verbose {
+				if cfg.Verbose {
 					fmt.Printf("ignoring...\n\n")
 				}
 				continue
@@ -1071,7 +1125,7 @@ func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay boo
 			dport = int(udp.DstPort)
 		case layers.LayerTypeTCP:
 			stats.tcpN++
-			if cfg.verbose {
+			if cfg.Verbose {
 				tcp, _ := tl.(*layers.TCP)
 				fmt.Printf("%d. %s:%d -> %s:%d TCP	payload len: %d\n",
 					n, nlsrc, tcp.SrcPort, nldst, tcp.DstPort,
@@ -1081,7 +1135,7 @@ func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay boo
 			continue
 		default:
 			stats.otherN++
-			if cfg.verbose {
+			if cfg.Verbose {
 				fmt.Printf("unknown, unsupported\n")
 				fmt.Printf("%d. %s:%s -> %s:%s %s(?)	len: %d %d\n",
 					n, nlsrc, tlsrc, nldst, tldst, tl.LayerType(),
@@ -1096,9 +1150,9 @@ func processPacketsSlow(packetSrc *gopacket.PacketSource, cfg *mycfg, replay boo
 		stats.seen++
 		var buf []byte = tl.LayerPayload()
 		processSIPMsg(os.Stdout, buf, n, nlsrc.String(), sport,
-			nldst.String(), dport, cfg.verbose)
-		if replay && cfg.replayMinDelay > 0 {
-			time.Sleep(time.Duration(cfg.replayMinDelay) / time.Millisecond)
+			nldst.String(), dport, cfg.Verbose)
+		if replay && cfg.ReplayMinDelay > 0 {
+			time.Sleep(time.Duration(cfg.ReplayMinDelay) / time.Millisecond)
 		}
 	}
 }

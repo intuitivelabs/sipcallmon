@@ -21,6 +21,7 @@ type Config struct {
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
 	TCPReorderTo   time.Duration `config:"tcp_reorder_timeout"`
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
+	EvBufferSz     int           `config:"event_buffer_size"`
 }
 
 var DefaultConfig = Config{
@@ -29,6 +30,7 @@ var DefaultConfig = Config{
 	TCPGcInt:       30 * time.Second,
 	TCPReorderTo:   60 * time.Second,
 	TCPConnTo:      3600 * time.Second,
+	EvBufferSz:     10240,
 }
 
 // FromOsArgs intializes and returns a config from cmd line args and
@@ -61,12 +63,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"tcp reorder timeout")
 	tcpConnToS := flag.String("tcp_connection_timeout", c.TCPConnTo.String(),
 		"tcp connection timeout")
+	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
+		"how many events will be buffered")
 
 	flag.Parse()
-	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
-		err := fmt.Errorf("at least one pcap file or a bpf expression required")
-		return cfg, err
-	}
 	// fix cmd line params
 	{
 		var perr error
@@ -108,4 +108,11 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func CfgCheck(cfg *Config) error {
+	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
+		return fmt.Errorf("at least one pcap file or a bpf expression required")
+	}
+	return nil
 }

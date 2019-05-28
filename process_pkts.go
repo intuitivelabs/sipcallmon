@@ -49,6 +49,8 @@ func processLive(iface, bpf string, cfg *Config) {
 	if timeout <= 0 {
 		timeout = pcap.BlockForever
 	}
+
+	fmt.Printf("DEBUG: pcap.OpenLive(%s, 65535, true, %d (%s)\n", iface, timeout, timeout)
 	if h, err = pcap.OpenLive(iface, 65535, true, timeout); err != nil {
 		fmt.Fprintf(os.Stderr,
 			"error: processLive: failed opening %q: %s\n", iface, err)
@@ -157,7 +159,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	tcpGCRun := time.Now().Add(cfg.TCPGcInt)
 	var last time.Time
 nextpkt:
-	for {
+	for !stopProcessing {
 		now := time.Now()
 		if cfg.TCPGcInt > 0 && now.After(tcpGCRun) {
 			tcpGCRun = now.Add(cfg.TCPGcInt)
@@ -457,7 +459,7 @@ var evCnt int64
 func evHandler(ed *calltr.EventData) {
 	evCnt++
 	//fmt.Printf("Event %d: %s\n", evCnt, ed.String())
-	if !eventsRing.Add(ed) {
+	if !EventsRing.Add(ed) {
 		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",
 			evCnt, ed.String())
 	}

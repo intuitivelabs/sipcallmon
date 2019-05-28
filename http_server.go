@@ -374,7 +374,7 @@ func httpEventsList(w http.ResponseWriter, r *http.Request) {
 		" match %s against %q regexp %v):\n",
 		s, n, opName, tst, isRe)
 	fmt.Fprintf(w, "Total Generated: %6d	Max. Buffered: %6d\n\n",
-		eventsRing.idx, len(eventsRing.events))
+		EventsRing.idx, len(EventsRing.events))
 
 	var printed int
 	ItEvents := func(idx, crt int, ed *calltr.EventData) bool {
@@ -388,7 +388,7 @@ func httpEventsList(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 
-	eventsRing.Iterate(ItEvents)
+	EventsRing.Iterate(ItEvents)
 }
 
 func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
@@ -405,9 +405,9 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if set {
-			eventsRing.Ignore(e)
+			EventsRing.Ignore(e)
 		} else if ok {
-			eventsRing.UnIgnore(e)
+			EventsRing.UnIgnore(e)
 		}
 	}
 	param, reset := r.URL.Query()["reset"]
@@ -420,10 +420,10 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if reset {
-			eventsRing.ResetBlst()
+			EventsRing.ResetBlst()
 		}
 	}
-	htmlQueryEvBlst(w, eventsRing.evBlst)
+	htmlQueryEvBlst(w, EventsRing.evBlst)
 }
 
 func unescapeMsg(msg string, format string) ([]byte, error) {

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"andrei/counters"
 	"andrei/sipsp"
 	"andrei/sipsp/calltr"
 )
@@ -30,6 +31,7 @@ var httpHandlers = [...]httpHandler{
 	{"/calls", "", httpCallStats},
 	{"/calls/list", "", httpCallList},
 	{"/calls/list/query", "", httpCallListQuery},
+	{"/counters", "", httpPrintCounters},
 	{"/debug/pprof", "", nil},
 	{"/events", "", httpEventsList},
 	{"/events/blst", "", httpEventsBlst},
@@ -37,6 +39,7 @@ var httpHandlers = [...]httpHandler{
 	{"/inject", "", httpInjectMsg},
 	{"/stats", "", httpPrintStats},
 	{"/stats/raw", "", httpPrintStats},
+	{"/stats/rate", "", httpPrintStatsRate},
 }
 
 func HTTPServerRun(laddr string, port int, wg *sync.WaitGroup) error {
@@ -104,14 +107,50 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 	*/
 	//fmt.Fprintf(w, "[%s]\n", html.EscapeString(r.URL.Path))
 	if r.URL.Path == "/stats/raw" {
-		printStatsRaw(w)
+		printStatsRaw(w, &stats)
 	} else {
 		fmt.Fprintf(w, "uptime: %s\n", time.Now().Sub(StartTS))
-		printStats(w)
+		printStats(w, &stats)
 	}
 	/*
 		fmt.Fprintf(w, "</body>\n")
 	*/
+}
+
+func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
+	var s *pstats
+	var update time.Duration
+	delta := time.Second
+
+	paramDelta := r.URL.Query()["d"]
+	if len(paramDelta) > 0 && len(paramDelta[0]) > 0 {
+		if d, err := time.ParseDuration(paramDelta[0]); err == nil {
+			delta = d
+		} else {
+			fmt.Fprintf(w, "ERROR: invalid delta/interval d=%q (%s)\n",
+				paramDelta, err)
+			return
+		}
+	}
+	now := time.Now()
+	for _, v := range statsRate[:] {
+		if v.Delta == delta {
+			if !v.updated.IsZero() && now.Add(-v.Delta).After(v.updated) {
+				s = &v.rate
+				if !v.updated.IsZero() {
+					update = now.Sub(v.updated)
+				}
+			} else {
+				s = &stats
+			}
+			break
+		}
+	}
+	fmt.Fprintf(w, "Rate: per %v (last update: %s ago)	Uptime: %s\n",
+		delta, update, time.Now().Sub(StartTS))
+	if s != nil {
+		printStats(w, s)
+	}
 }
 
 func httpCallStats(w http.ResponseWriter, r *http.Request) {
@@ -301,7 +340,7 @@ func httpEventsQuery(w http.ResponseWriter, r *http.Request) {
 
 func httpEventsList(w http.ResponseWriter, r *http.Request) {
 	n := 100 // default
-	s := 0
+	s := EvRingIdx(0)
 	tst := ""
 	opName := ""
 	operand := EvFilterNone
@@ -345,7 +384,7 @@ func httpEventsList(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(paramS) > 0 && len(paramS[0]) > 0 {
 		if i, err := strconv.Atoi(paramS[0]); err == nil {
-			s = i
+			s = EvRingIdx(i)
 		} else {
 			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
 		}
@@ -375,20 +414,28 @@ func httpEventsList(w http.ResponseWriter, r *http.Request) {
 		s, n, opName, tst, isRe)
 	fmt.Fprintf(w, "Total Generated: %6d	Max. Buffered: %6d\n\n",
 		EventsRing.idx, len(EventsRing.events))
+	// callback arg struct: I don't like closures
+	type itParams struct {
+		op      EvFilterOp
+		substr  []byte
+		re      *regexp.Regexp
+		printed int
+	}
+	ItArg := itParams{operand, substr, re, 0}
 
-	var printed int
-	ItEvents := func(idx, crt int, ed *calltr.EventData) bool {
-		if idx >= s && matchEvent(ed, operand, substr, re) {
-			fmt.Fprintf(w, "%5d (%5d). %s\n\n", crt, idx, ed.String())
-			printed++
-			if printed >= n {
+	ItEvents := func(idx, rel EvRingIdx, ed *calltr.EventData, a interface{}) bool {
+		p := a.(*itParams)
+		if /*idx >= s && */ matchEvent(ed, p.op, p.substr, p.re) {
+			fmt.Fprintf(w, "%5d (%5d). %s\n\n", idx, rel, ed.String())
+			p.printed++
+			if p.printed >= n {
 				return false
 			}
 		}
 		return true
 	}
 
-	EventsRing.Iterate(ItEvents)
+	EventsRing.Iterate(s, ItEvents, &ItArg)
 }
 
 func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
@@ -424,6 +471,13 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	htmlQueryEvBlst(w, EventsRing.evBlst)
+}
+
+func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "uptime: %s\n\n", time.Now().Sub(StartTS))
+	flags := counters.PrFullName | counters.PrVal | counters.PrDesc
+	counters.RootGrp.Print(w, "", flags)
+	counters.RootGrp.PrintSubGroups(w, flags)
 }
 
 func unescapeMsg(msg string, format string) ([]byte, error) {

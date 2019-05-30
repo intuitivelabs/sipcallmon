@@ -38,6 +38,10 @@ var httpInitHandlers = [...]httpHandler{
 	{"/events/query", "", httpEventsQuery},
 	{"/inject", "", httpInjectMsg},
 	{"/stats", "", httpPrintStats},
+	{"/stats/avg", "", httpPrintStatsAvg},
+	{"/stats/avg?d=10s", "/stats/avg 10s", httpPrintStatsAvg},
+	{"/stats/avg?d=1m", "/stats/avg 1min", httpPrintStatsAvg},
+	{"/stats/avg?d=1h", "/stats/avg 1h", httpPrintStatsAvg},
 	{"/stats/raw", "", httpPrintStats},
 	{"/stats/rate", "", httpPrintStatsRate},
 }
@@ -144,12 +148,17 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := time.Now()
+	var tmp pstats
 	for _, v := range statsRate[:] {
 		if v.Delta == delta {
-			if !v.updated.IsZero() && now.Add(-v.Delta).After(v.updated) {
-				s = &v.rate
-				if !v.updated.IsZero() {
+			if !v.updated.IsZero() {
+				if now.Add(-v.Delta).Before(v.updated) {
+					s = &v.rate
 					update = now.Sub(v.updated)
+				} else {
+					statsComputeRate(&tmp, &stats, &v.s0,
+						now.Sub(v.t0), v.Delta)
+					s = &tmp
 				}
 			} else {
 				s = &stats
@@ -162,6 +171,26 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 	if s != nil {
 		printStats(w, s)
 	}
+}
+
+func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
+	delta := time.Second
+
+	paramDelta := r.URL.Query()["d"]
+	if len(paramDelta) > 0 && len(paramDelta[0]) > 0 {
+		if d, err := time.ParseDuration(paramDelta[0]); err == nil {
+			delta = d
+		} else {
+			fmt.Fprintf(w, "ERROR: invalid delta/interval d=%q (%s)\n",
+				paramDelta, err)
+			return
+		}
+	}
+	now := time.Now()
+	var dst, zero pstats
+	statsComputeRate(&dst, &stats, &zero, now.Sub(StartTS), delta)
+	fmt.Fprintf(w, "Avg: per %v	Uptime: %s\n", delta, time.Now().Sub(StartTS))
+	printStats(w, &dst)
 }
 
 func httpCallStats(w http.ResponseWriter, r *http.Request) {

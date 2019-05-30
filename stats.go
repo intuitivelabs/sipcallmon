@@ -89,12 +89,19 @@ var statsRate = [...]recStats{
 
 func statsRecRate(ts time.Time, crt *pstats, sr []recStats) {
 	for i := 0; i < len(sr); i++ {
-		if ts.Add(-sr[i].Delta).After(sr[i].t0) {
-			statsComputeRate(&sr[i].rate, &stats, &sr[i].s0,
-				ts.Sub(sr[i].t0), sr[i].Delta)
-			sr[i].updated = ts
-			sr[i].s0 = *crt
+		if !sr[i].t0.IsZero() { // if init
+			if ts.Add(-sr[i].Delta).After(sr[i].t0) {
+				// update only if at least Delta passed since last update
+				statsComputeRate(&sr[i].rate, &stats, &sr[i].s0,
+					ts.Sub(sr[i].t0), sr[i].Delta)
+				sr[i].updated = ts
+				sr[i].s0 = *crt
+				sr[i].t0 = ts
+			}
+		} else {
+			// set initial values
 			sr[i].t0 = ts
+			sr[i].s0 = *crt
 		}
 	}
 }
@@ -105,11 +112,11 @@ func chgRate(dst, crt, old []uint64, delta, interval time.Duration) {
 	if len(dst) != len(crt) || len(crt) != len(old) {
 		return
 	}
+	if interval != 0 {
+		delta = delta / interval
+	}
 	for i := 0; i < len(dst); i++ {
 		v := crt[i] - old[i]
-		if interval != 0 {
-			delta = delta / interval
-		}
 		if delta != 0 {
 			v = v / uint64(delta)
 		}

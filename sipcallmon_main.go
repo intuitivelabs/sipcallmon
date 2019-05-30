@@ -59,8 +59,7 @@ func Run(cfg *Config) {
 		processLive(cfg.Iface, cfg.BPF, cfg)
 	}
 	// print stats
-	printStats(os.Stdout)
-	//printStatsRaw(os.Stdout)
+	printStats(os.Stdout, &stats)
 	if cfg.RunForever && waitgrp != nil {
 		waitgrp.Wait()
 	}

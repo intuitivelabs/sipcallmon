@@ -46,11 +46,13 @@ func processLive(iface, bpf string, cfg *Config) {
 	// TODO: option for snap len
 	// wait forever: pcap.BlockForever
 	timeout := cfg.TCPGcInt
+	if timeout > cfg.MaxBlockedTo && cfg.MaxBlockedTo > 0 {
+		timeout = cfg.MaxBlockedTo
+	}
 	if timeout <= 0 {
 		timeout = pcap.BlockForever
 	}
 
-	fmt.Printf("DEBUG: pcap.OpenLive(%s, 65535, true, %d (%s)\n", iface, timeout, timeout)
 	if h, err = pcap.OpenLive(iface, 65535, true, timeout); err != nil {
 		fmt.Fprintf(os.Stderr,
 			"error: processLive: failed opening %q: %s\n", iface, err)
@@ -157,6 +159,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	tcpAssembler.MaxBufferedPagesPerConnection = 256
 
 	tcpGCRun := time.Now().Add(cfg.TCPGcInt)
+	statsUpd := time.Now().Add(5 * time.Second)
 	var last time.Time
 nextpkt:
 	for !stopProcessing {
@@ -179,6 +182,10 @@ nextpkt:
 			stats.tcpStreamTo += uint64(closed)
 
 		}
+		if now.After(statsUpd) {
+			statsUpd = now.Add(5 * time.Second)
+			statsRecRate(now, &stats, statsRate[:])
+		}
 		buf, ci, err := h.ZeroCopyReadPacketData()
 		if err != nil {
 			switch err {
@@ -187,7 +194,6 @@ nextpkt:
 			case pcap.NextErrorTimeoutExpired:
 				// garbage collection timeout (handled above)
 				// do nothing, skip loop
-				DBG("pcap timeout, buf =%p time %s\n", buf, now)
 				if buf == nil || len(buf) == 0 {
 					continue nextpkt
 				}
@@ -241,7 +247,7 @@ nextpkt:
 			case layers.LayerTypeUDP:
 				tl = &udp
 				sport = int(udp.SrcPort)
-				sport = int(udp.DstPort)
+				dport = int(udp.DstPort)
 				stats.udpN++
 				if ipl == &ip4 {
 					stats.udp4++
@@ -303,7 +309,7 @@ nextpkt:
 			case layers.LayerTypeSCTP:
 				tl = &sctp
 				sport = int(sctp.SrcPort)
-				sport = int(sctp.DstPort)
+				dport = int(sctp.DstPort)
 				stats.sctpN++
 				if ipl == &ip4 {
 					stats.sctp4++

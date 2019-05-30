@@ -30,6 +30,6 @@ func main() {
 		fmt.Printf("config  error %s\n", err)
 		os.Exit(-1)
 	}
-	sipcallmon.EventsRing.Init(10240)
+	sipcallmon.EventsRing.Init(cfg.EvBufferSz)
 	sipcallmon.Run(&cfg)
 }

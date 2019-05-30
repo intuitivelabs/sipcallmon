@@ -3,8 +3,10 @@ package sipcallmon
 import (
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"time"
+	"unsafe"
 
 	"andrei/sipsp"
 )
@@ -70,7 +72,71 @@ type pstats struct {
 
 var stats pstats
 
-func printStats(w io.Writer) {
+type recStats struct {
+	Delta   time.Duration
+	t0      time.Time
+	updated time.Time
+	s0      pstats
+	rate    pstats
+}
+
+var statsRate = [...]recStats{
+	{Delta: 1 * time.Second},
+	{Delta: 10 * time.Second},
+	{Delta: 1 * time.Minute},
+	{Delta: 1 * time.Hour},
+}
+
+func statsRecRate(ts time.Time, crt *pstats, sr []recStats) {
+	for i := 0; i < len(sr); i++ {
+		if ts.Add(-sr[i].Delta).After(sr[i].t0) {
+			statsComputeRate(&sr[i].rate, &stats, &sr[i].s0,
+				ts.Sub(sr[i].t0), sr[i].Delta)
+			sr[i].updated = ts
+			sr[i].s0 = *crt
+			sr[i].t0 = ts
+		}
+	}
+}
+
+// dst, crt and old must have the same size
+func chgRate(dst, crt, old []uint64, delta, interval time.Duration) {
+
+	if len(dst) != len(crt) || len(crt) != len(old) {
+		return
+	}
+	for i := 0; i < len(dst); i++ {
+		v := crt[i] - old[i]
+		if interval != 0 {
+			delta = delta / interval
+		}
+		if delta != 0 {
+			v = v / uint64(delta)
+		}
+		dst[i] = v
+	}
+}
+
+func statsComputeRate(dst, crt, old *pstats, delta, interval time.Duration) {
+	// hack
+	var d, c, o []uint64
+
+	dh := (*reflect.SliceHeader)(unsafe.Pointer(&d))
+	dh.Data = uintptr(unsafe.Pointer(dst))
+	dh.Len = int(unsafe.Sizeof(*dst) / unsafe.Sizeof(dst.n))
+	dh.Cap = dh.Len
+	ch := (*reflect.SliceHeader)(unsafe.Pointer(&c))
+	ch.Data = uintptr(unsafe.Pointer(crt))
+	ch.Len = int(unsafe.Sizeof(*crt) / unsafe.Sizeof(crt.n))
+	ch.Cap = ch.Len
+	oh := (*reflect.SliceHeader)(unsafe.Pointer(&o))
+	oh.Data = uintptr(unsafe.Pointer(old))
+	oh.Len = int(unsafe.Sizeof(*old) / unsafe.Sizeof(old.n))
+	oh.Cap = oh.Len
+	chgRate(d, c, o, delta, interval)
+}
+
+func printStats(w io.Writer, stats *pstats) {
 	fmt.Fprintf(w, "\n\nStatistics:\n")
 	fmt.Fprintf(w, "%9d packets %9d ipv4 %9d ipv6 %9d other %9d inj.\n",
 		stats.n, stats.ip4, stats.ip6, stats.otherN, stats.injected)
@@ -127,7 +193,7 @@ func printStats(w io.Writer) {
 	fmt.Fprintln(w)
 }
 
-func printStatsRaw(w io.Writer) {
+func printStatsRaw(w io.Writer, stats *pstats) {
 	fmt.Fprintf(w, "%s\n",
-		strings.Replace(fmt.Sprintf("%+v", stats), " ", "\n", -1))
+		strings.Replace(fmt.Sprintf("%+v", *stats), " ", "\n", -1))
 }

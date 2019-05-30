@@ -21,6 +21,7 @@ type Config struct {
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
 	TCPReorderTo   time.Duration `config:"tcp_reorder_timeout"`
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
+	MaxBlockedTo   time.Duration `config:"max_blocked_timeout"`
 	EvBufferSz     int           `config:"event_buffer_size"`
 }
 
@@ -30,6 +31,7 @@ var DefaultConfig = Config{
 	TCPGcInt:       30 * time.Second,
 	TCPReorderTo:   60 * time.Second,
 	TCPConnTo:      3600 * time.Second,
+	MaxBlockedTo:   10 * time.Second,
 	EvBufferSz:     10240,
 }
 
@@ -63,6 +65,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"tcp reorder timeout")
 	tcpConnToS := flag.String("tcp_connection_timeout", c.TCPConnTo.String(),
 		"tcp connection timeout")
+	maxBlockedToS := flag.String("max_blocked_timeout",
+		c.MaxBlockedTo.String(),
+		"maximum blocked timeout")
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
 
@@ -103,6 +108,13 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		if perr != nil {
 			e := fmt.Errorf("invalid tcp gc interval: %s: %v",
 				*tcpConnToS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.MaxBlockedTo, perr = time.ParseDuration(*maxBlockedToS)
+		if perr != nil {
+			e := fmt.Errorf("invalid maximum blocked timeout: %s: %v",
+				*maxBlockedToS, perr)
 			errs++
 			return cfg, e
 		}

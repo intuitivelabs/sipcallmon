@@ -25,7 +25,7 @@ type httpHandler struct {
 	hF   func(w http.ResponseWriter, r *http.Request)
 }
 
-var httpHandlers = [...]httpHandler{
+var httpInitHandlers = [...]httpHandler{
 	{"/about", "", httpPrintVer},
 	{"/about/config", "", httpPrintConfig},
 	{"/calls", "", httpCallStats},
@@ -40,6 +40,17 @@ var httpHandlers = [...]httpHandler{
 	{"/stats", "", httpPrintStats},
 	{"/stats/raw", "", httpPrintStats},
 	{"/stats/rate", "", httpPrintStatsRate},
+}
+
+var httpHandlers []httpHandler = httpInitHandlers[:]
+
+func init() {
+	for _, sr := range statsRate[:] {
+		httpHandlers = append(httpHandlers,
+			httpHandler{"/stats/rate?d=" + sr.Delta.String(),
+				"/stats/rate " + sr.Delta.String(), nil})
+
+	}
 }
 
 func HTTPServerRun(laddr string, port int, wg *sync.WaitGroup) error {

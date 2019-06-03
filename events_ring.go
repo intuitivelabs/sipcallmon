@@ -3,7 +3,6 @@ package sipcallmon
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strconv"
@@ -58,28 +57,30 @@ var evRingNo int32
 
 var cntEvSigs counters.Handle
 var cntEvSigsSkipped counters.Handle
+var cntEvSigsSkippedMax counters.Handle
 var cntEvSkipRdOnly counters.Handle
+var cntEvSkipRdOnlyMax counters.Handle
 var cntEvFail counters.Handle
-var cntEvFailBusy counters.Handle
+var cntEvFailAllRdBusy counters.Handle
+var cntEvFailAllWrBusy counters.Handle
 var cntEvBlst counters.Handle
 var cntEvQueued counters.Handle
 var cntEvReadOnly counters.Handle
+var cntEvReadOnly2 counters.Handle
 var cntEvGetOldIdx counters.Handle
 var cntEvGetInvEv counters.Handle
 var cntEvGetBusyEv counters.Handle
 var cntEvMaxParallel counters.Handle
 
 type EvRing struct {
-	lock     sync.Mutex
-	evBlst   calltr.EventFlags // blacklist for even types
-	idx      EvRingIdx
-	skipped  int32 // debugging
-	events   []calltr.EventData
-	state    []evState // marks in-use events
-	newEv    chan struct{}
-	stats    counters.Group
-	padds    uint32 // debugging: parallel adds
-	maxPadds uint32 // maximum parallel adds
+	lock    sync.Mutex
+	evBlst  calltr.EventFlags // blacklist for even types
+	idx     EvRingIdx
+	skipped int32 // debugging
+	events  []calltr.EventData
+	state   []evState // marks in-use events
+	newEv   chan struct{}
+	stats   counters.Group
 }
 
 func (er *EvRing) Ignore(events ...calltr.EventType) {
@@ -112,27 +113,39 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 				i, er.idx.Get(), start)
 			er.idx.inc()
 			er.stats.Inc(cntEvSkipRdOnly)
+			er.stats.Inc(cntEvSkipRdOnlyMax)
 			if er.idx.Get()-start > EvRingIdx(len(er.events)) {
 				fmt.Printf("DBG: addSafe: FAILURE busy %d idx %d start %d\n",
 					i, er.idx.Get(), start)
 				er.lock.Unlock()
-				er.stats.Inc(cntEvFailBusy)
+				er.stats.Inc(cntEvFailAllRdBusy)
 				return false // all busy
 			}
 			continue
+		} else {
+			er.stats.Set(cntEvSkipRdOnlyMax, 0)
 		}
 		break
 	}
-	prev_busy := er.state[i].busy //dbg
+	prev_busy := er.state[i].busy
+	if prev_busy {
+		// it can happen even if we always increment the counter, if
+		// the number of parallel writers + readers >  len(er_event)
+		// => give-up, or do the copy under the same lock
+		// (but still in the case of a parallel writer the with the
+		//  same modulo idx, the entry will be immediately overwritten,
+		// the ring size is just to small)
+		er.lock.Unlock()
+		er.stats.Inc(cntEvFailAllWrBusy)
+		return false
+	}
 	er.state[i].busy = true
 	er.idx.inc() // claim entry
 	er.lock.Unlock()
-	if prev_busy {
-		log.Panicf("trying to write in a busy entry (%d state %+v): ...",
-			i, er.state[i])
-	}
+
 	er.events[i].Reset()
 	ret := er.events[i].Copy(ev)
+
 	er.lock.Lock()
 	er.state[i].valid = ret
 	er.state[i].busy = false
@@ -141,30 +154,18 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 }
 
 func (er *EvRing) Add(ev *calltr.EventData) bool {
+	er.stats.Inc(cntEvMaxParallel)
 	if er.evBlst.Test(ev.Type) {
 		er.stats.Inc(cntEvBlst)
+		er.stats.Dec(cntEvMaxParallel)
 		return true // no failure, we just ignore it
 	}
 	ret := er.addSafe(ev)
 	if !ret {
 		er.stats.Inc(cntEvFail)
+		er.stats.Dec(cntEvMaxParallel)
 		return ret
 	}
-	// debugging
-	pa := atomic.AddUint32(&er.padds, 1)
-	//debugging
-	var maxpa uint32
-	for {
-		maxpa = atomic.LoadUint32(&er.maxPadds)
-		if pa <= maxpa {
-			break
-		}
-		if atomic.CompareAndSwapUint32(&er.maxPadds, maxpa, pa) {
-			break
-		}
-	}
-	er.stats.Set(cntEvMaxParallel, counters.Val(maxpa))
-	// end of debugging
 
 	er.stats.Inc(cntEvQueued)
 	idx := er.idx.Get()
@@ -175,6 +176,7 @@ func (er *EvRing) Add(ev *calltr.EventData) bool {
 				fmt.Fprintf(os.Stderr, "WARNING: EvRing.Add recovered after"+
 					" skipping %d signals, idx %d\n", s, idx)
 			}
+			er.stats.Set(cntEvSigsSkippedMax, 0)
 			er.stats.Inc(cntEvSigs)
 		default:
 			if er.skipped == 0 {
@@ -184,9 +186,10 @@ func (er *EvRing) Add(ev *calltr.EventData) bool {
 			}
 			atomic.AddInt32(&er.skipped, 1)
 			er.stats.Inc(cntEvSigsSkipped)
+			er.stats.Inc(cntEvSigsSkippedMax)
 		}
 	}
-	atomic.AddUint32(&er.padds, ^uint32(1)+1) // debugging
+	er.stats.Dec(cntEvMaxParallel)
 	return ret
 }
 
@@ -227,6 +230,7 @@ func (ev *EvRing) Get(pos EvRingIdx) (ed *calltr.EventData, nxt EvRingIdx, err G
 		return nil, pos, ErrBusy
 	}
 	ev.state[i].readOnly++
+	ev.stats.Inc(cntEvReadOnly2)
 	if ev.state[i].readOnly == 1 {
 		ev.stats.Inc(cntEvReadOnly)
 	}
@@ -239,6 +243,7 @@ func (ev *EvRing) Put(pos EvRingIdx) {
 	ev.lock.Lock()
 	// TODO: atomic and no lock
 	ev.state[i].readOnly--
+	ev.stats.Dec(cntEvReadOnly2)
 	if ev.state[i].readOnly == 0 {
 		ev.stats.Dec(cntEvReadOnly)
 	}
@@ -362,17 +367,27 @@ func (ev *EvRing) Init(no int) {
 			"sent event signals"},
 		{&cntEvSigsSkipped, 0, nil, nil, "skipped_sigs",
 			"skipped signals, slow consumer"},
+		{&cntEvSigsSkippedMax, counters.CntMaxF | counters.CntHideVal,
+			nil, nil, "skipped_sigs_max",
+			"skipped signals, slow consumer"},
 		{&cntEvSkipRdOnly, 0, nil, nil, "skip_rdonly",
+			"skipped entries due to active reader"},
+		{&cntEvSkipRdOnlyMax, counters.CntMaxF | counters.CntHideVal,
+			nil, nil, "skip_rdonly_max",
 			"skipped entries due to active reader"},
 		{&cntEvFail, 0, nil, nil, "fail",
 			"failed add event operation - copy failed or all entries busy"},
-		{&cntEvFailBusy, 0, nil, nil, "all_busy",
-			"failed add event operation - all entries busy"},
+		{&cntEvFailAllRdBusy, 0, nil, nil, "rd_busy",
+			"failed add event operation - all entries are read-busy"},
+		{&cntEvFailAllWrBusy, 0, nil, nil, "wr_busy",
+			"failed add event operation - all entries are write-busy: event ring too small"},
 		{&cntEvBlst, 0, nil, nil, "blst",
 			"blacklisted events"},
 		{&cntEvQueued, 0, nil, nil, "queued",
 			"successfully queued/added events"},
-		{&cntEvReadOnly, 0, nil, nil, "read_only",
+		{&cntEvReadOnly, counters.CntMaxF, nil, nil, "read_only",
+			"number of temporary read_only entries"},
+		{&cntEvReadOnly2, counters.CntMaxF, nil, nil, "read_only2",
 			"number of temporary read_only entries"},
 		{&cntEvGetOldIdx, 0, nil, nil, "get_old_idx",
 			"Get called with a too old index(too slow)"},
@@ -380,8 +395,8 @@ func (ev *EvRing) Init(no int) {
 			"Get index points to an empty/invalid event"},
 		{&cntEvGetBusyEv, 0, nil, nil, "get_busy_ev",
 			"Get index points to a busy event (parallel write)"},
-		{&cntEvMaxParallel, 0, nil, nil, "max_parallel",
-			"maximum event adds that did run in parallel"},
+		{&cntEvMaxParallel, counters.CntMaxF, nil, nil, "parallel",
+			"adds that run in parallel (current and max value)"},
 	}
 	ev.stats.Init(fmt.Sprintf("ev_ring%d", ring_no), nil, len(cntDefs))
 	if !ev.stats.RegisterDefs(cntDefs[:]) {

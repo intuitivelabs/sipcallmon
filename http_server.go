@@ -515,7 +515,8 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 
 func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "uptime: %s\n\n", time.Now().Sub(StartTS))
-	flags := counters.PrFullName | counters.PrVal | counters.PrDesc
+	flags := counters.PrFullName | counters.PrVal | counters.PrDesc |
+		counters.PrRec
 	counters.RootGrp.Print(w, "", flags)
 	counters.RootGrp.PrintSubGroups(w, flags)
 }

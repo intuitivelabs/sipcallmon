@@ -72,6 +72,8 @@ var cntEvGetInvEv counters.Handle
 var cntEvGetBusyEv counters.Handle
 var cntEvMaxParallel counters.Handle
 
+var cntEvType [calltr.EvBad + 1]counters.Handle
+
 type EvRing struct {
 	lock    sync.Mutex
 	evBlst  calltr.EventFlags // blacklist for even types
@@ -80,7 +82,8 @@ type EvRing struct {
 	events  []calltr.EventData
 	state   []evState // marks in-use events
 	newEv   chan struct{}
-	stats   counters.Group
+	stats   counters.Group // general stats
+	evStats counters.Group // event type stats
 }
 
 func (er *EvRing) Ignore(events ...calltr.EventType) {
@@ -155,6 +158,7 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 
 func (er *EvRing) Add(ev *calltr.EventData) bool {
 	er.stats.Inc(cntEvMaxParallel)
+	er.evStats.Inc(cntEvType[int(ev.Type)])
 	if er.evBlst.Test(ev.Type) {
 		er.stats.Inc(cntEvBlst)
 		er.stats.Dec(cntEvMaxParallel)
@@ -401,6 +405,17 @@ func (ev *EvRing) Init(no int) {
 	ev.stats.Init(fmt.Sprintf("ev_ring%d", ring_no), nil, len(cntDefs))
 	if !ev.stats.RegisterDefs(cntDefs[:]) {
 		panic("failed to register ev ring counters")
+	}
+
+	s := len(cntEvType)
+	ev.evStats.Init("evtype", &ev.stats, s)
+	for i := 0; i < s; i++ {
+		_, ok := ev.evStats.RegisterDef(
+			&counters.Def{&cntEvType[i], 0, nil, nil,
+				calltr.EventType(i).String(), ""})
+		if !ok {
+			panic(fmt.Sprintf("failed to register counter %d", i))
+		}
 	}
 }
 

@@ -439,7 +439,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 			if err == 0 && int(sipmsg.Body.Len+sipmsg.Body.Offs) != len(buf) {
 				stats.bodyErr++
 				fmt.Fprintf(w, "clen: %d, actual body len %d, body end %d\n",
-					sipmsg.PV.CLen.Len, int(sipmsg.Body.Len),
+					sipmsg.PV.CLen.UIVal, int(sipmsg.Body.Len),
 					int(sipmsg.Body.Len+sipmsg.Body.Offs))
 				fmt.Fprintf(w, "body: %q\n", sipmsg.Body.Get(buf))
 			}

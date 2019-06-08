@@ -158,7 +158,7 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					// prepare for new message
 					s.mstart += o
 					s.offs = 0
-					s.skip = int(s.pmsg.PV.CLen.Len)
+					s.skip = int(s.pmsg.PV.CLen.UIVal)
 					s.state = SIPStreamSkipBytes
 					s.pmsg.Reset()
 				case sipsp.ErrHdrMoreBytes:

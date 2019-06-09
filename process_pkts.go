@@ -206,6 +206,28 @@ nextpkt:
 			}
 			continue nextpkt
 		}
+		if replay {
+			ts := ci.Timestamp
+			if !last.IsZero() {
+				wait := ts.Sub(last)
+				DBG("replay: wait %s\n", wait)
+				if cfg.ReplayScale > 0 {
+					wait = time.Duration(uint64(float64(wait) * cfg.ReplayScale))
+					DBG("replay: wait scaled to %s\n", wait)
+				}
+				if cfg.ReplayMinDelay > wait {
+					wait = cfg.ReplayMinDelay
+				}
+				if cfg.ReplayMaxDelay != 0 && wait > cfg.ReplayMaxDelay {
+					wait = cfg.ReplayMaxDelay
+				}
+				DBG("replay: final %s\n", wait)
+				if wait > 0 {
+					time.Sleep(wait)
+				}
+			}
+			last = ts
+		}
 		n++
 		stats.n++
 		err = parser.DecodeLayers(buf, &decodedLayers)
@@ -340,28 +362,6 @@ nextpkt:
 			stats.otherN++
 		}
 
-		if replay {
-			ts := ci.Timestamp
-			if !last.IsZero() {
-				wait := ts.Sub(last)
-				DBG("replay: wait %s\n", wait)
-				if cfg.ReplayScale > 0 {
-					wait = time.Duration(uint64(float64(wait) * cfg.ReplayScale))
-					DBG("replay: wait scaled to %s\n", wait)
-				}
-				if cfg.ReplayMinDelay > wait {
-					wait = cfg.ReplayMinDelay
-				}
-				if cfg.ReplayMaxDelay != 0 && wait > cfg.ReplayMaxDelay {
-					wait = cfg.ReplayMaxDelay
-				}
-				DBG("replay: final %s\n", wait)
-				if wait > 0 {
-					time.Sleep(wait)
-				}
-			}
-			last = ts
-		}
 	}
 	// close all tcp connections, needed especially for file-mode, when
 	// the pcap contains on-going tcp connections (w/o the initial SYNs).
@@ -378,6 +378,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 		fmt.Fprintf(w, "%q\n", buf)
 	}
 	var sipmsg sipsp.PSIPMsg
+	sipmsg.Init(nil, nil, nil)
 	o, err := sipsp.ParseSIPMsg(buf, 0, &sipmsg, sipsp.SIPMsgNoMoreDataF)
 	if verbose {
 		fmt.Fprintf(w, "after parsing => %d, %s\n", o, err)

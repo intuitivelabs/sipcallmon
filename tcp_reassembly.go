@@ -76,9 +76,11 @@ type SIPStreamData struct {
 
 func (s *SIPStreamData) Reset(o *SIPStreamOptions) {
 	buf := s.buf
+	pmsg := s.pmsg
 	var rst SIPStreamData
 	*s = rst
 	s.buf = buf
+	s.pmsg = pmsg
 	s.pmsg.Reset()
 	if o != nil {
 		s.SIPStreamOptions = *o
@@ -89,6 +91,7 @@ func (s *SIPStreamData) Reset(o *SIPStreamOptions) {
 
 func (s *SIPStreamData) Init(o *SIPStreamOptions, b []byte) {
 	s.Reset(o)
+	s.pmsg.Init(nil, nil, nil)
 	s.buf = b
 }
 

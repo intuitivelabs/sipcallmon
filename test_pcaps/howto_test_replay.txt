@@ -1,0 +1,71 @@
+PCAP Test Replay HOWTO
+
+1. Filter an existing pcap
+2. Test using a pcap file
+3. Test by pasting text packet into the web interface
+4. Test with sipcmbeat
+5. Gotchas
+
+
+
+1. Filter an existing pcap
+
+If you have an existing large pcap and you want to test only one call from it,
+ it can be quickly filtered using tshark and the resul written into
+another pcap, e.g.
+
+tshark  -r andrei.pcap  -Y 'udp contains 2FBCD2689' -w  test_reg_2FBCD268.pcap
+
+
+2. Test using a pcap file
+
+Fastest way is by running sipcm in non-replay mode (no -replay). Packets are
+ replayed  as fast as possible.
+Note: the event buffer should be large enough to save all the events you
+ might be interested in.
+Example:
+
+./sipcm -pcap andrei.pcap  -p 8081 -bpf "port 5060" -forever -event_buffer_size 100000 >/tmp/andrei.log
+
+In replay mode is possible to replay at the pcap speed (simply add only -replay) , speed things up (e.g. add -replay -delay_scale 0.1 for  a 10x speed-up)
+or slow things down (e.g. -replay -delay_scale 2 for a 2x slow-down).
+Independently of the -delay_scale factor, one can also limit the minimum and
+ maximum inter-packet delays using -min_delay and -max_delay
+  (e.g. -replay  -min_delay 10ms -max_delay 1m -delay_scale 0.5).
+
+
+3. Test by pasting text packet into the web interface
+
+In the case in which you have a ngrep txt dump or some SIP packet in pure
+ ASCII (e.g. from the RFC examples), you can feed them to sipcm using the
+  web interface: just point your browser to http://127.0.0.1:8081/inject
+  (assuming you started sipcm with -p 8081 on localhost).
+Paste the message in the corresponding field, click Submit and enjoy...
+NOTE: The form user POST, so if you want to use it from the command line you need curl in POST mode.
+
+4. Test with sipcmbeat
+
+sipcmbeat works in a similar way to sipcm, but it uses a config file.
+One can either set the corresponding options in the config file, or
+ ovewrite them with -E sipcmbeat.<option_name> (e.g.
+  -E sipcmbeat.event_buffer_size=1024 ). Note however that the options
+ must be "overwritten" after loading the config files, so all the -E ...
+  must come in the command line after  -c config_file.yml.
+E.g.:
+./sipcmbeat -c sipmcbeat_test.yml -E sipcmbeat.replay=true -E sipcmbeat.pcap="test.pcap" -E sipcmbeat.forever=true
+ 
+To overwrite the output, try -E output.logstash.enable=false -E output.file.enable=true -E output.file.path="/tmp" -E output.file.name="sipcm.log" -E output.file.pretty=true
+
+
+5. Gotchas
+
+Note that for INVITEs any in-dialog request will reset the dialog timeout
+(e.g. each in-dialog INFO in an established call will reset the timeout
+ to the default 3600s). This is intended behaviour (receiving the in-dialog
+ messages means the call is ok, we want to timeout only if no messages
+ were received during the timeout period => 3600s from the last in-dialog
+  message). This should works similarly for non-INVITE dialogs, if they
+   would have in-dialog requests (the timeout is however much smaller: 5s),
+ with the exceptions of the REGISTER. A REGISTER will always use the
+ corresp. Contact timeout from the REGISTER reply.
+ 

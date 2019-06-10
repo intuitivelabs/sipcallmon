@@ -24,6 +24,7 @@ func Stop() {
 	stopProcessing = true
 	if waitgrp != nil {
 		waitgrp.Add(-1)
+		waitgrp = nil
 	}
 }
 
@@ -60,7 +61,7 @@ func Run(cfg *Config) {
 	}
 	// print stats
 	printStats(os.Stdout, &stats)
-	if cfg.RunForever && waitgrp != nil {
+	if cfg.RunForever && !stopProcessing && waitgrp != nil {
 		waitgrp.Wait()
 	}
 }

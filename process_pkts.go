@@ -16,6 +16,12 @@ import (
 	"andrei/sipsp/calltr"
 )
 
+const (
+	TCPstartupReorderTimeout = time.Second      // initial reorder timeout
+	TCPstartupGCInt          = time.Second      // timeout for tcp in startup mode
+	TCPstartupInt            = 60 * time.Second // tcp in "learning quick timeout mode"
+)
+
 func processPCAP(fname string, cfg *Config) {
 	if fname == "" {
 		fmt.Fprintf(os.Stderr, "error: processPCAP: empty filename\n")
@@ -158,14 +164,21 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	tcpAssembler.MaxBufferedPagesTotal = 1024 * 25
 	tcpAssembler.MaxBufferedPagesPerConnection = 256
 
-	tcpGCRun := time.Now().Add(cfg.TCPGcInt)
+	tcpGCInt := TCPstartupGCInt
+	tcpGCRun := time.Now().Add(tcpGCInt)
 	statsUpd := time.Now().Add(5 * time.Second)
+	tcpStartupOver := time.Now().Add(TCPstartupInt)
+	tcpReorderTo := TCPstartupReorderTimeout // initial
 	var last time.Time
 nextpkt:
 	for !stopProcessing {
 		now := time.Now()
 		if cfg.TCPGcInt > 0 && now.After(tcpGCRun) {
-			tcpGCRun = now.Add(cfg.TCPGcInt)
+			if now.After(tcpStartupOver) {
+				tcpGCInt = cfg.TCPGcInt // revert to normal config option
+				tcpReorderTo = cfg.TCPReorderTo
+			}
+			tcpGCRun = now.Add(tcpGCInt)
 			flushed, closed := tcpAssembler.FlushWithOptions(
 				tcpassembly.FlushOptions{
 					T:        now.Add(-cfg.TCPConnTo),
@@ -175,12 +188,11 @@ nextpkt:
 			stats.tcpStreamTo += uint64(closed)
 			flushed, closed = tcpAssembler.FlushWithOptions(
 				tcpassembly.FlushOptions{
-					T:        now.Add(-cfg.TCPReorderTo),
+					T:        now.Add(-tcpReorderTo),
 					CloseAll: false,
 				})
 			stats.tcpExpReorder += uint64(flushed)
 			stats.tcpStreamTo += uint64(closed)
-
 		}
 		if now.After(statsUpd) {
 			statsUpd = now.Add(5 * time.Second)
@@ -320,7 +332,7 @@ nextpkt:
 					continue nextpkt
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
-				DBG("DBG: %q\n", tcp.Payload)
+				//DBG("DBG: %q\n", tcp.Payload)
 				// tcp reassembly
 				ts := ci.Timestamp
 				if replay {

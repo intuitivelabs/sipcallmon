@@ -23,6 +23,9 @@ type Config struct {
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
 	MaxBlockedTo   time.Duration `config:"max_blocked_timeout"`
 	EvBufferSz     int           `config:"event_buffer_size"`
+
+	// call tracing options
+	RegDelta uint `config:"reg_exp_delta"` // seconds
 }
 
 var DefaultConfig = Config{
@@ -31,8 +34,9 @@ var DefaultConfig = Config{
 	TCPGcInt:       30 * time.Second,
 	TCPReorderTo:   60 * time.Second,
 	TCPConnTo:      3600 * time.Second,
-	MaxBlockedTo:   10 * time.Second,
+	MaxBlockedTo:   1 * time.Second,
 	EvBufferSz:     10240,
+	RegDelta:       30, // seconds
 }
 
 // FromOsArgs intializes and returns a config from cmd line args and
@@ -70,6 +74,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"maximum blocked timeout")
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
+
+	flag.UintVar(&cfg.RegDelta, "reg_exp_delta", c.RegDelta,
+		"extra REGISTER expiration delta for absorbing delayed re-REGISTERs")
 
 	flag.Parse()
 	// fix cmd line params

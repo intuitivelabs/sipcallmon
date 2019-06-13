@@ -1,6 +1,7 @@
 package sipcallmon
 
 import (
+	"andrei/sipsp/calltr"
 	"fmt"
 	"os"
 	"strings"
@@ -8,12 +9,12 @@ import (
 	"time"
 )
 
-const version = "6.5"
+const version = "6.6"
 
 var RunningCfg *Config
 
 func DBG(f string, a ...interface{}) {
-	//fmt.Printf("DBG: "+f, a...)
+	//	fmt.Printf("DBG: "+f, a...)
 }
 
 // ugly temporary hack
@@ -32,6 +33,8 @@ func Run(cfg *Config) {
 
 	// save actual config for global ref.
 	RunningCfg = cfg
+	// forward config option to calltr
+	calltr.Cfg.RegDelta = uint32(cfg.RegDelta)
 
 	StartTS = time.Now()
 

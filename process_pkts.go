@@ -130,6 +130,20 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 		layerType = layers.LayerTypeEthernet
 	case layers.LinkTypeLinuxSLL:
 		layerType = layers.LayerTypeLinuxSLL
+	case 12, 14:
+		// LinkType 12 or 14 == RawIP
+		// see https://github.com/the-tcpdump-group/libpcap/blob/170f717e6e818cdc4bcbbfd906b63088eaa88fa0/pcap/dlt.h
+		// not supported yet by gopacket
+		// workarround: treat it the same as raw, direct IPv4
+		// (alhough it could contain direct IPv6 too)
+		// proper fix: create new LayerType with decodeIPv4or6 decoder
+		// see https://github.com/google/gopacket/blob/master/layers/layertypes.go
+		// and https://github.com/google/gopacket/blob/master/layers/enums.go#L96
+		fallthrough
+	case layers.LinkTypeRaw:
+		layerType = layers.LayerTypeIPv4
+		fmt.Printf("Raw LinkType %s => layerType IPV4 %s (raw layer %q)\n",
+			h.LinkType(), layerType, layers.LinkTypeRaw.LayerType())
 	case layers.LinkTypeLoop:
 		layerType = layers.LayerTypeLoopback
 	case layers.LinkTypeIPv4:
@@ -140,8 +154,9 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 		layerType = h.LinkType().LayerType()
 	}
 	if cfg.Verbose {
-		fmt.Printf("LinkType %s => layerType %s)\n", h.LinkType(),
-			layerType)
+		fmt.Printf("LinkType %s (%d)=> forced layerType %q (from %q)\n",
+			h.LinkType(), h.LinkType(),
+			layerType, h.LinkType().LayerType())
 	}
 	parser := gopacket.NewDecodingLayerParser(layerType,
 		&lo, &eth, &ethllc, &dot1q,

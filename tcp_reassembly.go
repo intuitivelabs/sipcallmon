@@ -111,6 +111,9 @@ func (s *SIPStreamData) Process(data []byte) bool {
 		var err sipsp.ErrorHdr
 		var o int
 		var dbgl int
+		if s.Verbose {
+			fmt.Fprintf(s.W, "Process %p pre-loop: state %s, mstart %d, bused %d, skip %d, copied %d bytes\n", s, s.state, s.mstart, s.bused, s.skip, l)
+		}
 		for err == 0 && s.mstart < s.bused {
 			if s.Verbose {
 				fmt.Fprintf(s.W, "Process %p loop %d: state %s, mstart %d, bused %d, skip %d\n", s, dbgl, s.state, s.mstart, s.bused, s.skip)
@@ -274,6 +277,13 @@ func (s *SIPStreamData) SkippedBytes(n int) bool {
 				s.state = SIPStreamSkipCRLF
 			}
 			return true
+		} else {
+			// try re-covering
+			// for now just return ok, if something is wrong
+			// we'll get a parsing error later, Process will return false
+			// and the stream will be marked as invalud
+			s.skip = 0
+			return true
 		}
 	case SIPStreamInit:
 		return true // allow skipped packets at the beginning
@@ -301,9 +311,9 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		stats.tcpIgn++
 		return
 	}
-	for _, seg := range bufs {
-		if s.Verbose && len(seg.Bytes) > 0 {
-			fmt.Fprintf(s.W, "%p Reassembled: buf %q\n", s, seg.Bytes)
+	for i, seg := range bufs {
+		if s.Verbose /*&& len(seg.Bytes) > 0*/ {
+			fmt.Fprintf(s.W, "%p Reassembled: buf[%d] %q state %d\n", s, i, seg.Bytes, s.state)
 		}
 		s.syn = s.syn || seg.Start
 		s.fin = s.fin || seg.End
@@ -335,6 +345,10 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 				s.ignore = true
 				// TODO: free what's possible
 				s.buf = nil
+				if s.Verbose {
+					fmt.Fprintf(s.W, "%p %s:%d -> %s:%d skipped bytes ->DROP CONN %d\n",
+						s, s.srcIP, s.sport, s.dstIP, s.dport, seg.Skip)
+				}
 				break // error - out of sync - ignore stream
 			}
 			stats.tcpRecovered++
@@ -343,6 +357,10 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 			s.ignore = true
 			// TODO: free what's possible
 			s.buf = nil
+			if s.Verbose {
+				fmt.Fprintf(s.W, "%p %s:%d -> %s:%d Process failed for buf %d\n",
+					s, s.srcIP, s.sport, s.dstIP, s.dport, i)
+			}
 			break
 		}
 	}

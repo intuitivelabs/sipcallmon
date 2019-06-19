@@ -57,6 +57,7 @@ type SIPStreamData struct {
 	created time.Time
 	rcvd    uint64
 	segs    uint64
+	oo      uint64 // out of order, dbg
 
 	pmsg   sipsp.PSIPMsg  // message parsing state
 	offs   int            // current offset/parsing point in buf[mstart:]
@@ -304,8 +305,8 @@ func (s *SIPStreamData) SkippedBytes(n int) bool {
 func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 
 	if s.Verbose {
-		fmt.Fprintf(s.W, "%p %s:%d -> %s:%d Reassembled %d bufs\n",
-			s, s.srcIP, s.sport, s.dstIP, s.dport, len(bufs))
+		fmt.Fprintf(s.W, "%p %s:%d -> %s:%d Reassembled %d bufs, ignore %v\n",
+			s, s.srcIP, s.sport, s.dstIP, s.dport, len(bufs), s.ignore)
 	}
 	if s.ignore {
 		stats.tcpIgn++
@@ -329,6 +330,14 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		stats.tcpRcvd += uint64(len(seg.Bytes))
 		if s.lastRcv.After(seg.Seen) && s.segs > 1 {
 			stats.tcpOutOfOrder++
+			// FIXME DBG:
+			//if s.Verbose {
+			s.oo++ // dbg
+			fmt.Fprintf(s.W, "%p %s:%d -> %s:%d %d OO Reassembled, "+
+				" after %v (%v ago)\n",
+				s, s.srcIP, s.sport, s.dstIP, s.dport, s.oo,
+				s.lastRcv.Sub(seg.Seen), time.Now().Sub(seg.Seen))
+			//}
 		} else {
 			s.lastRcv = seg.Seen
 		}

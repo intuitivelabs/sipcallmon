@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/gopacket"
@@ -491,11 +492,11 @@ var evCnt int64
 
 // per event callback
 func evHandler(ed *calltr.EventData) {
-	evCnt++
+	atomic.AddInt64(&evCnt, 1)
 	//fmt.Printf("Event %d: %s\n", evCnt, ed.String())
 	if !EventsRing.Add(ed) {
 		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",
-			evCnt, ed.String())
+			atomic.LoadInt64(&evCnt), ed.String())
 	}
 }
 

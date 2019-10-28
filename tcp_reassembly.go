@@ -334,9 +334,10 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 			//if s.Verbose {
 			s.oo++ // dbg
 			fmt.Fprintf(s.W, "%p %s:%d -> %s:%d %d OO Reassembled, "+
-				" after %v (%v ago)\n",
+				" after %v (%v ago), lastRcvd %v ago, created %v ago\n",
 				s, s.srcIP, s.sport, s.dstIP, s.dport, s.oo,
-				s.lastRcv.Sub(seg.Seen), time.Now().Sub(seg.Seen))
+				s.lastRcv.Sub(seg.Seen), time.Now().Sub(seg.Seen),
+				time.Now().Sub(s.lastRcv), time.Now().Sub(s.created))
 			//}
 		} else {
 			s.lastRcv = seg.Seen

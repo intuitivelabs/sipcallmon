@@ -236,10 +236,24 @@ func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 			}
 		}
 	}
+	fmt.Fprintf(w, "\nPools Stats:\n")
+	var tHits, tMiss uint64
+	for i := 0; i < len(ms.PoolHits); i++ {
+		h := atomic.LoadUint64((*uint64)(&ms.PoolHits[i]))
+		m := atomic.LoadUint64((*uint64)(&ms.PoolMiss[i]))
+		tHits += h
+		tMiss += m
+		if h != 0 || m != 0 {
+			fmt.Fprintf(w, "	%9d / %9d pool hits/miss (%3d%% / %3d%%)"+
+				" size: %6d\n",
+				h, m, h*100/(h+m), m*100/(h+m),
 				(i+1)*calltr.AllocRoundTo)
 		}
 	}
-	//fmt.Fprintf(w, "Memory Stats: %+v\n", calltr.CallEntryAllocStats)
+	if (tHits + tMiss) > 0 {
+		fmt.Fprintf(w, "\nPools Total: %9d / %9d hits/miss (%3d%% / %3d%%)\n",
+			tHits, tMiss, tHits*100/(tHits+tMiss), tMiss*100/(tHits+tMiss))
+	}
 }
 
 var htmlCallFilterParams = map[string]int{

@@ -37,6 +37,9 @@ var httpInitHandlers = [...]httpHandler{
 	{"/events/blst", "", httpEventsBlst},
 	{"/events/query", "", httpEventsQuery},
 	{"/inject", "", httpInjectMsg},
+	{"/regs", "", httpRegStats},
+	{"/regs/list", "", httpRegBindingsList},
+	{"/regs/list/query", "", httpRegBindingsListQuery},
 	{"/stats", "", httpPrintStats},
 	{"/stats/avg", "", httpPrintStatsAvg},
 	{"/stats/avg?d=10s", "/stats/avg 10s", httpPrintStatsAvg},
@@ -195,8 +198,19 @@ func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
 
 func httpCallStats(w http.ResponseWriter, r *http.Request) {
 	var stats calltr.HStats
-	calltr.StatsHash(&stats)
+	calltr.CallEntriesStatsHash(&stats)
 	fmt.Fprintf(w, "CallTracking Hash Stats: %+v\n", stats)
+	memStats(w, r, &calltr.CallEntryAllocStats)
+}
+
+func httpRegStats(w http.ResponseWriter, r *http.Request) {
+	var stats calltr.HStats
+	calltr.RegEntriesStatsHash(&stats)
+	fmt.Fprintf(w, "Reg Bindings Hash Stats: %+v\n", stats)
+	memStats(w, r, &calltr.RegEntryAllocStats)
+}
+
+func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 	fmt.Fprintf(w, "Memory Stats:\n"+
 		"	TotalSize: %d NewCalls: %d FreeCalls: %d Failures: %d\n",
 		calltr.CallEntryAllocStats.TotalSize,
@@ -221,6 +235,11 @@ var htmlCallFilterParams = map[string]int{
 	"ttag":  calltr.FilterToTag,
 	"key":   calltr.FilterCallKey,
 	"state": calltr.FilterState,
+}
+
+var htmlRegBindingsFilterParams = map[string]int{
+	"aor":     calltr.FilterAOR,
+	"contact": calltr.FilterContact,
 }
 
 func httpCallListQuery(w http.ResponseWriter, r *http.Request) {
@@ -298,6 +317,83 @@ func httpCallList(w http.ResponseWriter, r *http.Request) {
 		" match %s against %q regexp %v):\n",
 		s, n, opName, tst, isRe)
 	calltr.PrintCallsFilter(w, s, n, operand, []byte(tst), re)
+}
+
+func httpRegBindingsListQuery(w http.ResponseWriter, r *http.Request) {
+	htmlQueryRegBindingsFilter(w, htmlRegBindingsFilterParams)
+}
+
+func httpRegBindingsList(w http.ResponseWriter, r *http.Request) {
+	n := 100 // default
+	s := 0
+	tst := ""
+	opName := ""
+	operand := calltr.FilterNone
+	var re *regexp.Regexp
+
+	paramN := r.URL.Query()["n"]
+	paramS := r.URL.Query()["s"]
+	paramVal := r.URL.Query()["val"]
+	paramFilter := r.URL.Query()["filter"]
+	// accept operands either directly, e.g.: cid=foo
+	// or for forms via filter=cid&val=foo
+	for k, v := range htmlRegBindingsFilterParams {
+		p, found := r.URL.Query()[k]
+		if found {
+			if len(p) > 0 {
+				tst = p[0]
+			}
+			operand = v
+			opName = k
+			// we support only one filter operand
+			break
+		}
+	}
+	if len(paramFilter) > 0 && len(paramFilter[0]) > 0 && len(opName) == 0 {
+		if op, ok := htmlRegBindingsFilterParams[paramFilter[0]]; ok {
+			operand = op
+			opName = paramFilter[0]
+		}
+	}
+	if len(paramVal) > 0 && len(paramVal[0]) > 0 && len(tst) == 0 {
+		tst = paramVal[0]
+	}
+	paramRe, isRe := r.URL.Query()["re"]
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+	if len(paramS) > 0 && len(paramS[0]) > 0 {
+		if i, err := strconv.Atoi(paramS[0]); err == nil {
+			s = i
+		} else {
+			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
+		}
+	}
+	if len(paramRe) > 0 {
+		if i, err := strconv.Atoi(paramRe[0]); err == nil {
+			if i > 0 {
+				isRe = true
+			} else {
+				isRe = false
+			}
+		}
+	}
+	if isRe && len(tst) > 0 {
+		var err error
+		re, err = regexp.CompilePOSIX(tst)
+		if err != nil {
+			fmt.Fprintf(w, "Error bad regexp %q: %s\n", tst, err)
+			return
+		}
+	}
+	fmt.Fprintf(w, "Reg Bindings List (filter: from %d max %d matches,"+
+		" match %s against %q regexp %v):\n",
+		s, n, opName, tst, isRe)
+	calltr.PrintRegBindingsFilter(w, s, n, operand, []byte(tst), re)
 }
 
 var ipLocalhost net.IP = net.IP{127, 0, 0, 1}

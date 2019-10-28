@@ -134,6 +134,29 @@ func htmlQueryCallFilter(w http.ResponseWriter, m map[string]int) {
 
 }
 
+func htmlQueryRegBindingsFilter(w http.ResponseWriter, m map[string]int) {
+
+	fmt.Fprintln(w, httpHeader)
+	fmt.Fprintln(w, `<h2>Filter Registrations Bindings</h2>`)
+	fmt.Fprintln(w, `<form action="/regs/list" method="get">`)
+	fmt.Fprintln(w, `	Value: <input type="text" name="val" size="80">`)
+	fmt.Fprintln(w, `	<input type="checkbox" name="re" id="re" value="1">`)
+	fmt.Fprintln(w, `	<label for="re">RE</label><br>`)
+
+	fmt.Fprintln(w, `	<select name="filter">`)
+	for k, _ := range m {
+		fmt.Fprintf(w, "		<option value=%q>%s</option>\n", k, k)
+	}
+	fmt.Fprintln(w, `	</select>`)
+	fmt.Fprintln(w, `	Max matches: <input type="text" name="n" size="4">`)
+	fmt.Fprintln(w, `	Start: <input type="text" name="s" size="4">`)
+	fmt.Fprintln(w, `<input type="submit">`)
+	fmt.Fprintln(w, `</form>`)
+
+	fmt.Fprintln(w, httpFooter)
+
+}
+
 func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 
 	fmt.Fprintln(w, httpHeader)

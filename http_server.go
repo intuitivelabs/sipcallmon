@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"andrei/counters"
@@ -213,16 +214,28 @@ func httpRegStats(w http.ResponseWriter, r *http.Request) {
 func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 	fmt.Fprintf(w, "Memory Stats:\n"+
 		"	TotalSize: %d NewCalls: %d FreeCalls: %d Failures: %d\n",
-		calltr.CallEntryAllocStats.TotalSize,
-		calltr.CallEntryAllocStats.NewCalls,
-		calltr.CallEntryAllocStats.FreeCalls,
-		calltr.CallEntryAllocStats.Failures,
+		atomic.LoadUint64((*uint64)(&ms.TotalSize)),
+		atomic.LoadUint64((*uint64)(&ms.NewCalls)),
+		atomic.LoadUint64((*uint64)(&ms.FreeCalls)),
+		atomic.LoadUint64((*uint64)(&ms.Failures)),
 	)
-	for i, v := range calltr.CallEntryAllocStats.Sizes {
+	for i := 0; i < len(ms.Sizes); i++ {
+		v := atomic.LoadUint64((*uint64)(&ms.Sizes[i]))
 		if v != 0 {
-			fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: %6d-%6d\n",
-				v, v*100/calltr.CallEntryAllocStats.NewCalls,
-				i*calltr.AllocRoundTo,
+			if i < (len(ms.Sizes) - 1) {
+				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: %6d -%6d\n",
+					v,
+					v*100/(calltr.AllocCallsPerEntry*
+						atomic.LoadUint64((*uint64)(&ms.NewCalls))),
+					i*calltr.AllocRoundTo,
+					(i+1)*calltr.AllocRoundTo-1)
+			} else {
+				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: > %6d\n",
+					v, v*100/2*atomic.LoadUint64((*uint64)(&ms.NewCalls)),
+					i*calltr.AllocRoundTo)
+			}
+		}
+	}
 				(i+1)*calltr.AllocRoundTo)
 		}
 	}

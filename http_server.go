@@ -128,7 +128,12 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/stats/raw" {
 		printStatsRaw(w, &stats)
 	} else {
-		fmt.Fprintf(w, "uptime: %s\n", time.Now().Sub(StartTS))
+		fmt.Fprintf(w, "uptime: %s", time.Now().Sub(StartTS))
+		if !StopTS.IsZero() {
+			fmt.Fprintf(w, " stopped since %s runtime: %s",
+				time.Now().Sub(StopTS), StopTS.Sub(StartTS))
+		}
+		fmt.Fprintln(w)
 		printStats(w, &stats)
 	}
 	/*
@@ -156,10 +161,14 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 	for _, v := range statsRate[:] {
 		if v.Delta == delta {
 			if !v.updated.IsZero() {
-				if now.Add(-v.Delta).Before(v.updated) {
+				// if current time less then delta + last updated or
+				// packet processing stopped (end of pcap) use last computed
+				// rate
+				if now.Add(-v.Delta).Before(v.updated) || !StopTS.IsZero() {
 					s = &v.rate
 					update = now.Sub(v.updated)
 				} else {
+					// else re-compute rate now
 					statsComputeRate(&tmp, &stats, &v.s0,
 						now.Sub(v.t0), v.Delta)
 					s = &tmp
@@ -170,8 +179,13 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	fmt.Fprintf(w, "Rate: per %v (last update: %s ago)	Uptime: %s\n",
+	fmt.Fprintf(w, "Rate: per %v (last update: %s ago)	Uptime: %s",
 		delta, update, time.Now().Sub(StartTS))
+	if !StopTS.IsZero() {
+		fmt.Fprintf(w, " Stopped since: %s Runtime: %s",
+			time.Now().Sub(StopTS), StopTS.Sub(StartTS))
+	}
+	fmt.Fprintln(w)
 	if s != nil {
 		printStats(w, s)
 	}
@@ -190,11 +204,30 @@ func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	now := time.Now()
+
+	var now time.Time
+	if !StopTS.IsZero() {
+		now = StopTS
+	} else {
+		now = time.Now()
+	}
+	tdiff := now.Sub(StartTS)
 	var dst, zero pstats
-	statsComputeRate(&dst, &stats, &zero, now.Sub(StartTS), delta)
-	fmt.Fprintf(w, "Avg: per %v	Uptime: %s\n", delta, time.Now().Sub(StartTS))
-	printStats(w, &dst)
+	if tdiff != 0 {
+		statsComputeRate(&dst, &stats, &zero, tdiff, delta)
+		fmt.Fprintf(w, "Avg: per %v	Uptime: %s", delta,
+			time.Now().Sub(StartTS))
+		if !StopTS.IsZero() {
+			fmt.Fprintf(w, " Stopped since: %s Runtime: %s",
+				time.Now().Sub(StopTS), StopTS.Sub(StartTS))
+		}
+		fmt.Fprintln(w)
+		printStats(w, &dst)
+	} else {
+		fmt.Fprintf(w, "Error: timer elapsed is too short -"+
+			" start: %s, stop: %s\n",
+			StartTS, now)
+	}
 }
 
 func httpCallStats(w http.ResponseWriter, r *http.Request) {

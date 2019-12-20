@@ -12,6 +12,7 @@ import (
 )
 
 var StartTS time.Time
+var StopTS time.Time // when set it's the stop time (pcap mode & end of input)
 
 type pstats struct {
 	n              uint64 // total packet count

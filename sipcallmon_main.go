@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const version = "6.9"
+const version = "6.11"
 
 var RunningCfg *Config
 
@@ -62,6 +62,7 @@ func Run(cfg *Config) {
 		//processLive(cfg.Iface, strings.Join(flag.Args(), " "), &cfg)
 		processLive(cfg.Iface, cfg.BPF, cfg)
 	}
+	StopTS = time.Now()
 	// print stats
 	printStats(os.Stdout, &stats)
 	if cfg.RunForever && !stopProcessing && waitgrp != nil {

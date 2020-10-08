@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const version = "6.12"
+const version = "0.6.12"
 
 var RunningCfg *Config
 

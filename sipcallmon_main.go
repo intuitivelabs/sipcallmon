@@ -1,8 +1,8 @@
 package sipcallmon
 
 import (
-	"andrei/sipsp/calltr"
 	"fmt"
+	"github.com/intuitivelabs/sipsp/calltr"
 	"os"
 	"strings"
 	"sync"

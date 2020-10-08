@@ -15,9 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"andrei/counters"
-	"andrei/sipsp"
-	"andrei/sipsp/calltr"
+	"github.com/intuitivelabs/counters"
+	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/sipsp/calltr"
 )
 
 type httpHandler struct {

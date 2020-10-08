@@ -9,9 +9,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"andrei/counters"
-	"andrei/sipsp/bytescase"
-	"andrei/sipsp/calltr"
+	"github.com/intuitivelabs/counters"
+	"github.com/intuitivelabs/sipsp/bytescase"
+	"github.com/intuitivelabs/sipsp/calltr"
 )
 
 type EvFilterOp uint8

@@ -8,8 +8,8 @@ import (
 	"net"
 	"time"
 
-	"andrei/sipsp"
-	"andrei/sipsp/calltr"
+	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/sipsp/calltr"
 )
 
 type SIPStreamState uint8

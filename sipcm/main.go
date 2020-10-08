@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"os"
 
-	"andrei/sipcallmon"
+	"github.com/intuitivelabs/sipcallmon"
 )
 
-//import _ "net/http/pprof"
+import _ "net/http/pprof"
 
 func main() {
 	cfg, err := sipcallmon.CfgFromOSArgs(&sipcallmon.DefaultConfig)

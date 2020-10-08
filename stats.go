@@ -8,7 +8,7 @@ import (
 	"time"
 	"unsafe"
 
-	"andrei/sipsp"
+	"github.com/intuitivelabs/sipsp"
 )
 
 var StartTS time.Time

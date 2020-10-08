@@ -26,17 +26,20 @@ type Config struct {
 
 	// call tracing options
 	RegDelta uint `config:"reg_exp_delta"` // seconds
+	// contact matching options
+	ContactIgnorePort bool `config:"contact_ignore_port"`
 }
 
 var DefaultConfig = Config{
-	ReplayMinDelay: 250 * time.Millisecond,
-	ReplayMaxDelay: 0,
-	TCPGcInt:       30 * time.Second,
-	TCPReorderTo:   60 * time.Second,
-	TCPConnTo:      3600 * time.Second,
-	MaxBlockedTo:   1 * time.Second,
-	EvBufferSz:     10240,
-	RegDelta:       30, // seconds
+	ReplayMinDelay:    250 * time.Millisecond,
+	ReplayMaxDelay:    0,
+	TCPGcInt:          30 * time.Second,
+	TCPReorderTo:      60 * time.Second,
+	TCPConnTo:         3600 * time.Second,
+	MaxBlockedTo:      1 * time.Second,
+	EvBufferSz:        10240,
+	RegDelta:          30, // seconds
+	ContactIgnorePort: false,
 }
 
 // FromOsArgs intializes and returns a config from cmd line args and
@@ -77,6 +80,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 	flag.UintVar(&cfg.RegDelta, "reg_exp_delta", c.RegDelta,
 		"extra REGISTER expiration delta for absorbing delayed re-REGISTERs")
+	flag.BoolVar(&cfg.ContactIgnorePort, "contact_ignore_port",
+		c.ContactIgnorePort,
+		"ignore port number when comparing contacts (but not AORs)")
 
 	flag.Parse()
 	// fix cmd line params

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const version = "6.11"
+const version = "6.12"
 
 var RunningCfg *Config
 
@@ -35,6 +35,7 @@ func Run(cfg *Config) {
 	RunningCfg = cfg
 	// forward config option to calltr
 	calltr.Cfg.RegDelta = uint32(cfg.RegDelta)
+	calltr.Cfg.ContactIgnorePort = cfg.ContactIgnorePort
 
 	StartTS = time.Now()
 

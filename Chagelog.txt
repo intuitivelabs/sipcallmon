@@ -1,4 +1,76 @@
-20190503 - 20190306
+
+
+20190525 - 20190609
+
+parser:
+ * support for Contact, Expires, User-Agent
+ * generic parser for name-addr-param header values like To, From, Contact,
+   Route, Record-Route. Support for the following params: tag, expires, q, lr
+ * support multiple contact values, default max. 10 (TODO: future cfg option)
+
+calltr:
+ * event support
+ * fix: on from-tag overwrite the computed length was wrong
+ * allow empty and/or missing from-tags (found an old CSCO UA not using
+    from-tags in REGISTERs)
+ * call matching: on no full-match try very hard to find the best
+    possible fallback candidate, looking at method, cseq, reply type
+    (failure replies are special cased to allow catching auth. failures),
+   a.s.o.
+ * try harder to re-use auth failed call entries
+ * save only the contact uri from the 1st contact and not the whole contacts
+  (events...)
+ * REGISTER-hack support: try catching related REGISTERs into one call-entry
+   that will be kept alive for the whole duration of the registry
+   (needed for reg-new/reg-del/reg-expire events). The timeout is set using
+   the matching contact expire from the REGISTER reply.
+   Try very hard to match subsequent REGISTER even if they have different or
+   missing to-tag or even different from-tag
+   (looks like different UA understand in different way the REGISTER
+     construction part of the RFC, but all agree that the call-id
+     should be the same and the cseq should change)
+   There are a few important limitations like: only the 1st contact in a
+   REGISTER is used (but all in the reply), the contact matching is
+   "optimistic" (not rfc3261 conformant: params & headers are ignored and also
+   escapes), it cannot really fully replace a "shadow" registrar (keeping
+   binding state), but for real-life cases seems to be good enough.
+ * 
+
+sipcallmon:
+
+ * fix: save/pass ip, port and proto 
+ * event ring: save all the even into a circular buffer, allowing
+    parallel non-blocking access. Old events are overwritten (if the
+    reader(s) are not fast enough they will loose events, but the
+    writers/call tracing will not be affected)
+ * web server: list events, blacklist support, web forms for filtering
+               events and calls
+ * converted into a package (so that it can be used directly with minimal
+    effort or via beats/sipcmbeat)
+ * statistic rate support (e.g.: http://127.0.0.1:8080/stats/rate?d=1s )
+ * fix 0 dest port for udp
+ * counters support (new package) : extensive stats for the event ring
+ * web support for counters: http://127.0.0.1:8080/counters
+ * stats/web: average support (e.g.: http://127.0.0.1:8080/stats/avg?d=1m)
+ * event ring race fixes
+ * fix replay: inter-packet wait time was off by one packet
+ * doc: test using recording pcap howto
+
+sipcmbeat: [ independent beat (_not_ packetbeat), using sipcallmon code ]
+ * stats/counters: extensive stats via the new counter packages
+ * fix: race fixes
+ * cfg: event ring size if configurable
+ * cfg: max timeout for computing stats rates
+
+
+counters:
+ * new package for concurrent safe "grouped" counters, a bit similar to
+ ser counters, but slower (ser versions use local per process storage, this
+  version uses atomic ops). However counters and counters groups can be
+  added at runtime (unlike ser version).
+ * support for min/max counters
+
+20190503 - 20190506
 
 sippcap:
 * added -forever cmd. line option to keep running in the read-from-pcap

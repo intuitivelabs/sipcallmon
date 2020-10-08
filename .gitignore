@@ -13,3 +13,6 @@ TAGS
 *.rpm
 # binaries
 sipcallmon
+sipcm
+#pcap dir
+test_pcaps

@@ -681,27 +681,34 @@ func unescapeMsg(msg string, format string) ([]byte, error) {
 	m := []byte(msg)
 	f := strings.ToLower(format)
 	if f == "auto" {
-		if bytes.Count(m, []byte("\\r\\n")) > 5 {
-			f = "escaped"
-		} else if bytes.Count(m, []byte(".\r\n")) > 5 {
-			f = "ngrepcrlf"
-		} else if bytes.Count(m, []byte("\r\n")) > 5 {
-			f = "crlf"
-		} else if bytes.Count(m, []byte(".\n")) > 5 {
-			f = "ngreplf"
-		} else if bytes.Count(m, []byte(".\r")) > 5 {
-			f = "ngrepcr"
-		} else if bytes.Count(m, []byte("\n")) > 5 {
-			f = "lf"
-		} else if bytes.Count(m, []byte("\\n")) > 5 {
-			if n, err := unescapeMsg(msg, "escaped"); err == nil {
-				format = "lf"
-				m = n
-			} else {
-				return nil, err
+		for i := 8; i >= 5; i-- {
+			if bytes.Count(m, []byte("\\r\\n")) >= i {
+				f = "escaped"
+				break
+			} else if bytes.Count(m, []byte(".\r\n")) >= i {
+				f = "ngrepcrlf"
+				break
+			} else if bytes.Count(m, []byte("\r\n")) >= i {
+				f = "crlf"
+				break
+			} else if bytes.Count(m, []byte(".\n")) >= i {
+				f = "ngreplf"
+				break
+			} else if bytes.Count(m, []byte(".\r")) >= i {
+				f = "ngrepcr"
+				break
+			} else if bytes.Count(m, []byte("\n")) >= i {
+				f = "lf"
+				break
+			} else if bytes.Count(m, []byte("\\n")) >= i {
+				if n, err := unescapeMsg(msg, "escaped"); err == nil {
+					format = "lf"
+					m = n
+					break
+				} else {
+					return nil, err
+				}
 			}
-		} else {
-			f = "auto"
 		}
 	}
 	switch f {
@@ -720,6 +727,9 @@ func unescapeMsg(msg string, format string) ([]byte, error) {
 		//m = bytes.Replace(m, []byte(".\r\n"), []byte("\r\n"), -1)
 	case "escaped":
 		unescapeBSlice(&m)
+	case "auto":
+		return nil, fmt.Errorf("could not autodetect format: message" +
+			" too short or invalid?")
 	default:
 		return nil, fmt.Errorf("unknown message format %q", format)
 	}

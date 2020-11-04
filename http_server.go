@@ -112,7 +112,7 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpPrintVer(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "%s version %s\n", path.Base(os.Args[0]), version)
+	fmt.Fprintf(w, "%s version %s\n", path.Base(os.Args[0]), Version)
 }
 
 func httpPrintConfig(w http.ResponseWriter, r *http.Request) {

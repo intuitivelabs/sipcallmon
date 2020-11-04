@@ -2,7 +2,7 @@ package sipcallmon
 
 import (
 	"fmt"
-	"github.com/intuitivelabs/sipsp/calltr"
+	"github.com/intuitivelabs/calltr"
 	"os"
 	"strings"
 	"sync"

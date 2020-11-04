@@ -13,8 +13,8 @@ import (
 	"github.com/google/gopacket/pcap"
 	"github.com/google/gopacket/tcpassembly"
 
+	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/sipsp"
-	"github.com/intuitivelabs/sipsp/calltr"
 )
 
 const (

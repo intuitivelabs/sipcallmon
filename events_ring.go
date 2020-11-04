@@ -9,9 +9,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/intuitivelabs/bytescase"
+	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/counters"
-	"github.com/intuitivelabs/sipsp/bytescase"
-	"github.com/intuitivelabs/sipsp/calltr"
 )
 
 type EvFilterOp uint8
@@ -76,7 +76,7 @@ var cntEvType [calltr.EvBad + 1]counters.Handle
 
 type EvRing struct {
 	lock    sync.Mutex
-	evBlst  calltr.EventFlags // blacklist for even types
+	evBlst  calltr.EventFlags // blacklist for event types
 	idx     EvRingIdx
 	skipped int32 // debugging
 	events  []calltr.EventData

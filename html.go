@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/intuitivelabs/sipsp/calltr"
+	"github.com/intuitivelabs/calltr"
 )
 
 var httpHeader string = `

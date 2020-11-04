@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,6 +114,12 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 
 func httpPrintVer(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s version %s\n", path.Base(os.Args[0]), Version)
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		fmt.Fprintf(w, "\ndeps:\n")
+		for _, m := range bi.Deps[:] {
+			fmt.Fprintf(w, "    %-40s    v: %s\n", m.Path, m.Version)
+		}
+	}
 }
 
 func httpPrintConfig(w http.ResponseWriter, r *http.Request) {

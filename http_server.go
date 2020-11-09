@@ -117,7 +117,15 @@ func httpPrintVer(w http.ResponseWriter, r *http.Request) {
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		fmt.Fprintf(w, "\ndeps:\n")
 		for _, m := range bi.Deps[:] {
-			fmt.Fprintf(w, "    %-40s    v: %s\n", m.Path, m.Version)
+			if m.Replace != nil {
+				fmt.Fprintf(w, "    %-40s    v: %-40s",
+					m.Replace.Path, m.Replace.Version)
+				fmt.Fprintf(w, "  [r: %s]\n",
+					m.Path)
+			} else {
+				fmt.Fprintf(w, "    %-40s    v: %-40s\n",
+					m.Path, m.Version)
+			}
 		}
 	}
 }

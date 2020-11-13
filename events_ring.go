@@ -136,8 +136,8 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 		}
 		break
 	}
-	prev_busy := er.state[i].busy
-	if prev_busy {
+	prevBusy := er.state[i].busy
+	if prevBusy {
 		// it can happen even if we always increment the counter, if
 		// the number of parallel writers + readers >  len(er_event)
 		// => give-up, or do the copy under the same lock
@@ -220,55 +220,55 @@ const (
 //     - ErrBusy - the event entry at pos is currently busy (being written to).
 // One could retry it later. nxt is set to pos (retry).
 //     - ErrInvalid - the event entry at pos is not valid and should be skipped.// nxt is set to pos + 1.
-func (ev *EvRing) Get(pos EvRingIdx) (ed *calltr.EventData, nxt EvRingIdx, err GetEvErr) {
-	i := int(pos % EvRingIdx(len(ev.events)))
-	ev.lock.Lock()
-	if (ev.idx.Get() - pos) > EvRingIdx(len(ev.events)) {
+func (er *EvRing) Get(pos EvRingIdx) (ed *calltr.EventData, nxt EvRingIdx, err GetEvErr) {
+	i := int(pos % EvRingIdx(len(er.events)))
+	er.lock.Lock()
+	if (er.idx.Get() - pos) > EvRingIdx(len(er.events)) {
 		// out-of-range
-		ev.lock.Unlock()
-		ev.stats.Inc(cntEvGetOldIdx)
-		return nil, ev.idx.Get() - EvRingIdx(len(ev.events)), ErrOutOfRange
-	} else if !ev.state[i].valid {
+		er.lock.Unlock()
+		er.stats.Inc(cntEvGetOldIdx)
+		return nil, er.idx.Get() - EvRingIdx(len(er.events)), ErrOutOfRange
+	} else if !er.state[i].valid {
 		// invalid event (e.g. copy failed, initial state)
-		ev.lock.Unlock()
-		ev.stats.Inc(cntEvGetInvEv)
+		er.lock.Unlock()
+		er.stats.Inc(cntEvGetInvEv)
 		return nil, pos + 1, ErrInvalid
-	} else if ev.state[i].busy {
+	} else if er.state[i].busy {
 		// busy, being written to
-		ev.lock.Unlock()
-		ev.stats.Inc(cntEvGetBusyEv)
+		er.lock.Unlock()
+		er.stats.Inc(cntEvGetBusyEv)
 		return nil, pos, ErrBusy
 	}
-	ev.state[i].readOnly++
-	ev.stats.Inc(cntEvReadOnly2)
-	if ev.state[i].readOnly == 1 {
-		ev.stats.Inc(cntEvReadOnly)
+	er.state[i].readOnly++
+	er.stats.Inc(cntEvReadOnly2)
+	if er.state[i].readOnly == 1 {
+		er.stats.Inc(cntEvReadOnly)
 	}
-	ev.lock.Unlock()
-	return &ev.events[i], pos + 1, ErrOk
+	er.lock.Unlock()
+	return &er.events[i], pos + 1, ErrOk
 }
 
-func (ev *EvRing) Put(pos EvRingIdx) {
-	i := int(pos % EvRingIdx(len(ev.events)))
-	ev.lock.Lock()
+func (er *EvRing) Put(pos EvRingIdx) {
+	i := int(pos % EvRingIdx(len(er.events)))
+	er.lock.Lock()
 	// TODO: atomic and no lock
-	ev.state[i].readOnly--
-	ev.stats.Dec(cntEvReadOnly2)
-	if ev.state[i].readOnly == 0 {
-		ev.stats.Dec(cntEvReadOnly)
+	er.state[i].readOnly--
+	er.stats.Dec(cntEvReadOnly2)
+	if er.state[i].readOnly == 0 {
+		er.stats.Dec(cntEvReadOnly)
 	}
-	ev.lock.Unlock()
-	if ev.state[i].readOnly < 0 {
+	er.lock.Unlock()
+	if er.state[i].readOnly < 0 {
 		panic("Put: below 0")
 	}
 }
 
-func (ev *EvRing) LastIdx() EvRingIdx {
-	return ev.idx.Get()
+func (er *EvRing) LastIdx() EvRingIdx {
+	return er.idx.Get()
 }
 
-func (ev *EvRing) BufSize() EvRingIdx {
-	return EvRingIdx(len(ev.events))
+func (er *EvRing) BufSize() EvRingIdx {
+	return EvRingIdx(len(er.events))
 }
 
 // IterateCbk is the type for the function callback for the Iterate
@@ -364,14 +364,14 @@ func (er *EvRing) Iterate(pos EvRingIdx, f IterateCbk, cbkArg interface{}) int {
 
 var EventsRing EvRing
 
-func (ev *EvRing) Init(no int) {
+func (er *EvRing) Init(no int) {
 
-	ev.events = make([]calltr.EventData, no)
-	ev.state = make([]evState, len(ev.events))
-	for i := 0; i < len(ev.events); i++ {
-		ev.events[i].Init(make([]byte, calltr.EventDataMaxBuf()))
+	er.events = make([]calltr.EventData, no)
+	er.state = make([]evState, len(er.events))
+	for i := 0; i < len(er.events); i++ {
+		er.events[i].Init(make([]byte, calltr.EventDataMaxBuf()))
 	}
-	ring_no := atomic.AddInt32(&evRingNo, 1) - 1
+	ringNo := atomic.AddInt32(&evRingNo, 1) - 1
 	cntDefs := [...]counters.Def{
 		{&cntEvSigs, 0, nil, nil, "signals",
 			"sent event signals"},
@@ -408,15 +408,15 @@ func (ev *EvRing) Init(no int) {
 		{&cntEvMaxParallel, counters.CntMaxF, nil, nil, "parallel",
 			"adds that run in parallel (current and max value)"},
 	}
-	ev.stats.Init(fmt.Sprintf("ev_ring%d", ring_no), nil, len(cntDefs))
-	if !ev.stats.RegisterDefs(cntDefs[:]) {
+	er.stats.Init(fmt.Sprintf("ev_ring%d", ringNo), nil, len(cntDefs))
+	if !er.stats.RegisterDefs(cntDefs[:]) {
 		panic("failed to register ev ring counters")
 	}
 
 	s := len(cntEvType)
-	ev.evStats.Init("evtype", &ev.stats, s)
+	er.evStats.Init("evtype", &er.stats, s)
 	for i := 0; i < s; i++ {
-		_, ok := ev.evStats.RegisterDef(
+		_, ok := er.evStats.RegisterDef(
 			&counters.Def{&cntEvType[i], 0, nil, nil,
 				calltr.EventType(i).String(), ""})
 		if !ok {
@@ -425,13 +425,13 @@ func (ev *EvRing) Init(no int) {
 	}
 }
 
-func (ev *EvRing) SetEvSignal(ch chan struct{}) {
-	ev.newEv = ch
+func (er *EvRing) SetEvSignal(ch chan struct{}) {
+	er.newEv = ch
 }
-func (ev *EvRing) CloseEvSignal() {
-	if ev.newEv != nil {
-		close(ev.newEv)
-		ev.newEv = nil
+func (er *EvRing) CloseEvSignal() {
+	if er.newEv != nil {
+		close(er.newEv)
+		er.newEv = nil
 	}
 }
 

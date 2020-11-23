@@ -76,3 +76,36 @@ It can either capture live packets or replay pcap files.
 | /stats/rate | print message rates (time interval via ?d=.., default 1s) |
 
 
+### Test using a pcap file
+
+sipcm supports different pcap replay speeds:
+
+ - normal recorded speed (simply add -replay to the command line options),
+ - faster then recorded speed (add -replay and -delay\_scale N where N \< 1,
+ e.g. -delay\_scale 0.1 for a 10x speed-up)
+ - slower speed ( -replay and  -delay\_scale with a number greater then 1,
+ e.g. -delay\_scale 2 for a 2x slow-down)
+ - as fast as possible (no -replay in the command line, meaning replay all
+ the packets immediately)
+
+Example pcap replay:
+
+```
+./sipcm -pcap test.pcap  -p 8081 -bpf "port 5060" -forever -event_buffer_size 100000 >/tmp/sipcm.log
+```
+
+Note that the event buffer should be large enough to save all the events you
+might be interested in (-event\_buffer\_size NNNN)
+
+
+### Injecting SIP packets using the web interface
+
+SIP packets in pure ASCII format (e.g. pasted from RFC examples), ngrep
+ txt dump format or with escaped CRLFs can be "injected" using the
+ web interface /inject path, e.g. http://127.0.0.1:8081/inject if 
+ running with -p 8081.
+One just needs to paste the  message in the corresponding field and click
+"Submit". The line termination format should be left to "auto detect" if the
+message is long enouh (\>8 lines).
+
+

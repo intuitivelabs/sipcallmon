@@ -52,7 +52,7 @@ One can either set the corresponding options in the config file, or
  must be "overwritten" after loading the config files, so all the -E ...
   must come in the command line after  -c config_file.yml.
 E.g.:
-./sipcmbeat -c sipmcbeat_test.yml -E sipcmbeat.replay=true -E sipcmbeat.pcap="test.pcap" -E sipcmbeat.forever=true
+./sipcmbeat -c sipmcbeat_test.yml -E sipcmbeat.replay=true -E sipcmbeat.pcap="test.pcap" -E sipcmbeat.run_forever=true
  
 To overwrite the output, try -E output.logstash.enable=false -E output.file.enable=true -E output.file.path="/tmp" -E output.file.name="sipcm.log" -E output.file.pretty=true
 

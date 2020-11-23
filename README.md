@@ -6,7 +6,7 @@ packet capture, sip message parsing and call tracking,
 event generation, event ring (for caching events), statistics,
 web interface a.s.o.
 
-See [sipcmbeat README](https://github.com/intuitivelabs/sipcmbeat/README.md)
+See [sipcmbeat README]()https://github.com/intuitivelabs/sipcmbeat/blob/master/README.md)
 for more details.
 
 ### sipcm

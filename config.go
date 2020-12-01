@@ -29,6 +29,8 @@ type Config struct {
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
 	MaxBlockedTo   time.Duration `config:"max_blocked_timeout"`
 	EvBufferSz     int           `config:"event_buffer_size"`
+	// maximum entries in the rate blacklist table.
+	EvRblstMax uint `config:"event_rate_blst_max"`
 
 	// call tracing options
 	RegDelta uint `config:"reg_exp_delta"` // seconds
@@ -44,6 +46,7 @@ var DefaultConfig = Config{
 	TCPConnTo:         3600 * time.Second,
 	MaxBlockedTo:      1 * time.Second,
 	EvBufferSz:        10240,
+	EvRblstMax:        1024 * 1024,
 	RegDelta:          30, // seconds
 	ContactIgnorePort: false,
 }
@@ -83,6 +86,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"maximum blocked timeout")
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
+	flag.UintVar(&cfg.EvRblstMax, "event_rate_blst_max", c.EvRblstMax,
+		"maximum number for the event rate based blacklist table")
 
 	flag.UintVar(&cfg.RegDelta, "reg_exp_delta", c.RegDelta,
 		"extra REGISTER expiration delta for absorbing delayed re-REGISTERs")

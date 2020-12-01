@@ -32,6 +32,10 @@ const (
 // EvRing is the global ring where all the events will be put.
 var EventsRing EvRing
 
+// EvRateBlst is used to compute the generation rate for each event-ip pair
+// and to mark/blacklist pairs that exceeded the configured maximum rates.
+var EvRateBlst calltr.EvRateHash
+
 func processPCAP(fname string, cfg *Config) {
 	if fname == "" {
 		fmt.Fprintf(os.Stderr, "error: processPCAP: empty filename\n")
@@ -497,12 +501,42 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 	return ret
 }
 
-var evCnt int64
+// TODO: print them somewhere
+var evCnt int64         // total event count
+var evBlstCnt int64     // blacklisted count
+var evBlstFailCnt int64 // failed  blacklist check (too many entries)
+
+// TODO: make it configurable
+var maxRates = [calltr.NEvRates]float64{
+	10,  // per second
+	120, // per minute
+	360, // per hour
+}
 
 // per event callback
 func evHandler(ed *calltr.EventData) {
+	var src calltr.NetInfo
+	src.SetIP(&ed.Src)
+	src.SetProto(ed.ProtoF)
+
 	atomic.AddInt64(&evCnt, 1)
 	//fmt.Printf("Event %d: %s\n", evCnt, ed.String())
+	ok, ridx, rv, info :=
+		EvRateBlst.IncUpdate(ed.Type, &src, time.Now(), maxRates[:])
+	if !ok {
+		atomic.AddInt64(&evBlstFailCnt, 1)
+		DBG("max event blacklist side exceeded: %v / %v\n",
+			EvRateBlst.CrtEntries(), EvRateBlst.MaxEntries())
+		return
+	}
+	if info.Exceeded {
+		atomic.AddInt64(&evBlstCnt, 1)
+		DBG("event %s src %s blacklisted: rate %f/%f since %v (%v times)\n",
+			ed.Type, src.IP(), rv, maxRates[ridx],
+			time.Now().Sub(info.ExChgT), info.ExConseq)
+		// TODO: if 1st blacklisted (ExConseq == 1) generate blst event
+		return
+	}
 	if !EventsRing.Add(ed) {
 		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",
 			atomic.LoadInt64(&evCnt), ed.String())

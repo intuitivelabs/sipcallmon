@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const Version = "0.6.12"
+const Version = "0.7.0"
 
 var RunningCfg *Config
 
@@ -27,6 +27,7 @@ func DBG(f string, a ...interface{}) {
 var waitgrp *sync.WaitGroup
 var stopProcessing = false // if set to 1, will stop
 
+// Stop() would signal Run() to exit the processing loop.
 func Stop() {
 	stopProcessing = true
 	if waitgrp != nil {
@@ -35,6 +36,9 @@ func Stop() {
 	}
 }
 
+// Run sipcallmon packet processing, based on the passed config.
+// It runs in a loop and exits only if Stop() was called, all the
+// packet processing ended (pcap reply, EOF and run_forever == false).
 func Run(cfg *Config) {
 
 	// save actual config for global ref.
@@ -42,6 +46,9 @@ func Run(cfg *Config) {
 	// forward config option to calltr
 	calltr.Cfg.RegDelta = uint32(cfg.RegDelta)
 	calltr.Cfg.ContactIgnorePort = cfg.ContactIgnorePort
+
+	// init the event rate blacklist: hash table buckets, max entries.
+	EvRateBlst.Init(65535, cfg.EvRblstMax)
 
 	StartTS = time.Now()
 

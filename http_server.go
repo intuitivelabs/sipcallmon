@@ -44,6 +44,9 @@ var httpInitHandlers = [...]httpHandler{
 	{"/events", "", httpEventsList},
 	{"/events/blst", "", httpEventsBlst},
 	{"/events/query", "", httpEventsQuery},
+	{"/evrateblst/", "", httpEvRateBlstStats},
+	{"/evrateblst/list", "", httpEvRateBlstList},
+	{"/evrateblst/forcegc", "", httpEvRateBlstForceGC},
 	{"/inject", "", httpInjectMsg},
 	{"/regs", "", httpRegStats},
 	{"/regs/list", "", httpRegBindingsList},
@@ -268,6 +271,12 @@ func httpRegStats(w http.ResponseWriter, r *http.Request) {
 	memStats(w, r, &calltr.RegEntryAllocStats)
 }
 
+func httpEvRateBlstStats(w http.ResponseWriter, r *http.Request) {
+	stats := EvRateBlst.Stats()
+	fmt.Fprintf(w, "EvRateBlst  Hash Stats: %+v\n", stats)
+	memStats(w, r, &calltr.EvRateEntryAllocStats)
+}
+
 func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 	fmt.Fprintf(w, "Memory Stats:\n"+
 		"	TotalSize: %d NewCalls: %d FreeCalls: %d Failures: %d\n",
@@ -485,6 +494,133 @@ func httpRegBindingsList(w http.ResponseWriter, r *http.Request) {
 		" match %s against %q regexp %v):\n",
 		s, n, opName, tst, isRe)
 	calltr.PrintRegBindingsFilter(w, s, n, operand, []byte(tst), re)
+}
+func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
+	n := 100 // default
+	s := 0
+	rIdx := -1 // no rate comp. by default
+	rVal := 0
+	mVal := -1 // match both blacklisted/exceeded and not blacklisted
+	var ipnet *net.IPNet
+	var re *regexp.Regexp
+
+	tst := ""
+
+	paramN := r.URL.Query()["n"]   // max entries
+	paramS := r.URL.Query()["s"]   // start
+	paramIP := r.URL.Query()["ip"] // match against
+	paramRate := r.URL.Query()["rate"]
+	paramRateIdx := r.URL.Query()["ridx"]
+	paramVal := r.URL.Query()["val"]
+	if len(paramIP) > 0 && len(paramIP[0]) > 0 && len(tst) == 0 {
+		tst = paramIP[0]
+	}
+	paramRe, isRe := r.URL.Query()["re"]
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+	if len(paramS) > 0 && len(paramS[0]) > 0 {
+		if i, err := strconv.Atoi(paramS[0]); err == nil {
+			s = i
+		} else {
+			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
+		}
+	}
+	if len(paramRe) > 0 {
+		if i, err := strconv.Atoi(paramRe[0]); err == nil {
+			if i > 0 {
+				isRe = true
+			} else {
+				isRe = false
+			}
+		}
+	}
+	if len(paramRate) > 0 && len(paramRate[0]) > 0 {
+		if i, err := strconv.Atoi(paramRate[0]); err == nil {
+			rVal = i
+		} else {
+			fmt.Fprintf(w, "Error: rate is non-number %q: %s\n",
+				paramRate[0], err)
+		}
+		if rIdx == -1 {
+			rIdx = 0
+		}
+	}
+	if len(paramRateIdx) > 0 && len(paramRateIdx[0]) > 0 {
+		if i, err := strconv.Atoi(paramRateIdx[0]); err == nil {
+			rIdx = i
+		} else {
+			fmt.Fprintf(w, "Error: ridx is non-number %q: %s\n",
+				paramRateIdx[0], err)
+		}
+	}
+	if len(paramVal) > 0 && len(paramVal[0]) > 0 {
+		if i, err := strconv.Atoi(paramVal[0]); err == nil {
+			mVal = i
+		} else {
+			fmt.Fprintf(w, "Error: val is non-number %q: %s\n",
+				paramVal[0], err)
+		}
+	}
+	if len(tst) > 0 {
+		if isRe {
+			var err error
+			re, err = regexp.CompilePOSIX(tst)
+			if err != nil {
+				fmt.Fprintf(w, "Error bad regexp %q: %s\n", tst, err)
+				return
+			}
+		} else {
+			// ! RE, try to convert to IPNet or IP
+			var err error
+			_, ipnet, err = net.ParseCIDR(tst)
+			if err != nil {
+				ip := net.ParseIP(tst)
+				if ip != nil {
+					ipnet = &net.IPNet{ip, net.CIDRMask(len(ip)*8, len(ip)*8)}
+				}
+			}
+		}
+	}
+	fmt.Fprintf(w, "Event Rate Blacklist (filter: from %d max %d matches,"+
+		" match against %q regexp %v ip %v ridx %d rval %d):\n\n",
+		s, n, tst, isRe, ipnet != nil, rIdx, rVal)
+	fmt.Fprintf(w, "Total:  events: %d, blst %d, failed blst %d\n\n",
+		atomic.LoadInt64(&evCnt),
+		atomic.LoadInt64(&evBlstCnt),
+		atomic.LoadInt64(&evBlstFailCnt))
+
+	EvRateBlst.PrintFilter(w, s, n, mVal, rIdx, rVal, ipnet, re)
+}
+
+func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	n := 1
+
+	paramN := r.URL.Query()["n"] // target max entries in the hash
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+
+	eLim := now.Add(-2 * time.Second)
+	runLim := now.Add(10 * time.Millisecond)
+	fmt.Fprintf(w, "running GC, entries %v, target %d life time lim %v"+
+		" runtime limit %v ...\n",
+		EvRateBlst.CrtEntries(), n,
+		eLim.Sub(now), runLim.Sub(now))
+	ok, entries, to := EvRateBlst.ForceEvict(uint64(n), false, eLim, runLim)
+	fmt.Fprintf(w, "GC run: target %d met: %v (crt %d entries),"+
+		" run timeout %v, entries walked: %v\n",
+		n, ok, EvRateBlst.CrtEntries(),
+		to, entries)
 }
 
 var ipLocalhost net.IP = net.IP{127, 0, 0, 1}

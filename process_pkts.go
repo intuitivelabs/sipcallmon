@@ -29,6 +29,9 @@ const (
 	TCPstartupInt            = 60 * time.Second // tcp in "learning quick timeout mode"
 )
 
+// EvRing is the global ring where all the events will be put.
+var EventsRing EvRing
+
 func processPCAP(fname string, cfg *Config) {
 	if fname == "" {
 		fmt.Fprintf(os.Stderr, "error: processPCAP: empty filename\n")

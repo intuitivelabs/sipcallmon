@@ -114,6 +114,9 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 
 func httpPrintVer(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s version %s\n", path.Base(os.Args[0]), Version)
+	fmt.Fprintf(w, "\ncalltr build tags: %v\n", calltr.BuildTags)
+	fmt.Fprintf(w, "\ncalltr alloc type: %v\n", calltr.AllocTypeName)
+
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		fmt.Fprintf(w, "\ndeps:\n")
 		for _, m := range bi.Deps[:] {
@@ -273,6 +276,13 @@ func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 		atomic.LoadUint64((*uint64)(&ms.FreeCalls)),
 		atomic.LoadUint64((*uint64)(&ms.Failures)),
 	)
+	v := atomic.LoadUint64((*uint64)(&ms.ZeroSize))
+	if v != 0 {
+		fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: 0!\n",
+			v,
+			v*100/(calltr.AllocCallsPerEntry*
+				atomic.LoadUint64((*uint64)(&ms.NewCalls))))
+	}
 	for i := 0; i < len(ms.Sizes); i++ {
 		v := atomic.LoadUint64((*uint64)(&ms.Sizes[i]))
 		if v != 0 {
@@ -281,12 +291,12 @@ func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 					v,
 					v*100/(calltr.AllocCallsPerEntry*
 						atomic.LoadUint64((*uint64)(&ms.NewCalls))),
-					i*calltr.AllocRoundTo,
-					(i+1)*calltr.AllocRoundTo-1)
+					i*calltr.AllocRoundTo+1,
+					(i+1)*calltr.AllocRoundTo)
 			} else {
-				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: > %6d\n",
+				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: >=   %6d\n",
 					v, v*100/2*atomic.LoadUint64((*uint64)(&ms.NewCalls)),
-					i*calltr.AllocRoundTo)
+					i*calltr.AllocRoundTo+1)
 			}
 		}
 	}

@@ -522,13 +522,22 @@ func evHandler(ed *calltr.EventData) {
 			EvRateBlst.CrtEntries(), EvRateBlst.MaxEntries())
 		return
 	}
+	_, rateMax := EvRateBlst.GetRateMax(ridx)
+	// fill even rate info (always)
+	calltr.FillEvRateInfo(&ed.Rate, &info, rv, rateMax.Max, rateMax.Intvl)
 	if info.Exceeded {
 		atomic.AddInt64(&evBlstCnt, 1)
-		DBG("event %s src %s blacklisted: rate %f/%f since %v (%v times)\n",
-			ed.Type, src.IP(), rv, EvRateBlst.GetRateMax(ridx),
+		DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
+			" since %v (%v times)\n",
+			ed.Type, src.IP(), rv, rateMax.Max, rateMax.Intvl,
 			time.Now().Sub(info.ExChgT), info.ExConseq)
-		// TODO: if 1st blacklisted (ExConseq == 1) generate blst event
-		return
+		// let only 1 in every 1000 blacklisted messages pass
+		// (1st one should pass and the rest to make sure generate blacklisted
+		//  events from time to time)
+		// TODO: make it configurable
+		if (info.ExConseq % 1000) != 1 {
+			return
+		}
 	}
 	if !EventsRing.Add(ed) {
 		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",

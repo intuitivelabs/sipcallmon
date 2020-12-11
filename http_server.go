@@ -616,7 +616,8 @@ func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
 		" runtime limit %v ...\n",
 		EvRateBlst.CrtEntries(), n,
 		eLim.Sub(now), runLim.Sub(now))
-	ok, entries, to := EvRateBlst.ForceEvict(uint64(n), false, eLim, runLim)
+	ok, entries, to := EvRateBlst.ForceEvict(uint64(n), false,
+		eLim, runLim, now)
 	fmt.Fprintf(w, "GC run: target %d met: %v (crt %d entries),"+
 		" run timeout %v, entries walked: %v\n",
 		n, ok, EvRateBlst.CrtEntries(),

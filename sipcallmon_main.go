@@ -40,15 +40,16 @@ func Stop() {
 // It runs in a loop and exits only if Stop() was called, all the
 // packet processing ended (pcap reply, EOF and run_forever == false).
 func Run(cfg *Config) {
-
+	var maxRates calltr.EvRateMaxes
 	// save actual config for global ref.
 	RunningCfg = cfg
 	// forward config option to calltr
 	calltr.Cfg.RegDelta = uint32(cfg.RegDelta)
 	calltr.Cfg.ContactIgnorePort = cfg.ContactIgnorePort
 
+	calltr.InitEvRateMaxes(&maxRates, &cfg.EvRblstMaxVals, &cfg.EvRblstIntvls)
 	// init the event rate blacklist: hash table buckets, max entries.
-	EvRateBlst.Init(65535, cfg.EvRblstMax)
+	EvRateBlst.Init(65535, cfg.EvRblstMax, &maxRates)
 
 	StartTS = time.Now()
 

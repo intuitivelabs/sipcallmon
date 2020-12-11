@@ -27,7 +27,8 @@ import (
 import _ "net/http/pprof"
 
 func main() {
-	cfg, err := sipcallmon.CfgFromOSArgs(&sipcallmon.DefaultConfig)
+	defaultCfg := sipcallmon.GetDefaultCfg()
+	cfg, err := sipcallmon.CfgFromOSArgs(&defaultCfg)
 	if err != nil {
 		fmt.Printf("command line arguments error %s\n", err)
 		os.Exit(-1)

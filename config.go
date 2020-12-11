@@ -9,7 +9,12 @@ package sipcallmon
 import (
 	"flag"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
+	"unicode"
+
+	"github.com/intuitivelabs/calltr"
 )
 
 type Config struct {
@@ -31,6 +36,10 @@ type Config struct {
 	EvBufferSz     int           `config:"event_buffer_size"`
 	// maximum entries in the rate blacklist table.
 	EvRblstMax uint `config:"event_rate_blst_max"`
+	// ev rate blacklist max values for each rate
+	EvRblstMaxVals [calltr.NEvRates]float64 `config:"event_rate_values"`
+	// ev rate blacklist time intervals for each rate
+	EvRblstIntvls [calltr.NEvRates]time.Duration `config:"event_rate_intervals"`
 
 	// call tracing options
 	RegDelta uint `config:"reg_exp_delta"` // seconds
@@ -38,7 +47,7 @@ type Config struct {
 	ContactIgnorePort bool `config:"contact_ignore_port"`
 }
 
-var DefaultConfig = Config{
+var defaultConfigVals = Config{
 	ReplayMinDelay:    250 * time.Millisecond,
 	ReplayMaxDelay:    0,
 	TCPGcInt:          30 * time.Second,
@@ -51,10 +60,43 @@ var DefaultConfig = Config{
 	ContactIgnorePort: false,
 }
 
+var DefaultMaxRates = calltr.EvRateMaxes{
+	{100, time.Second}, // max 100 evs per s
+	{240, time.Minute},
+	{3600, time.Hour},
+}
+
+func GetDefaultCfg() Config {
+	cfg := defaultConfigVals
+	for i, v := range DefaultMaxRates {
+		cfg.EvRblstMaxVals[i] = v.Max
+		cfg.EvRblstIntvls[i] = v.Intvl
+	}
+	return cfg
+}
+
 // FromOsArgs intializes and returns a config from cmd line args and
 // passed default config (c).
 func CfgFromOSArgs(c *Config) (Config, error) {
 	var cfg Config
+	var evRmaxVals string
+	var evRIntvls string
+
+	// fill default value strings (for the help msg)
+	defaultEvRmaxVals := ""
+	defaultEvRIntvls := ""
+	for i, v := range c.EvRblstMaxVals {
+		if i != 0 {
+			defaultEvRmaxVals += ","
+		}
+		defaultEvRmaxVals += strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	for i, v := range c.EvRblstIntvls {
+		if i != 0 {
+			defaultEvRIntvls += ","
+		}
+		defaultEvRIntvls += v.String()
+	}
 
 	flag.BoolVar(&cfg.Verbose, "verbose", c.Verbose, "turn on verbose mode")
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
@@ -88,6 +130,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"how many events will be buffered")
 	flag.UintVar(&cfg.EvRblstMax, "event_rate_blst_max", c.EvRblstMax,
 		"maximum number for the event rate based blacklist table")
+	flag.StringVar(&evRmaxVals, "event_rate_values", defaultEvRmaxVals,
+		"event rate max values list, comma or space separated")
+	flag.StringVar(&evRIntvls, "event_rate_intervals", defaultEvRIntvls,
+		"event rate intervals list, comma or space separated")
 
 	flag.UintVar(&cfg.RegDelta, "reg_exp_delta", c.RegDelta,
 		"extra REGISTER expiration delta for absorbing delayed re-REGISTERs")
@@ -141,6 +187,63 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 				*maxBlockedToS, perr)
 			errs++
 			return cfg, e
+		}
+
+		// parse the ev rate blacklist max and intervals lists
+		// function to check for valid separators
+		checkSep := func(r rune) bool {
+			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) {
+				return true
+			}
+			return false
+		}
+		cfg.EvRblstMaxVals = c.EvRblstMaxVals
+		rate_vals := strings.FieldsFunc(evRmaxVals, checkSep)
+		for i, s := range rate_vals {
+			if i < len(cfg.EvRblstMaxVals) {
+				if v, perr := strconv.ParseFloat(s, 64); perr == nil {
+					cfg.EvRblstMaxVals[i] = v
+				} else {
+					e := fmt.Errorf("invalid rate max[%d]: %q in %q",
+						i, s, evRmaxVals)
+					errs++
+					return cfg, e
+				}
+			} else {
+				if i == (len(rate_vals)-1) && len(s) == 0 {
+					// allow strings ending in ','
+					break
+				}
+				e := fmt.Errorf("too many rate max values: %d (max %d) in %q",
+					len(rate_vals), len(cfg.EvRblstMaxVals),
+					evRmaxVals)
+				errs++
+				return cfg, e
+			}
+		}
+		cfg.EvRblstIntvls = c.EvRblstIntvls
+		rate_intvls := strings.FieldsFunc(evRIntvls, checkSep)
+		for i, s := range rate_intvls {
+			if i < len(cfg.EvRblstIntvls) {
+				if v, perr := time.ParseDuration(s); perr == nil {
+					cfg.EvRblstIntvls[i] = v
+				} else {
+					e := fmt.Errorf("invalid rate interval[%d]: %q in %q",
+						i, s, evRIntvls)
+					errs++
+					return cfg, e
+				}
+			} else {
+				if i == (len(rate_intvls)-1) && len(s) == 0 {
+					// allow strings ending in ','
+					break
+				}
+				e := fmt.Errorf("too many rate interval values:"+
+					" %d (max %d) in %q",
+					len(rate_intvls), len(cfg.EvRblstIntvls), evRIntvls)
+				errs++
+				return cfg, e
+			}
 		}
 	}
 	return cfg, nil

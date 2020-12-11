@@ -506,13 +506,6 @@ var evCnt int64         // total event count
 var evBlstCnt int64     // blacklisted count
 var evBlstFailCnt int64 // failed  blacklist check (too many entries)
 
-// TODO: make it configurable
-var maxRates = [calltr.NEvRates]float64{
-	10,  // per second
-	120, // per minute
-	360, // per hour
-}
-
 // per event callback
 func evHandler(ed *calltr.EventData) {
 	var src calltr.NetInfo
@@ -522,7 +515,7 @@ func evHandler(ed *calltr.EventData) {
 	atomic.AddInt64(&evCnt, 1)
 	//fmt.Printf("Event %d: %s\n", evCnt, ed.String())
 	ok, ridx, rv, info :=
-		EvRateBlst.IncUpdate(ed.Type, &src, time.Now(), maxRates[:])
+		EvRateBlst.IncUpdate(ed.Type, &src, time.Now())
 	if !ok {
 		atomic.AddInt64(&evBlstFailCnt, 1)
 		DBG("max event blacklist side exceeded: %v / %v\n",
@@ -532,7 +525,7 @@ func evHandler(ed *calltr.EventData) {
 	if info.Exceeded {
 		atomic.AddInt64(&evBlstCnt, 1)
 		DBG("event %s src %s blacklisted: rate %f/%f since %v (%v times)\n",
-			ed.Type, src.IP(), rv, maxRates[ridx],
+			ed.Type, src.IP(), rv, EvRateBlst.GetRateMax(ridx),
 			time.Now().Sub(info.ExChgT), info.ExConseq)
 		// TODO: if 1st blacklisted (ExConseq == 1) generate blst event
 		return

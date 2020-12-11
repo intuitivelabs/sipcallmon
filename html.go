@@ -212,7 +212,7 @@ func htmlEvRateSetForm(w http.ResponseWriter) {
 	for i := 0; i < calltr.NEvRates; i++ {
 		rname := "rate" + strconv.Itoa(i)
 		rintvl := "interval" + strconv.Itoa(i)
-		max := EvRateBlst.GetRateMax(i)
+		max := EvRateBlst.GetRateMaxVal(i)
 		intvl := EvRateBlst.GetRateIntvl(i)
 		fmt.Fprintf(w, "	<div><pre>%-12s:</pre>\n", rname)
 		fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="4">`,

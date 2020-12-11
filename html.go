@@ -9,6 +9,7 @@ package sipcallmon
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/intuitivelabs/calltr"
 )
@@ -168,6 +169,7 @@ func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 	fmt.Fprintln(w, httpHeader)
 	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
 	fmt.Fprintln(w, `<h2>Event Blacklist</h2>`)
+	fmt.Fprintln(w, `<hr><br>`)
 	fmt.Fprintln(w, `<form action="/events/blst" method="get">`)
 	for e := calltr.EvNone + 1; e < calltr.EvBad; e++ {
 		on, off := "", ""
@@ -198,5 +200,29 @@ func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 	fmt.Fprintln(w, `</form>`)
 
 	fmt.Fprintln(w, httpFooter)
+
+}
+
+func htmlEvRateSetForm(w http.ResponseWriter) {
+
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
+	fmt.Fprintln(w, `<h2>Event Blacklist Set Rates</h2>`)
+	fmt.Fprintln(w, `<hr><div><br></div>`)
+	fmt.Fprintln(w, `<form action= "/evratebls/rates", method="get">`)
+	for i := 0; i < calltr.NEvRates; i++ {
+		rname := "rate" + strconv.Itoa(i)
+		rintvl := "interval" + strconv.Itoa(i)
+		max := EvRateBlst.GetRateMax(i)
+		intvl := EvRateBlst.GetRateIntvl(i)
+		fmt.Fprintf(w, "	<div><pre>%-12s:</pre>\n", rname)
+		fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="4">`,
+			rname, strconv.FormatFloat(max, 'f', 1, 64))
+		fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="4">`,
+			rintvl, intvl.String())
+		fmt.Fprintf(w, "	</div>\n")
+	}
+
+	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
+	fmt.Fprintln(w, `</form>`)
 
 }

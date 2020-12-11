@@ -44,8 +44,9 @@ var httpInitHandlers = [...]httpHandler{
 	{"/events", "", httpEventsList},
 	{"/events/blst", "", httpEventsBlst},
 	{"/events/query", "", httpEventsQuery},
-	{"/evrateblst/", "", httpEvRateBlstStats},
+	{"/evrateblst", "", httpEvRateBlstStats},
 	{"/evrateblst/list", "", httpEvRateBlstList},
+	{"/evratebls/rates", "", httpEventsRates},
 	{"/evrateblst/forcegc", "", httpEvRateBlstForceGC},
 	{"/inject", "", httpInjectMsg},
 	{"/regs", "", httpRegStats},
@@ -844,6 +845,68 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 	counters.RootGrp.Print(w, "", flags)
 	counters.RootGrp.PrintSubGroups(w, flags)
 }
+
+func httpEventsRates(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, httpHeader)
+
+	errs := 0
+	for i := 0; i < calltr.NEvRates; i++ {
+		rname := "rate" + strconv.Itoa(i)
+		rintvl := "interval" + strconv.Itoa(i)
+
+		param, ok := r.URL.Query()[rname]
+		// val >=0 -> set max rate value (== 0 means rate disables)
+		// val < 0 -> don't change the current value
+		if ok && len(param) > 0 && len(param[0]) > 0 {
+			if val, err := strconv.ParseFloat(param[0], 64); err == nil {
+				if val >= 0 {
+					EvRateBlst.SetRateMax(i, val)
+				} // else leave the current value
+			} else {
+				fmt.Fprintf(w, "ERROR: invalid max value for rate %d:"+
+					" %q\n",
+					i, param[0])
+				errs++
+			}
+		}
+		param, ok = r.URL.Query()[rintvl]
+		// val !=0 -> set interval value (== 0 means rate disables)
+		// val < 0 -> don't change the current value
+		if ok && len(param) > 0 && len(param[0]) > 0 {
+			if d, err := time.ParseDuration(param[0]); err == nil {
+				if d != 0 {
+					EvRateBlst.SetRateIntvl(i, d)
+				} // else if d == 0, leave it untouched
+			} else {
+				fmt.Fprintf(w, "ERROR: invalid interval for rate %d:"+
+					" %q (%s)\n",
+					i, param[0], err)
+				errs++
+			}
+		}
+	}
+	/*
+		maxRates := EvRateBlst.GetMaxRates()
+		for i, r := range maxRates {
+			fmt.Fprintf(w, "rate %d:	%.2f / %v\n", i, r.Max, r.Intvl)
+		}
+	*/
+
+	if errs > 0 {
+		fmt.Fprintln(w, `<br><br><hr><br>`)
+	}
+	htmlEvRateSetForm(w)
+
+	fmt.Fprintln(w, httpFooter)
+}
+
+/*
+func httpEventsRatesSet(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, httpHeader)
+	htmlEvRateSetForm(w)
+	fmt.Fprintln(w, httpFooter)
+}
+*/
 
 func unescapeMsg(msg string, format string) ([]byte, error) {
 	m := []byte(msg)

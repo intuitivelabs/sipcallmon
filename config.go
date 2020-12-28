@@ -9,6 +9,7 @@ package sipcallmon
 import (
 	"flag"
 	"fmt"
+	"github.com/intuitivelabs/anonymization"
 	"time"
 )
 
@@ -34,6 +35,19 @@ type Config struct {
 	RegDelta uint `config:"reg_exp_delta"` // seconds
 	// contact matching options
 	ContactIgnorePort bool `config:"contact_ignore_port"`
+
+	// anonymization/encryption options
+	// are the IPs encrypted?
+	EncryptIPs bool `config:"encrypt_ip_addresses"`
+	// are the URIs encrypted?
+	EncryptURIs bool `config:"encrypt_uris"`
+	// are the CallIDs encrypted?
+	EncryptCallIDs bool `config:"encrypt_call_ids"`
+
+	// encryption key is either generated from a configured passphrase...
+	EncryptionPassphrase string `config:"encryption_passphrase"`
+	// ... or directly configured
+	EncryptionKey [anonymization.EncryptionKeyLen]byte `config:"encryption_key"`
 }
 
 var DefaultConfig = Config{

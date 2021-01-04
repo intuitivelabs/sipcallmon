@@ -9,7 +9,6 @@ package sipcallmon
 import (
 	"flag"
 	"fmt"
-	"github.com/intuitivelabs/anonymization"
 	"time"
 )
 
@@ -47,7 +46,7 @@ type Config struct {
 	// encryption key is either generated from a configured passphrase...
 	EncryptionPassphrase string `config:"encryption_passphrase"`
 	// ... or directly configured
-	EncryptionKey [anonymization.EncryptionKeyLen]byte `config:"encryption_key"`
+	EncryptionKey string `config:"encryption_key"`
 }
 
 var DefaultConfig = Config{

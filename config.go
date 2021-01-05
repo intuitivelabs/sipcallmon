@@ -64,22 +64,22 @@ var DefaultConfig = Config{
 	EncryptCallIDs:    false,
 }
 
-func (cfg Config) useIPAnonymization() bool {
+func (cfg Config) UseIPAnonymization() bool {
 	return cfg.EncryptIPs
 }
 
-func (cfg Config) useURIAnonymization() bool {
+func (cfg Config) UseURIAnonymization() bool {
 	return cfg.EncryptURIs
 }
 
-func (cfg Config) useCallIDAnonymization() bool {
+func (cfg Config) UseCallIDAnonymization() bool {
 	return cfg.EncryptCallIDs
 }
 
 func (cfg Config) UseAnonymization() bool {
-	return cfg.useIPAnonymization() ||
-		cfg.useURIAnonymization() ||
-		cfg.useCallIDAnonymization()
+	return cfg.UseIPAnonymization() ||
+		cfg.UseURIAnonymization() ||
+		cfg.UseCallIDAnonymization()
 }
 
 // FromOsArgs intializes and returns a config from cmd line args and

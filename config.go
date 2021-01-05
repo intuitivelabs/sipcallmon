@@ -59,6 +59,9 @@ var DefaultConfig = Config{
 	EvBufferSz:        10240,
 	RegDelta:          30, // seconds
 	ContactIgnorePort: false,
+	EncryptIPs:        false,
+	EncryptURIs:       false,
+	EncryptCallIDs:    false,
 }
 
 // FromOsArgs intializes and returns a config from cmd line args and
@@ -157,6 +160,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
+	}
+	if (cfg.EncryptIPs || cfg.EncryptURIs || cfg.EncryptCallIDs) &&
+		(len(cfg.EncryptionPassphrase) == 0 || len(cfg.EncryptionKey) == 0) {
+		return fmt.Errorf("Anonymization required and no encryption passphrase/key provided")
 	}
 	return nil
 }

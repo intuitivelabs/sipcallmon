@@ -64,6 +64,24 @@ var DefaultConfig = Config{
 	EncryptCallIDs:    false,
 }
 
+func (cfg Config) useIPAnonymization() bool {
+	return cfg.EncryptIPs
+}
+
+func (cfg Config) useURIAnonymization() bool {
+	return cfg.EncryptURIs
+}
+
+func (cfg Config) useCallIDAnonymization() bool {
+	return cfg.EncryptCallIDs
+}
+
+func (cfg Config) UseAnonymization() bool {
+	return cfg.useIPAnonymization() ||
+		cfg.useURIAnonymization() ||
+		cfg.useCallIDAnonymization()
+}
+
 // FromOsArgs intializes and returns a config from cmd line args and
 // passed default config (c).
 func CfgFromOSArgs(c *Config) (Config, error) {
@@ -161,8 +179,9 @@ func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
 	}
-	if (cfg.EncryptIPs || cfg.EncryptURIs || cfg.EncryptCallIDs) &&
-		(len(cfg.EncryptionPassphrase) == 0 || len(cfg.EncryptionKey) == 0) {
+	if cfg.UseAnonymization() &&
+		len(cfg.EncryptionPassphrase) == 0 &&
+		len(cfg.EncryptionKey) == 0 {
 		return fmt.Errorf("Anonymization required and no encryption passphrase/key provided")
 	}
 	return nil

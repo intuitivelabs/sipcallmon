@@ -74,6 +74,8 @@ var cntEvQueued counters.Handle
 var cntEvReadOnly counters.Handle
 var cntEvReadOnly2 counters.Handle
 var cntEvGetOldIdx counters.Handle
+var cntEvGetHighIdx counters.Handle
+var cntEvGetLastIdx counters.Handle
 var cntEvGetInvEv counters.Handle
 var cntEvGetBusyEv counters.Handle
 var cntEvMaxParallel counters.Handle
@@ -207,27 +209,49 @@ type GetEvErr uint8
 
 const (
 	ErrOk GetEvErr = iota
-	ErrOutOfRange
+	ErrOutOfRangeLow
 	ErrBusy
 	ErrInvalid
+	ErrOutOfRangeHigh
+	ErrLast
 )
 
 // Get returns the entry in the ring at pos on success and nil on error.
 // It also returns the next suggested index (useful for retrying after errors)
 // and the error reason:
-//    - ErrOutOfRange - index out of range, nxt will be set to crt_idx - ev_buf
-// size
+//     - ErrOutOfRangeLow - index out of range, before current ring start.
+//                           nxt will be set to crt_idx - ev_buf (ring start)
+//     - ErrOutOfRangeHigh - index out of range, after the ring end.
+//                           nxt will be set to the ring end (last idx)
+//     - ErrLast           - end of elements, index corresponds to the
+//                           end of the ring. nxt will be set to the ring end.
 //     - ErrBusy - the event entry at pos is currently busy (being written to).
 // One could retry it later. nxt is set to pos (retry).
 //     - ErrInvalid - the event entry at pos is not valid and should be skipped.// nxt is set to pos + 1.
 func (er *EvRing) Get(pos EvRingIdx) (ed *calltr.EventData, nxt EvRingIdx, err GetEvErr) {
 	i := int(pos % EvRingIdx(len(er.events)))
 	er.lock.Lock()
-	if (er.idx.Get() - pos) > EvRingIdx(len(er.events)) {
+	lastIdx := er.idx.Get()
+	if (lastIdx - pos) > EvRingIdx(len(er.events)) {
 		// out-of-range
 		er.lock.Unlock()
-		er.stats.Inc(cntEvGetOldIdx)
-		return nil, er.idx.Get() - EvRingIdx(len(er.events)), ErrOutOfRange
+		if int64(uint64(pos)-uint64(lastIdx)) < 0 {
+			// if pos before lastIdx => out of range before start of ring
+			er.stats.Inc(cntEvGetOldIdx)
+			// return start of ring as next idx + error
+			return nil, er.idx.Get() - EvRingIdx(len(er.events)),
+				ErrOutOfRangeLow
+		} else {
+			// if pos after lastIdx => out of range, after end
+			er.stats.Inc(cntEvGetHighIdx)
+			// return end of ring as next idx + error
+			return nil, lastIdx, ErrOutOfRangeHigh
+		}
+	} else if lastIdx == pos {
+		// out-of-range: request for ring last idx
+		er.lock.Unlock()
+		er.stats.Inc(cntEvGetLastIdx)
+		return nil, lastIdx, ErrLast
 	} else if er.state[i].busy {
 		// NOTE: the else order is important: the check for .busy must
 		//       be done before the check for .valid.
@@ -312,11 +336,17 @@ func (er *EvRing) Iterate(pos EvRingIdx, f IterateCbk, cbkArg interface{}) int {
 				// we don't want to spin wait on it, we'll just skip it
 				n++
 				continue
-			case ErrOutOfRange:
+			case ErrOutOfRangeLow:
 				fmt.Printf("Iterate: changed n= %d to %d (e.idx = %d start =%d)\n",
 					n, nxtidx, er.LastIdx(), start)
 			case ErrInvalid:
 				// do nothing , skip over it
+			case ErrOutOfRangeHigh:
+				fmt.Printf("Iterate: out of range high: n= %d -> %d last %d\n",
+					n, nxtidx, er.LastIdx())
+				fallthrough
+			case ErrLast:
+				break // or break for (should be equiv.)
 			}
 			n = nxtidx
 		}
@@ -403,6 +433,10 @@ func (er *EvRing) Init(no int) {
 			"number of temporary read_only entries"},
 		{&cntEvGetOldIdx, 0, nil, nil, "get_old_idx",
 			"Get called with a too old index(too slow)"},
+		{&cntEvGetHighIdx, 0, nil, nil, "get_high_idx",
+			"Get called with an out of range index(too high)"},
+		{&cntEvGetLastIdx, 0, nil, nil, "get_last_idx",
+			"Get called with the ring end index"},
 		{&cntEvGetInvEv, 0, nil, nil, "get_inv_ev",
 			"Get index points to an empty/invalid event"},
 		{&cntEvGetBusyEv, 0, nil, nil, "get_busy_ev",

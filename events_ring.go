@@ -228,16 +228,18 @@ func (er *EvRing) Get(pos EvRingIdx) (ed *calltr.EventData, nxt EvRingIdx, err G
 		er.lock.Unlock()
 		er.stats.Inc(cntEvGetOldIdx)
 		return nil, er.idx.Get() - EvRingIdx(len(er.events)), ErrOutOfRange
+	} else if er.state[i].busy {
+		// NOTE: the else order is important: the check for .busy must
+		//       be done before the check for .valid.
+		// busy, being written to
+		er.lock.Unlock()
+		er.stats.Inc(cntEvGetBusyEv)
+		return nil, pos, ErrBusy
 	} else if !er.state[i].valid {
 		// invalid event (e.g. copy failed, initial state)
 		er.lock.Unlock()
 		er.stats.Inc(cntEvGetInvEv)
 		return nil, pos + 1, ErrInvalid
-	} else if er.state[i].busy {
-		// busy, being written to
-		er.lock.Unlock()
-		er.stats.Inc(cntEvGetBusyEv)
-		return nil, pos, ErrBusy
 	}
 	er.state[i].readOnly++
 	er.stats.Inc(cntEvReadOnly2)

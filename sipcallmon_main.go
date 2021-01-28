@@ -49,7 +49,7 @@ func Run(cfg *Config) {
 
 	calltr.InitEvRateMaxes(&maxRates, &cfg.EvRblstMaxVals, &cfg.EvRblstIntvls)
 	// init the event rate blacklist: hash table buckets, max entries.
-	EvRateBlst.Init(65535, cfg.EvRblstMax, &maxRates)
+	EvRateBlst.Init(65535, uint32(cfg.EvRblstMax), &maxRates)
 
 	StartTS = time.Now()
 

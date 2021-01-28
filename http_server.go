@@ -617,9 +617,12 @@ func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
 		" runtime limit %v ...\n",
 		EvRateBlst.CrtEntries(), n,
 		eLim.Sub(now), runLim.Sub(now))
-	var m calltr.MatchEvRTS
-	m.Exceeded = 0 // match exceeded == false
-	m.T0 = eLim
+	// match non-exceeded (blacklisted entries), which were created (T0)
+	// more then 2s in the past (from the current time)
+	m := calltr.MatchEvRTS{
+		OpEx: calltr.MOpEQ, Ex: false,
+		OpT0: calltr.MOpLT, T0: eLim, // T0 < eLim
+	}
 	ok, entries, to := EvRateBlst.ForceEvict(uint64(n), m, now, runLim)
 	fmt.Fprintf(w, "GC run: target %d met: %v (crt %d entries),"+
 		" run timeout %v, entries walked: %v\n",

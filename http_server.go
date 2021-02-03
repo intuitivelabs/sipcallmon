@@ -46,8 +46,9 @@ var httpInitHandlers = [...]httpHandler{
 	{"/events/query", "", httpEventsQuery},
 	{"/evrateblst", "", httpEvRateBlstStats},
 	{"/evrateblst/list", "", httpEvRateBlstList},
-	{"/evratebls/rates", "", httpEventsRates},
+	{"/evrateblst/rates", "", httpEventsRates},
 	{"/evrateblst/forcegc", "", httpEvRateBlstForceGC},
+	{"/evrateblst/gccfg", "", httpEvRateBlstGCcfg},
 	{"/inject", "", httpInjectMsg},
 	{"/regs", "", httpRegStats},
 	{"/regs/list", "", httpRegBindingsList},
@@ -628,6 +629,193 @@ func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
 		" run timeout %v, entries walked: %v\n",
 		n, ok, EvRateBlst.CrtEntries(),
 		to, entries)
+}
+
+func httpEvRateBlstGCcfg(w http.ResponseWriter, r *http.Request) {
+	cfg := EvRateBlst.GetGCcfg()
+	matchCsz := len(*cfg.ForceGCMatchC)
+	if matchCsz < 10 {
+		matchCsz = 10 // maximum reasonable no of match conditions for hard gc
+	}
+	matchC := make([]calltr.MatchEvROffs, len(*cfg.ForceGCMatchC), matchCsz)
+	copy(matchC, *cfg.ForceGCMatchC)
+
+	runLsz := len(*cfg.ForceGCrunL)
+	if runLsz < 10 {
+		runLsz = 10 // maximum reasonable no of hard gc runtime limits
+	}
+	runL := make([]time.Duration, len(*cfg.ForceGCrunL), runLsz)
+	copy(runL, *cfg.ForceGCrunL)
+
+	gcCfg := *cfg
+	// deep copy, change array pointer to our copy
+	gcCfg.ForceGCMatchC = &matchC
+	gcCfg.ForceGCrunL = &runL
+
+	chgs := 0
+
+	s := r.FormValue("max_entries")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.MaxEntries = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad max_entries value (%q) : %s\n", s, err)
+		}
+	}
+
+	s = r.FormValue("hard_gc_target")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.TargetMax = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad hard_gc_target value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_trigger")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.GCtrigger = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_trigger value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_target")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.GCtarget = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_target value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_lifetime")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			gcCfg.LightGCtimeL = v
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_lifetime value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_max_runtime")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			gcCfg.LightGCrunL = v
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_max_runtime value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	// unpack []MatchEvRoffs (match conditions for each hard GC run)
+	for i := 0; i < cap(matchC); i++ {
+		var m calltr.MatchEvROffs
+		if i < len(matchC) {
+			m = matchC[i]
+		}
+		k := 0
+		n := "hard_gc_m" + strconv.Itoa(i)
+		if s = r.FormValue(n + "_opex"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpEx = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_ex"); len(s) > 0 {
+			if v, err := strconv.ParseBool(s); err == nil {
+				m.Ex = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opt0"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpT0 = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_dt0"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DT0 = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opexchgt"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpExChgT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_dexchgt"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DExChgT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opexlastt"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpExLastT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_dexlastt"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DExLastT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opoklastt"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpOkLastT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_doklastt"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DOkLastT = v
+				k++
+			}
+		}
+		if k > 0 {
+			if i < len(matchC) {
+				matchC[i] = m
+			} else {
+				matchC = append(matchC, m)
+			}
+		}
+	}
+	gcCfg.ForceGCMatchC = &matchC // in case it changes (append()...)
+
+	// unpack []time.Duration: ForeGCrunL (for each hard GC run)
+	for i := 0; i < cap(runL); i++ {
+		n := "rlim" + strconv.Itoa(i)
+		if s = r.FormValue(n); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				if i < len(runL) {
+					runL[i] = v
+				} else {
+					runL = append(runL, v)
+				}
+			}
+		}
+	}
+	gcCfg.ForceGCrunL = &runL // in case it changes (append()...)
+
+	htmlEvRateGCparams(w, &gcCfg)
+	if chgs > 0 {
+		EvRateBlst.SetGCcfg(&gcCfg)
+	}
 }
 
 var ipLocalhost net.IP = net.IP{127, 0, 0, 1}

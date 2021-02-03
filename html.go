@@ -8,6 +8,7 @@ package sipcallmon
 
 import (
 	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 
@@ -208,7 +209,7 @@ func htmlEvRateSetForm(w http.ResponseWriter) {
 	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
 	fmt.Fprintln(w, `<h2>Event Blacklist Set Rates</h2>`)
 	fmt.Fprintln(w, `<hr><div><br></div>`)
-	fmt.Fprintln(w, `<form action= "/evratebls/rates", method="get">`)
+	fmt.Fprintln(w, `<form action= "/evrateblst/rates", method="get">`)
 	for i := 0; i < calltr.NEvRates; i++ {
 		rname := "rate" + strconv.Itoa(i)
 		rintvl := "interval" + strconv.Itoa(i)
@@ -225,4 +226,118 @@ func htmlEvRateSetForm(w http.ResponseWriter) {
 	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
 	fmt.Fprintln(w, `</form>`)
 
+}
+
+func htmlEvRateGCparams(w http.ResponseWriter, gcCfg *calltr.EvRateGCcfg) {
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
+	fmt.Fprintln(w, `<h2>Event Blacklist Garbage Collection Parameters</h2>`)
+	fmt.Fprintln(w, `<hr><div><br></div>`)
+	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg", method="get">`)
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "max_entries")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
+		"max_entries", strconv.FormatUint(uint64(gcCfg.MaxEntries), 10))
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "hard_gc_target")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6">`,
+		"hard_gc_target", strconv.FormatUint(uint64(gcCfg.TargetMax), 10))
+	fmt.Fprintf(w, "<pre> (%02d%%)</pre>",
+		gcCfg.TargetMax*100/gcCfg.MaxEntries,
+	)
+	fmt.Fprintln(w, "</div>")
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "light_gc_trigger")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6">`,
+		"light_gc_trigger", strconv.FormatUint(uint64(gcCfg.GCtrigger), 10))
+	fmt.Fprintf(w, "<pre> (%02d%%)</pre>",
+		gcCfg.GCtrigger*100/gcCfg.MaxEntries,
+	)
+	fmt.Fprintln(w, "</div>")
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "light_gc_target")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6">`,
+		"light_gc_target", strconv.FormatUint(uint64(gcCfg.GCtarget), 10))
+	fmt.Fprintf(w, "<pre> (%02d%%)</pre>",
+		gcCfg.GCtarget*100/gcCfg.MaxEntries,
+	)
+	fmt.Fprintln(w, "</div>")
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "light_gc_lifetime")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6">`,
+		"light_gc_lifetime", gcCfg.LightGCtimeL)
+	fmt.Fprintln(w, "</div>")
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "light_gc_max_runtime")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6">`,
+		"light_gc_runtime", gcCfg.LightGCrunL)
+	fmt.Fprintln(w, "</div>")
+
+	fmt.Fprintf(w, "	<br><div><pre>%-20s:</pre>\n", "hard_gc_criteria")
+	for i, m := range *gcCfg.ForceGCMatchC {
+		htmlEvRateMatchEv(w, "hard_gc_m"+strconv.Itoa(i), m)
+		fmt.Fprintf(w, "	<br>\n")
+	}
+	fmt.Fprintf(w, "</div>\n")
+
+	fmt.Fprintf(w, "	<br><div><pre>%-20s:</pre>\n",
+		"hard_gc_run_limits")
+	for i, l := range *gcCfg.ForceGCrunL {
+		fmt.Fprintf(w, "	  <div><pre>%-18s:</pre>\n",
+			"for criteria "+strconv.Itoa(i))
+		fmt.Fprintf(w, `		<input type="text" name=%q  value=%q size="4">`,
+			"rlim"+strconv.Itoa(i), l)
+		fmt.Fprintf(w, "	<br>\n")
+	}
+
+	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
+	fmt.Fprintln(w, `</form>`)
+}
+
+func htmlEvRateMatchEv(w http.ResponseWriter, n string, m calltr.MatchEvROffs) {
+	fmt.Fprintf(w, "	  <div><pre>%-18s:</pre>\n", "blacklisted")
+	selectMatchEvOp(w, n+"_opex", m.OpEx)
+	fmt.Fprintf(w, `		<input type="text" name=%q  value=%q size="4">`,
+		n+"_ex", strconv.FormatBool(m.Ex))
+	fmt.Fprintf(w, "</div>\n")
+
+	fmt.Fprintf(w, "		<div><pre>%-18s:</pre>", "created")
+	selectMatchEvOp(w, n+"_opt0", m.OpT0)
+	fmt.Fprintf(w, `		<input type="text" name=%q  value=%q size="4">`,
+		n+"_dt0", m.DT0)
+	fmt.Fprintf(w, "</div>\n")
+
+	fmt.Fprintf(w, "		<div><pre>%-18s:</pre>", "changed")
+	selectMatchEvOp(w, n+"_opexchgt", m.OpExChgT)
+	fmt.Fprintf(w, `		<input type="text" name=%q  value=%q size="4">`,
+		n+"_dexchgt", m.DExChgT)
+	fmt.Fprintf(w, "</div>\n")
+
+	fmt.Fprintf(w, "		<div><pre>%-18s:</pre>", "last blacklisted")
+	selectMatchEvOp(w, n+"_opexlastt", m.OpExLastT)
+	fmt.Fprintf(w, `		<input type="text" name=%q  value=%q size="4">`,
+		n+"_dexlastt", m.DExLastT)
+	fmt.Fprintf(w, "</div>\n")
+
+	fmt.Fprintf(w, "		<div><pre>%-18s:</pre>", "last ok")
+	selectMatchEvOp(w, n+"_opoklastt", m.OpOkLastT)
+	fmt.Fprintf(w, `		<input type="text" name=%q  value=%q size="4">`,
+		n+"_doklastt", m.DOkLastT)
+	fmt.Fprintf(w, "</div>\n")
+
+}
+
+func selectMatchEvOp(w http.ResponseWriter, n string, defOp calltr.MatchOp) {
+	fmt.Fprintf(w, "		<select name=%q>\n", n)
+	for op := calltr.MatchOp(0); op <= calltr.MOpLast; op++ {
+		opstr := op.String()
+		if len(opstr) != 0 {
+			selected := ""
+			if op == defOp {
+				selected = "selected"
+			}
+			fmt.Fprintf(w, "			<option value=%q %s>%s</option>\n",
+				opstr, selected, html.EscapeString(opstr))
+		}
+	}
+	fmt.Fprintln(w, `		</select>`)
 }

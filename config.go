@@ -40,6 +40,24 @@ type Config struct {
 	EvRblstMaxVals [calltr.NEvRates]float64 `config:"event_rate_values"`
 	// ev rate blacklist time intervals for each rate
 	EvRblstIntvls [calltr.NEvRates]time.Duration `config:"event_rate_intervals"`
+	// ev rate periodic GC config. Note that there are 3 GC types for
+	// the ev rate entries: periodic GC, hard GC run when max_entries is
+	// exceeded an a new entry needs to be allocated and light GC run also
+	// on allocation, when some limit is exceeded
+	// For now only the periodic GC can be configured (the other two are
+	// hard-wired and can be changed only via the web interface).
+
+	// ev rate periodic GC interval
+	EvRgcInterval time.Duration `config:"evr_gc_interval"`
+	// ev rate old age: entries that are no blacklisted and
+	//  matched a message more then this interval ago will be GCed
+	EvRgcOldAge time.Duration `config:"evr_gc_old_age"`
+	// ev rate periodic GC maximum runtime (each GC run will stop after
+	// this interval has elapsed)
+	EvRgcMaxRunT time.Duration `config:"evr_gc_max_run_time"`
+	// ev rate periodic GC target: each GC run will stop if the
+	// remaining entries <= then this value
+	EvRgcTarget uint `config:"evr_gc_target"`
 
 	// call tracing options
 	RegDelta uint `config:"reg_exp_delta"` // seconds
@@ -56,6 +74,10 @@ var defaultConfigVals = Config{
 	MaxBlockedTo:      1 * time.Second,
 	EvBufferSz:        10240,
 	EvRblstMax:        1024 * 1024,
+	EvRgcInterval:     10 * time.Second,
+	EvRgcOldAge:       300 * time.Second,
+	EvRgcMaxRunT:      1 * time.Second,
+	EvRgcTarget:       10, // 10? entries
 	RegDelta:          30, // seconds
 	ContactIgnorePort: false,
 }
@@ -98,6 +120,11 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		defaultEvRIntvls += v.String()
 	}
 
+	// initialize cfg with the default config, just in case there is
+	// some option that is not configurable via the command line
+	// (missing flag with default value)
+	cfg = *c
+
 	flag.BoolVar(&cfg.Verbose, "verbose", c.Verbose, "turn on verbose mode")
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
 	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
@@ -134,6 +161,17 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"event rate max values list, comma or space separated")
 	flag.StringVar(&evRIntvls, "event_rate_intervals", defaultEvRIntvls,
 		"event rate intervals list, comma or space separated")
+	evRgcIntervalS := flag.String("evr_gc_interval",
+		c.EvRgcInterval.String(), "event rate periodic GC interval")
+	evRgcOldAgeS := flag.String("evr_gc_old_age",
+		c.EvRgcOldAge.String(),
+		"event rate old age: non-blst. entries idle for more then this value"+
+			" will be GCed")
+	evRgcMaxRunS := flag.String("evr_gc_max_run_time",
+		c.EvRgcMaxRunT.String(), "maximum runtime for each periodic GC run")
+	flag.UintVar(&cfg.EvRgcTarget, "evr_gc_target", c.EvRgcTarget,
+		"event rate periodic GC target: GC will stop if the number off"+
+			" remaining entries is less then this value")
 
 	flag.UintVar(&cfg.RegDelta, "reg_exp_delta", c.RegDelta,
 		"extra REGISTER expiration delta for absorbing delayed re-REGISTERs")
@@ -244,6 +282,28 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 				errs++
 				return cfg, e
 			}
+		}
+
+		cfg.EvRgcInterval, perr = time.ParseDuration(*evRgcIntervalS)
+		if perr != nil {
+			e := fmt.Errorf("invalid evr_gc_interval: %s: %v",
+				*evRgcIntervalS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.EvRgcOldAge, perr = time.ParseDuration(*evRgcOldAgeS)
+		if perr != nil {
+			e := fmt.Errorf("invalid evr_gc_old_age: %s: %v",
+				*evRgcOldAgeS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.EvRgcMaxRunT, perr = time.ParseDuration(*evRgcMaxRunS)
+		if perr != nil {
+			e := fmt.Errorf("invalid evr_gc_max_run_time: %s: %v",
+				*evRgcMaxRunS, perr)
+			errs++
+			return cfg, e
 		}
 	}
 	return cfg, nil

@@ -55,10 +55,11 @@ func evRateBlstGCRun(ticker *time.Ticker, done chan struct{}) {
 		OpOkLastT: calltr.MOpLT, // match last (time) OK older then ...
 		// OkLastT filled each time
 	}
-	// TODO: make it configurable
-	lifetime := 300 * time.Second
-	maxRunT := 1 * time.Second
-	target := 10 // when to stop GC TODO
+
+	// TODO: make it runtime configurable
+	lifetime := RunningCfg.EvRgcOldAge
+	maxRunT := RunningCfg.EvRgcMaxRunT
+	target := RunningCfg.EvRgcTarget
 
 	missed := 0
 mainloop:
@@ -119,8 +120,13 @@ func Run(cfg *Config) {
 	// init the event rate blacklist: hash table buckets, max entries.
 	EvRateBlst.Init(65535, uint32(cfg.EvRblstMax), &maxRates)
 	stopCh = make(chan struct{})
-	gcTicker = time.NewTicker(10 * time.Second) // TODO: config
-	evRateBlstStartGC(gcTicker, stopCh)
+	if cfg.EvRgcInterval != 0 {
+		// TODO: make it runtime configurable (involves having a safe way to
+		// stop & restart it (e.g.: stop the ticker only from the gc thread and
+		// drain it)
+		gcTicker = time.NewTicker(cfg.EvRgcInterval)
+		evRateBlstStartGC(gcTicker, stopCh)
+	}
 
 	StartTS = time.Now()
 

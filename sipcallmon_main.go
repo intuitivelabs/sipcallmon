@@ -12,7 +12,9 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 const Version = "0.7.0"
@@ -44,10 +46,46 @@ func Stop() {
 	}
 }
 
+// EvRateBlstGCChangeIntvl changes the interval used for the periodic GC.
+func EvRateBlstGCChangeIntvl(intvl time.Duration) bool {
+	p := (*unsafe.Pointer)((unsafe.Pointer)(&gcTicker))
+	t := (*time.Ticker)(atomic.LoadPointer(p))
+	if t != nil {
+		if intvl == 0 {
+			// disable
+			t.Stop()
+			return true
+		}
+		t.Reset(intvl) // should work even if the timer is stopped
+	} else {
+		// no ticker started
+		if intvl == 0 {
+			return true
+		}
+		if stopCh == nil {
+			// no stop channel, bail out (called before start or after stop)
+			return false
+		}
+		// not started => start it
+		ticker := time.NewTicker(intvl)
+		if atomic.CompareAndSwapPointer(p, nil, unsafe.Pointer(ticker)) {
+			// success, nobody changed it in parallel
+			evRateBlstStartGC(ticker, stopCh)
+		} else {
+			// parallel change -> give up on our ticker and change the new one
+			ticker.Stop()
+			t := (*time.Ticker)(atomic.LoadPointer(p))
+			t.Reset(intvl)
+		}
+	}
+	return true
+}
+
 // evRateBlstLoop runs the ev rate garbage collection periodically
 // (based on the passed time.Ticker). It should be run in a separate
 // thread.
 func evRateBlstGCRun(ticker *time.Ticker, done chan struct{}) {
+	// TODO: counters
 	defer waitgrp.Done()
 	m := calltr.MatchEvRTS{
 		OpEx:      calltr.MOpEQ,
@@ -55,11 +93,6 @@ func evRateBlstGCRun(ticker *time.Ticker, done chan struct{}) {
 		OpOkLastT: calltr.MOpLT, // match last (time) OK older then ...
 		// OkLastT filled each time
 	}
-
-	// TODO: make it runtime configurable
-	lifetime := RunningCfg.EvRgcOldAge
-	maxRunT := RunningCfg.EvRgcMaxRunT
-	target := RunningCfg.EvRgcTarget
 
 	missed := 0
 mainloop:
@@ -71,11 +104,19 @@ mainloop:
 			if !ok {
 				break mainloop
 			}
+			lifetime := time.Duration(
+				atomic.LoadInt64((*int64)(&RunningCfg.EvRgcOldAge)))
+			maxRunT := time.Duration(
+				atomic.LoadInt64((*int64)(&RunningCfg.EvRgcMaxRunT)))
+			target := atomic.LoadUint64(&RunningCfg.EvRgcTarget)
 			now := time.Now()
 			m.OkLastT = now.Add(-lifetime)
 			runLim := now.Add(maxRunT)
 			// run GC
-			EvRateBlst.ForceEvict(uint64(target), m, now, runLim)
+			e0 := EvRateBlst.CrtEntries()
+			tgt, n, to := EvRateBlst.ForceEvict(target, m, now, runLim)
+			e1 := EvRateBlst.CrtEntries()
+			DBG("GC run => target met: %v (%v / %v) n: %v / %v timeout: %v\n", tgt, e1, e0, n, e0, to)
 			// check if another tick passed
 			missed = 0
 		checkmissed:
@@ -93,6 +134,7 @@ mainloop:
 			if missed > 0 {
 				// GC takes more then 1 tick
 				// TODO: do something
+				DBG("GC run missed ticks: %v\n", time.Now().Sub(now))
 			}
 		}
 	}
@@ -121,9 +163,6 @@ func Run(cfg *Config) {
 	EvRateBlst.Init(65535, uint32(cfg.EvRblstMax), &maxRates)
 	stopCh = make(chan struct{})
 	if cfg.EvRgcInterval != 0 {
-		// TODO: make it runtime configurable (involves having a safe way to
-		// stop & restart it (e.g.: stop the ticker only from the gc thread and
-		// drain it)
 		gcTicker = time.NewTicker(cfg.EvRgcInterval)
 		evRateBlstStartGC(gcTicker, stopCh)
 	}

@@ -48,7 +48,8 @@ var httpInitHandlers = [...]httpHandler{
 	{"/evrateblst/list", "", httpEvRateBlstList},
 	{"/evrateblst/rates", "", httpEventsRates},
 	{"/evrateblst/forcegc", "", httpEvRateBlstForceGC},
-	{"/evrateblst/gccfg", "", httpEvRateBlstGCcfg},
+	{"/evrateblst/gccfg1", "", httpEvRateBlstGCcfg1},
+	{"/evrateblst/gccfg2", "", httpEvRateBlstGCcfg2},
 	{"/inject", "", httpInjectMsg},
 	{"/regs", "", httpRegStats},
 	{"/regs/list", "", httpRegBindingsList},
@@ -631,7 +632,9 @@ func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
 		to, entries)
 }
 
-func httpEvRateBlstGCcfg(w http.ResponseWriter, r *http.Request) {
+// runtime config for event rate blacklist hard & light GC
+// (GC done internally when running out of entries)
+func httpEvRateBlstGCcfg2(w http.ResponseWriter, r *http.Request) {
 	cfg := EvRateBlst.GetGCcfg()
 	matchCsz := len(*cfg.ForceGCMatchC)
 	if matchCsz < 10 {
@@ -816,6 +819,66 @@ func httpEvRateBlstGCcfg(w http.ResponseWriter, r *http.Request) {
 	if chgs > 0 {
 		EvRateBlst.SetGCcfg(&gcCfg)
 	}
+}
+
+// runtime config for event rate periodic GC
+// (GC done on timer)
+func httpEvRateBlstGCcfg1(w http.ResponseWriter, r *http.Request) {
+	cfg := RunningCfg
+
+	s := r.FormValue("evr_gc_interval")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			interval := time.Duration(
+				atomic.LoadInt64((*int64)(&cfg.EvRgcInterval)))
+			if interval != v {
+				if atomic.CompareAndSwapInt64(
+					(*int64)(&cfg.EvRgcInterval),
+					int64(interval), int64(v)) {
+					// only if nobody changed the value faster then us
+					if !EvRateBlstGCChangeIntvl(v) {
+						fmt.Fprintf(w, "ERROR: failed changing"+
+							" evr_gc_interval (%q)\n", s)
+					}
+				}
+			}
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_interval value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("evr_gc_old_age")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			atomic.StoreInt64((*int64)(&cfg.EvRgcOldAge), int64(v))
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_old_age value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("evr_gc_max_run_time")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			atomic.StoreInt64((*int64)(&cfg.EvRgcMaxRunT), int64(v))
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_max_run_time value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("evr_gc_target")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			atomic.StoreUint64(&cfg.EvRgcTarget, v)
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_target value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	htmlEvRatePerGCparams(w, cfg)
 }
 
 var ipLocalhost net.IP = net.IP{127, 0, 0, 1}

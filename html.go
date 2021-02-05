@@ -11,6 +11,8 @@ import (
 	"html"
 	"net/http"
 	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/intuitivelabs/calltr"
 )
@@ -232,7 +234,7 @@ func htmlEvRateGCparams(w http.ResponseWriter, gcCfg *calltr.EvRateGCcfg) {
 	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
 	fmt.Fprintln(w, `<h2>Event Blacklist Garbage Collection Parameters</h2>`)
 	fmt.Fprintln(w, `<hr><div><br></div>`)
-	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg", method="get">`)
+	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg2", method="get">`)
 
 	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "max_entries")
 	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
@@ -340,4 +342,38 @@ func selectMatchEvOp(w http.ResponseWriter, n string, defOp calltr.MatchOp) {
 		}
 	}
 	fmt.Fprintln(w, `		</select>`)
+}
+
+func htmlEvRatePerGCparams(w http.ResponseWriter, cfg *Config) {
+	interval := time.Duration(
+		atomic.LoadInt64((*int64)(&cfg.EvRgcInterval)))
+	lifetime := time.Duration(
+		atomic.LoadInt64((*int64)(&cfg.EvRgcOldAge)))
+	maxRunT := time.Duration(
+		atomic.LoadInt64((*int64)(&cfg.EvRgcMaxRunT)))
+	target := atomic.LoadUint64(&cfg.EvRgcTarget)
+
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
+	fmt.Fprintln(w, `<h2>Event Blacklist Periodic Garbage Collection Cfg</h2>`)
+	fmt.Fprintln(w, `<hr><div><br></div>`)
+	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg1", method="get">`)
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "evr_gc_interval")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
+		"evr_gc_interval", interval)
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "evr_gc_old_age")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
+		"evr_gc_old_age", lifetime)
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "evr_gc_max_run_time")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
+		"evr_gc_max_run_time", maxRunT)
+
+	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "evr_gc_target")
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
+		"evr_gc_target", strconv.FormatUint(target, 10))
+
+	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
+	fmt.Fprintln(w, `</form>`)
 }

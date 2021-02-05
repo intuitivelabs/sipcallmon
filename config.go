@@ -57,7 +57,7 @@ type Config struct {
 	EvRgcMaxRunT time.Duration `config:"evr_gc_max_run_time"`
 	// ev rate periodic GC target: each GC run will stop if the
 	// remaining entries <= then this value
-	EvRgcTarget uint `config:"evr_gc_target"`
+	EvRgcTarget uint64 `config:"evr_gc_target"`
 
 	// call tracing options
 	RegDelta uint `config:"reg_exp_delta"` // seconds
@@ -169,7 +169,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			" will be GCed")
 	evRgcMaxRunS := flag.String("evr_gc_max_run_time",
 		c.EvRgcMaxRunT.String(), "maximum runtime for each periodic GC run")
-	flag.UintVar(&cfg.EvRgcTarget, "evr_gc_target", c.EvRgcTarget,
+	flag.Uint64Var(&cfg.EvRgcTarget, "evr_gc_target", c.EvRgcTarget,
 		"event rate periodic GC target: GC will stop if the number off"+
 			" remaining entries is less then this value")
 

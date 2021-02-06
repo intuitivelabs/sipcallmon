@@ -501,6 +501,41 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 	return ret
 }
 
+// Check if a blst event repeated count times should be reported or
+// ignored, using minr (min repeat count report) and  maxr (max ...).
+// A fresh new blst ev should have count == 1.
+// A blacklist event should be reported if:
+//  - repeat count is 1 (this is the first blacklisted event)
+//  - repeat count is a multiple of maxr
+//  - repeat coutn is less then maxr and a multiple of minr * 2^k
+//   (exponential backoff starting at minr and limited at maxr).
+// Returns true if an event should be reported, false otherwise.
+func reportBlstEv(count uint64, minr uint64, maxr uint64) bool {
+	if count == 1 {
+		return true
+	}
+	if maxr != 0 && count >= maxr {
+		if (count % maxr) == 0 {
+			// if > maxr, only report every maxr events
+			return true
+		}
+		return false // not multiple of maxr
+	}
+	// report only if  it's a 2^k multiple of minr
+	if (minr != 0) && (count%minr) == 0 {
+		// here is a multiple of minr => check if multiple of 2^k
+		t := count / minr
+		if (t & (t - 1)) != 0 {
+			//  multiple of 2^k =>  report
+			return true
+		}
+	}
+	// if minr == 0 -> don't report anything till maxr
+	// if maxr == 0 ->  keep reporting on 2^k multiple of minr
+	// if minr == 0 && maxr == 0 -> don't report anything, except the 1st
+	return false
+}
+
 // TODO: print them somewhere
 var evCnt int64         // total event count
 var evBlstCnt int64     // blacklisted count
@@ -531,12 +566,12 @@ func evHandler(ed *calltr.EventData) {
 			" since %v (%v times)\n",
 			ed.Type, src.IP(), rv, rateMax.Max, rateMax.Intvl,
 			time.Now().Sub(info.ExChgT), info.ExConseq)
-		// let only 1 in every 1000 blacklisted messages pass
-		// (1st one should pass and the rest to make sure generate blacklisted
-		//  events from time to time)
-		// TODO: make it configurable
-		if (info.ExConseq % 1000) != 1 {
-			return
+		minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
+		maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
+		// don't report all blacklisted events, only the 1st one and
+		// after some repeat values (depending on configured values)
+		if !reportBlstEv(info.ExConseq, minr, maxr) {
+			return // ignore, don't report
 		}
 	}
 	if !EventsRing.Add(ed) {

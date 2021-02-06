@@ -40,6 +40,11 @@ type Config struct {
 	EvRblstMaxVals [calltr.NEvRates]float64 `config:"event_rate_values"`
 	// ev rate blacklist time intervals for each rate
 	EvRblstIntvls [calltr.NEvRates]time.Duration `config:"event_rate_intervals"`
+	// ev rate blacklist re-repeat report event minimum
+	EvRConseqRmin uint64 `config:"evr_conseq_report_min"`
+	// ev rate blacklist re-repeat report event maximum
+	EvRConseqRmax uint64 `config:"evr_conseq_report_max"`
+
 	// ev rate periodic GC config. Note that there are 3 GC types for
 	// the ev rate entries: periodic GC, hard GC run when max_entries is
 	// exceeded an a new entry needs to be allocated and light GC run also
@@ -74,6 +79,8 @@ var defaultConfigVals = Config{
 	MaxBlockedTo:      1 * time.Second,
 	EvBufferSz:        10240,
 	EvRblstMax:        1024 * 1024,
+	EvRConseqRmin:     100,
+	EvRConseqRmax:     10000,
 	EvRgcInterval:     10 * time.Second,
 	EvRgcOldAge:       300 * time.Second,
 	EvRgcMaxRunT:      1 * time.Second,
@@ -161,6 +168,15 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"event rate max values list, comma or space separated")
 	flag.StringVar(&evRIntvls, "event_rate_intervals", defaultEvRIntvls,
 		"event rate intervals list, comma or space separated")
+	flag.Uint64Var(&cfg.EvRConseqRmin, "evr_conseq_report_min",
+		c.EvRConseqRmin,
+		"report blacklisted events only if the number is a multiple"+
+			" of this value and 2^k and < evr_conseq_report_max")
+	flag.Uint64Var(&cfg.EvRConseqRmax, "evr_conseq_report_max",
+		c.EvRConseqRmax,
+		"report blacklisted events only if the number is a multiple"+
+			" of this value (use 0 to disable)")
+
 	evRgcIntervalS := flag.String("evr_gc_interval",
 		c.EvRgcInterval.String(), "event rate periodic GC interval")
 	evRgcOldAgeS := flag.String("evr_gc_old_age",

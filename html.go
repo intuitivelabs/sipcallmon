@@ -209,9 +209,25 @@ func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 func htmlEvRateSetForm(w http.ResponseWriter) {
 
 	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
-	fmt.Fprintln(w, `<h2>Event Blacklist Set Rates</h2>`)
+	fmt.Fprintln(w, `<h2>Event Blacklist Report Counts and Set Rates</h2>`)
 	fmt.Fprintln(w, `<hr><div><br></div>`)
 	fmt.Fprintln(w, `<form action= "/evrateblst/rates", method="get">`)
+
+	minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
+	maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
+	n := "evr_conseq_report_min"
+	fmt.Fprintf(w, "	<div><pre>%-22s:</pre>\n", n)
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="4">`,
+		n, strconv.FormatUint(minr, 10))
+	fmt.Fprintf(w, "<pre>(min. repetitions for reporting)</pre>\n")
+	fmt.Fprintf(w, "	</div>\n")
+	n = "evr_conseq_report_max"
+	fmt.Fprintf(w, "	<div><pre>%-22s:</pre>\n", n)
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="4">`,
+		n, strconv.FormatUint(maxr, 10))
+	fmt.Fprintf(w, "<pre>(max. repetitions for reporting)</pre>\n")
+	fmt.Fprintf(w, "	</div><br>\n")
+
 	for i := 0; i < calltr.NEvRates; i++ {
 		rname := "rate" + strconv.Itoa(i)
 		rintvl := "interval" + strconv.Itoa(i)

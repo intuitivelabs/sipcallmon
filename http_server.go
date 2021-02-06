@@ -1106,6 +1106,28 @@ func httpEventsRates(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, httpHeader)
 
 	errs := 0
+
+	n := "evr_conseq_report_min"
+	s := r.FormValue(n)
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
+			atomic.StoreUint64(&RunningCfg.EvRConseqRmin, v)
+		} else {
+			fmt.Fprintf(w, "ERROR: bad %s value (%q) : %s\n",
+				n, s, err)
+		}
+	}
+	n = "evr_conseq_report_max"
+	s = r.FormValue(n)
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
+			atomic.StoreUint64(&RunningCfg.EvRConseqRmax, v)
+		} else {
+			fmt.Fprintf(w, "ERROR: bad %s value (%q) : %s\n",
+				n, s, err)
+		}
+	}
+
 	for i := 0; i < calltr.NEvRates; i++ {
 		rname := "rate" + strconv.Itoa(i)
 		rintvl := "interval" + strconv.Itoa(i)

@@ -37,10 +37,11 @@ var gcTicker *time.Ticker
 // global counters / stats
 
 type evrGCcounters struct {
-	runs   counters.Handle
-	tgtMet counters.Handle
-	n      counters.Handle
-	to     counters.Handle
+	runs     counters.Handle
+	tgtMet   counters.Handle
+	n        counters.Handle
+	to       counters.Handle
+	gcMticks counters.Handle // missed gc ticks
 }
 
 type evrCounters struct {
@@ -172,7 +173,7 @@ mainloop:
 			}
 			if missed > 0 {
 				// GC takes more then 1 tick
-				// TODO: do something
+				evrGCstats.Add(evrGCcnts.gcMticks, counters.Val(missed))
 				DBG("GC run missed ticks: %v\n", time.Now().Sub(now))
 			}
 		}
@@ -194,19 +195,23 @@ func randStr(n int) string {
 // sufixes in case the counter group with the given name already exists
 // and is incompatible.
 func registerCounters(name string, grp **counters.Group, defs []counters.Def,
-	retries int) error {
+	minEntries, retries int) error {
 
 	grNroot := name
 	grName := grNroot
 	g := *grp
+	entries := minEntries
+	if entries < len(defs) {
+		entries = len(defs)
+	}
 	if g == nil {
-		g = counters.NewGroup(grName, nil, len(defs))
+		g = counters.NewGroup(grName, nil, entries)
 	}
 	if g == nil {
 		// try to register with another name
 		for i := 0; i < retries; i++ {
 			grName := grNroot + "_" + randStr(4)
-			g = counters.NewGroup(grName, nil, len(defs))
+			g = counters.NewGroup(grName, nil, entries)
 			if g != nil {
 				break
 			}
@@ -248,12 +253,19 @@ func Init(cfg *Config) error {
 			"periodic GC runs"},
 		{&evrGCcnts.tgtMet, 0, nil, nil, "gc_target_met",
 			"how many periodic GC runs met their target"},
-		{&evrGCcnts.n, counters.CntMaxF, nil, nil, "gc_walked",
+		{&evrGCcnts.n, counters.CntMaxF | counters.CntMinF, nil, nil,
+			"gc_walked",
 			"how many entries did the last GC run walk"},
 		{&evrGCcnts.to, 0, nil, nil, "gc_timeout",
 			"how many periodic GC exited due to timeout"},
+		{&evrGCcnts.gcMticks, 0, nil, nil, "gc_missed_ticks",
+			"missed ticks, gc is taking too long"},
 	}
-	err := registerCounters("ev_rate_gc", &evrGCstats, evrGCcntDefs[:], 10)
+	// create or reuse counter group "ev_rate_gc" with minimum 100 entries
+	// (to leave space for adding more counters, e.g. from other packages
+	// like calltr)
+	err := registerCounters("ev_rate_gc", &evrGCstats, evrGCcntDefs[:], 100,
+		10)
 	if err != nil {
 		return err
 	}
@@ -271,7 +283,7 @@ func Init(cfg *Config) error {
 		{&evrCnts.blstRec, 0, nil, nil, "blst_recovered",
 			"recovered, previosuly blacklisted events"},
 	}
-	err = registerCounters("ev_rate", &evrStats, evrCntDefs[:], 10)
+	err = registerCounters("ev_rate", &evrStats, evrCntDefs[:], 100, 10)
 	if err != nil {
 		return err
 	}

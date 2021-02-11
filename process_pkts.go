@@ -525,7 +525,7 @@ func reportBlstEv(count uint64, minr uint64, maxr uint64) bool {
 	if (minr != 0) && (count%minr) == 0 {
 		// here is a multiple of minr => check if multiple of 2^k
 		t := count / minr
-		if (t & (t - 1)) != 0 {
+		if (t & (t - 1)) == 0 {
 			//  multiple of 2^k =>  report
 			return true
 		}

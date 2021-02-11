@@ -35,7 +35,28 @@ var stopCh chan struct{}
 var gcTicker *time.Ticker
 
 // global counters / stats
+
+type evrGCcounters struct {
+	runs   counters.Handle
+	tgtMet counters.Handle
+	n      counters.Handle
+	to     counters.Handle
+}
+
+type evrCounters struct {
+	no        counters.Handle // total evs
+	blst      counters.Handle // blacklist/rate exceeded evs
+	trackFail counters.Handle // no rate entry could be created (oom)
+	blstSent  counters.Handle // sent blst events
+	blstRec   counters.Handle // recovered (previously blacklisted)
+}
+
 var evrGCstats *counters.Group
+var evrGCcnts evrGCcounters
+
+var evrStats *counters.Group
+var evrCnts evrCounters
+
 var cntEvRpGCruns counters.Handle
 var cntEvRpGCtgtMet counters.Handle
 var cntEvRpGCn counters.Handle
@@ -114,7 +135,7 @@ mainloop:
 			if !ok {
 				break mainloop
 			}
-			evrGCstats.Inc(cntEvRpGCruns)
+			evrGCstats.Inc(evrGCcnts.runs)
 			lifetime := time.Duration(
 				atomic.LoadInt64((*int64)(&RunningCfg.EvRgcOldAge)))
 			maxRunT := time.Duration(
@@ -128,12 +149,12 @@ mainloop:
 			tgt, n, to := EvRateBlst.ForceEvict(target, m, now, runLim)
 			e1 := EvRateBlst.CrtEntries()
 			DBG("GC run => target met: %v (%v / %v) n: %v / %v timeout: %v\n", tgt, e1, e0, n, e0, to)
-			evrGCstats.Set(cntEvRpGCn, counters.Val(n))
+			evrGCstats.Set(evrGCcnts.n, counters.Val(n))
 			if tgt {
-				evrGCstats.Inc(cntEvRpGCtgtMet)
+				evrGCstats.Inc(evrGCcnts.tgtMet)
 			}
 			if to {
-				evrGCstats.Inc(cntEvRpGCto)
+				evrGCstats.Inc(evrGCcnts.to)
 			}
 			// check if another tick passed
 			missed = 0
@@ -169,6 +190,40 @@ func randStr(n int) string {
 	return *(*string)(unsafe.Pointer(&b)) // avoid slice copy + alloc
 }
 
+// generic function for registering counters, with retries with random
+// sufixes in case the counter group with the given name already exists
+// and is incompatible.
+func registerCounters(name string, grp **counters.Group, defs []counters.Def,
+	retries int) error {
+
+	grNroot := name
+	grName := grNroot
+	g := *grp
+	if g == nil {
+		g = counters.NewGroup(grName, nil, len(defs))
+	}
+	if g == nil {
+		// try to register with another name
+		for i := 0; i < retries; i++ {
+			grName := grNroot + "_" + randStr(4)
+			g = counters.NewGroup(grName, nil, len(defs))
+			if g != nil {
+				break
+			}
+		}
+		if g == nil {
+			return fmt.Errorf("failed to alloc counters group (%q...)\n",
+				grName)
+		}
+	}
+	if !g.RegisterDefs(defs) {
+		return fmt.Errorf("failed to register  counters (%d to %s)\n",
+			len(defs), grName)
+	}
+	*grp = g
+	return nil
+}
+
 func evRateBlstStartGC(ticker *time.Ticker, done chan struct{}) {
 	waitgrp.Add(1)
 	go evRateBlstGCRun(ticker, done)
@@ -187,40 +242,38 @@ func Init(cfg *Config) error {
 	calltr.Cfg.RegDelta = uint32(cfg.RegDelta)
 	calltr.Cfg.ContactIgnorePort = cfg.ContactIgnorePort
 
-	// init counters
-	evrCntDefs := [...]counters.Def{
-		{&cntEvRpGCruns, 0, nil, nil, "gc_runs",
+	// init evr GC counters
+	evrGCcntDefs := [...]counters.Def{
+		{&evrGCcnts.runs, 0, nil, nil, "gc_runs",
 			"periodic GC runs"},
-		{&cntEvRpGCtgtMet, 0, nil, nil, "gc_target_met",
+		{&evrGCcnts.tgtMet, 0, nil, nil, "gc_target_met",
 			"how many periodic GC runs met their target"},
-		{&cntEvRpGCn, counters.CntMaxF, nil, nil, "gc_walked",
+		{&evrGCcnts.n, counters.CntMaxF, nil, nil, "gc_walked",
 			"how many entries did the last GC run walk"},
-		{&cntEvRpGCto, 0, nil, nil, "gc_timeout",
+		{&evrGCcnts.to, 0, nil, nil, "gc_timeout",
 			"how many periodic GC exited due to timeout"},
 	}
-	grNroot := "event_rate_gc"
-	grName := grNroot
-	if evrGCstats == nil {
-		evrGCstats = counters.NewGroup(grName, nil, len(evrCntDefs))
+	err := registerCounters("ev_rate_gc", &evrGCstats, evrGCcntDefs[:], 10)
+	if err != nil {
+		return err
 	}
-	if evrGCstats == nil {
-		// try to register with another name
-		for i := 0; i < 10; i++ {
-			grName := grNroot + "_" + randStr(4)
-			evrGCstats = counters.NewGroup(grName, nil,
-				len(evrCntDefs))
-			if evrGCstats != nil {
-				break
-			}
-		}
-		if evrGCstats == nil {
-			return fmt.Errorf("failed to alloc counters group (%q...)\n",
-				grName)
-		}
+
+	// init evr generic counters
+	evrCntDefs := [...]counters.Def{
+		{&evrCnts.no, 0, nil, nil, "total_events",
+			"total events seen/processed"},
+		{&evrCnts.blst, 0, nil, nil, "total_blst",
+			"total events blacklisted"},
+		{&evrCnts.blstSent, 0, nil, nil, "blst_sent",
+			"sent (generated) blacklisted events"},
+		{&evrCnts.trackFail, 0, nil, nil, "tracking_fail",
+			"event rate tracking creation failed (exceeded max entries)"},
+		{&evrCnts.blstRec, 0, nil, nil, "blst_recovered",
+			"recovered, previosuly blacklisted events"},
 	}
-	if !evrGCstats.RegisterDefs(evrCntDefs[:]) {
-		return fmt.Errorf("failed to register  counters (%d to %s)\n",
-			len(evrCntDefs), grName)
+	err = registerCounters("ev_rate", &evrStats, evrCntDefs[:], 10)
+	if err != nil {
+		return err
 	}
 
 	if EvRateBlst.IsInit() {

@@ -536,24 +536,19 @@ func reportBlstEv(count uint64, minr uint64, maxr uint64) bool {
 	return false
 }
 
-// TODO: print them somewhere
-var evCnt int64         // total event count
-var evBlstCnt int64     // blacklisted count
-var evBlstFailCnt int64 // failed  blacklist check (too many entries)
-
 // per event callback
 func evHandler(ed *calltr.EventData) {
 	var src calltr.NetInfo
 	src.SetIP(&ed.Src)
 	src.SetProto(ed.ProtoF)
 
-	atomic.AddInt64(&evCnt, 1)
+	evrStats.Inc(evrCnts.no)
 	//fmt.Printf("Event %d: %s\n", evCnt, ed.String())
 	ok, ridx, rv, info :=
 		EvRateBlst.IncUpdate(ed.Type, &src, time.Now())
 	if !ok {
-		atomic.AddInt64(&evBlstFailCnt, 1)
-		DBG("max event blacklist side exceeded: %v / %v\n",
+		evrStats.Inc(evrCnts.trackFail)
+		DBG("max event blacklist size exceeded: %v / %v\n",
 			EvRateBlst.CrtEntries(), EvRateBlst.MaxEntries())
 		return
 	}
@@ -561,7 +556,7 @@ func evHandler(ed *calltr.EventData) {
 	// fill even rate info (always)
 	calltr.FillEvRateInfo(&ed.Rate, &info, rv, rateMax.Max, rateMax.Intvl)
 	if info.Exceeded {
-		atomic.AddInt64(&evBlstCnt, 1)
+		evrStats.Inc(evrCnts.blst)
 		DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
 			" since %v (%v times)\n",
 			ed.Type, src.IP(), rv, rateMax.Max, rateMax.Intvl,
@@ -573,10 +568,13 @@ func evHandler(ed *calltr.EventData) {
 		if !reportBlstEv(info.ExConseq, minr, maxr) {
 			return // ignore, don't report
 		}
+		evrStats.Inc(evrCnts.blstSent)
+	} else if info.ExConseq > 0 && info.OkConseq == 1 {
+		evrStats.Inc(evrCnts.blstRec)
 	}
 	if !EventsRing.Add(ed) {
 		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",
-			atomic.LoadInt64(&evCnt), ed.String())
+			evrStats.Get(evrCnts.no), ed.String())
 	}
 }
 

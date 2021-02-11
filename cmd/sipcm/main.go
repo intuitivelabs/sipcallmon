@@ -38,5 +38,11 @@ func main() {
 		os.Exit(-1)
 	}
 	sipcallmon.EventsRing.Init(cfg.EvBufferSz)
-	sipcallmon.Run(&cfg)
+	if err = sipcallmon.Init(&cfg); err != nil {
+		fmt.Printf("init error %s\n", err)
+		os.Exit(-1)
+	}
+	if err = sipcallmon.Run(&cfg); err != nil {
+		fmt.Printf("run failed %s\n", err)
+	}
 }

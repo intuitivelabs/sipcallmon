@@ -1174,8 +1174,8 @@ func httpEventsRates(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `<br><br><hr><br>`)
 	}
 	htmlEvRateSetForm(w)
-
 	fmt.Fprintln(w, httpFooter)
+
 }
 
 /*

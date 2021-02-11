@@ -170,7 +170,7 @@ func htmlQueryRegBindingsFilter(w http.ResponseWriter, m map[string]int) {
 func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 
 	fmt.Fprintln(w, httpHeader)
-	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
 	fmt.Fprintln(w, `<h2>Event Blacklist</h2>`)
 	fmt.Fprintln(w, `<hr><br>`)
 	fmt.Fprintln(w, `<form action="/events/blst" method="get">`)
@@ -208,10 +208,10 @@ func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 
 func htmlEvRateSetForm(w http.ResponseWriter) {
 
-	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
 	fmt.Fprintln(w, `<h2>Event Blacklist Report Counts and Set Rates</h2>`)
 	fmt.Fprintln(w, `<hr><div><br></div>`)
-	fmt.Fprintln(w, `<form action= "/evrateblst/rates", method="get">`)
+	fmt.Fprintln(w, `<form action="/evrateblst/rates" method="get">`)
 
 	minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
 	maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
@@ -243,14 +243,15 @@ func htmlEvRateSetForm(w http.ResponseWriter) {
 
 	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
 	fmt.Fprintln(w, `</form>`)
-
 }
 
 func htmlEvRateGCparams(w http.ResponseWriter, gcCfg *calltr.EvRateGCcfg) {
-	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
+	fmt.Fprintln(w, httpHeader)
+
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
 	fmt.Fprintln(w, `<h2>Event Blacklist Garbage Collection Parameters</h2>`)
 	fmt.Fprintln(w, `<hr><div><br></div>`)
-	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg2", method="get">`)
+	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg2" method="get">`)
 
 	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "max_entries")
 	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
@@ -304,11 +305,15 @@ func htmlEvRateGCparams(w http.ResponseWriter, gcCfg *calltr.EvRateGCcfg) {
 			"for criteria "+strconv.Itoa(i))
 		fmt.Fprintf(w, `		<input type="text" name=%q  value=%q size="4">`,
 			"rlim"+strconv.Itoa(i), l)
+		fmt.Fprintf(w, "\n	  </div>\n")
 		fmt.Fprintf(w, "	<br>\n")
 	}
+	fmt.Fprintf(w, "	</div>\n")
 
 	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
 	fmt.Fprintln(w, `</form>`)
+
+	fmt.Fprintln(w, httpFooter)
 }
 
 func htmlEvRateMatchEv(w http.ResponseWriter, n string, m calltr.MatchEvROffs) {
@@ -369,10 +374,12 @@ func htmlEvRatePerGCparams(w http.ResponseWriter, cfg *Config) {
 		atomic.LoadInt64((*int64)(&cfg.EvRgcMaxRunT)))
 	target := atomic.LoadUint64(&cfg.EvRgcTarget)
 
-	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style`)
+	fmt.Fprintln(w, httpHeader)
+
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
 	fmt.Fprintln(w, `<h2>Event Blacklist Periodic Garbage Collection Cfg</h2>`)
 	fmt.Fprintln(w, `<hr><div><br></div>`)
-	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg1", method="get">`)
+	fmt.Fprintln(w, `<form action= "/evrateblst/gccfg1" method="get">`)
 
 	fmt.Fprintf(w, "	<div><pre>%-20s:</pre>\n", "evr_gc_interval")
 	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="6"></div>`,
@@ -392,4 +399,6 @@ func htmlEvRatePerGCparams(w http.ResponseWriter, cfg *Config) {
 
 	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
 	fmt.Fprintln(w, `</form>`)
+
+	fmt.Fprintln(w, httpFooter)
 }

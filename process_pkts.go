@@ -9,6 +9,7 @@ package sipcallmon
 import (
 	"fmt"
 	"io"
+	"math/bits"
 	"net"
 	"os"
 	"sync/atomic"
@@ -504,41 +505,78 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 // Check if a blst event repeated count times should be reported or
 // ignored, using minr (min repeat count report) and  maxr (max ...).
 // A fresh new blst ev should have count == 1.
+// Note: it should be called with count >= 1. Behaviour is undefined
+//       for count == 0 (for now it returns true, but it might change
+//       since count == 0 means not blacklisted)
 // A blacklist event should be reported if:
 //  - repeat count is 1 (this is the first blacklisted event)
 //  - repeat count is a multiple of maxr
-//  - repeat coutn is less then maxr and a multiple of minr * 2^k
+//  - repeat count is less then maxr and a multiple of minr * 2^k
 //   (exponential backoff starting at minr and limited at maxr).
-// Returns true if an event should be reported, false otherwise.
-func reportBlstEv(count uint64, minr uint64, maxr uint64) bool {
+// Returns true if an event should be reported, false otherwise and the
+//  computed difference from last count for each the function would have
+//  returned true (usefull for adding  "N ignored since last time").
+// Note: the difference is valid only if minr & maxr _did_ not change
+//       between the calls.
+func reportBlstEv(count uint64, minr uint64, maxr uint64) (bool, uint64) {
+	// diff from previous  report, assuming minr & maxr did not change
+	var diff uint64
 	if count == 1 {
-		return true
+		return true, diff
 	}
 	if maxr != 0 && count >= maxr {
 		if (count % maxr) == 0 {
-			// if > maxr, only report every maxr events
-			return true
+			// if >= maxr, only report every maxr events
+			if count == maxr {
+				if minr == 0 || minr >= maxr {
+					// minr never used
+					diff = count - 1
+				} else {
+					// diff = count - max(2^k*minr) for k
+					//     such that 2^k*minr < maxr
+					t := (count - 1) / minr
+					l := bits.Len64(t) // length in bits => k = l - 1
+					// l cannot be 0 since  here minr < is at most count -1
+					// (minr < maxr == count)
+					diff = count - (1<<(l-1))*minr
+				}
+			} else {
+				diff = maxr
+			}
+			return true, diff
 		}
-		return false // not multiple of maxr
+		return false, diff // not multiple of maxr
 	}
 	// report only if  it's a 2^k multiple of minr
 	if (minr != 0) && (count%minr) == 0 {
 		// here is a multiple of minr => check if multiple of 2^k
 		t := count / minr
 		if (t & (t - 1)) == 0 {
+			if t == 1 {
+				// if count == minr, diff from last report is
+				// count - 1 (1st blst is always reported)
+				diff = count - 1
+			} else {
+				// else diff = count - count_old =
+				//             minr * 2^k - minr * 2^(k-1) =
+				//             minr * 2^(k-1) = count/2
+				diff = count / 2
+			}
 			//  multiple of 2^k =>  report
-			return true
+			return true, diff
 		}
 	}
 	// if minr == 0 -> don't report anything till maxr
 	// if maxr == 0 ->  keep reporting on 2^k multiple of minr
 	// if minr == 0 && maxr == 0 -> don't report anything, except the 1st
-	return false
+	return false, diff
 }
 
 // per event callback
 func evHandler(ed *calltr.EventData) {
 	var src calltr.NetInfo
+	var diff uint64
+
 	src.SetIP(&ed.Src)
 	src.SetProto(ed.ProtoF)
 
@@ -553,8 +591,6 @@ func evHandler(ed *calltr.EventData) {
 		return
 	}
 	_, rateMax := EvRateBlst.GetRateMax(ridx)
-	// fill even rate info (always)
-	calltr.FillEvRateInfo(&ed.Rate, &info, rv, rateMax.Max, rateMax.Intvl)
 	if info.Exceeded {
 		evrStats.Inc(evrCnts.blst)
 		DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
@@ -565,13 +601,18 @@ func evHandler(ed *calltr.EventData) {
 		maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
 		// don't report all blacklisted events, only the 1st one and
 		// after some repeat values (depending on configured values)
-		if !reportBlstEv(info.ExConseq, minr, maxr) {
+		var report bool
+		report, diff = reportBlstEv(info.ExConseq, minr, maxr)
+		if !report {
 			return // ignore, don't report
 		}
 		evrStats.Inc(evrCnts.blstSent)
 	} else if info.ExConseq > 0 && info.OkConseq == 1 {
 		evrStats.Inc(evrCnts.blstRec)
 	}
+	// fill even rate info (always)
+	calltr.FillEvRateInfo(&ed.Rate, &info, rv, rateMax.Max, rateMax.Intvl,
+		diff)
 	if !EventsRing.Add(ed) {
 		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",
 			evrStats.Get(evrCnts.no), ed.String())

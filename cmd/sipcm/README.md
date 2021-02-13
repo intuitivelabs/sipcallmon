@@ -1,7 +1,13 @@
 # sipcm
 
+sipcm uses [sipcallmon](https://github.com/intuitivelabs/sipcallmon/) to
+ implement functionality similar to
+ [sipcmbeat](https://github.com/intuitivelabs/sipcmbeat/), but without
+ sending the actual events anywhere (they can only be accessed through
+ the local web interface).
+
 sipcm keeps statistics and sip call state and can display them using
-a built-in web interface.
+its built-in web interface.
 
 It can either capture live packets or replay pcap files.
 
@@ -9,42 +15,56 @@ It can either capture live packets or replay pcap files.
 
 
 ```
-  -assembly_debug_log
-    	If true, the github.com/google/gopacket/tcpassembly library will log verbose debugging information (at least one line per packet)
-  -assembly_memuse_log
-    	If true, the github.com/google/gopacket/tcpassembly library will log information regarding its memory use every once in a while.
   -bpf string
     	berkley packet filter for capture
   -contact_ignore_port
     	ignore port number when comparing contacts (but not AORs)
-  -delay_scale float
-    	scale factor for inter packet delay intervals
   -event_buffer_size int
     	how many events will be buffered (default 10240)
-  -forever
-    	keep web server running
-  -i string
+  -event_rate_intervals string
+    	event rate intervals list, comma or space separated (default "1s,1m0s,1h0m0s")
+  -event_rate_max_sz uint
+    	maximum tracked event rates (default 1048576)
+  -event_rate_values string
+    	event rate max values list, comma or space separated (default "20,240,3600")
+  -evr_conseq_report_max uint
+    	report blacklisted events only if the number is a multiple of this value (use 0 to disable) (default 10000)
+  -evr_conseq_report_min uint
+    	report blacklisted events only if the number is a multiple of this value and 2^k and < evr_conseq_report_max (default 100)
+  -evr_gc_interval string
+    	event rate periodic GC interval (default "10s")
+  -evr_gc_max_run_time string
+    	maximum runtime for each periodic GC run (default "1s")
+  -evr_gc_old_age string
+    	event rate old age: non-blst. entries idle for more then this value will be GCed (default "5m0s")
+  -evr_gc_target uint
+    	event rate periodic GC target: GC will stop if the number of remaining entries is less then this value (default 10)
+  -http_addr string
+    	listen address for the internal http server
+  -http_port int
+    	port for the internal http server, 0 == disable
+  -iface string
     	interface to capture packets from
-  -l string
-    	listen address for http server
   -max_blocked_timeout string
     	maximum blocked timeout (default "1s")
-  -max_delay string
-    	maximum delay when replaying pcaps (default "0s")
-  -min_delay string
-    	minimum delay when replaying pcaps (default "0s")
-  -p int
-    	port for http server, 0 == disable
   -pcap string
     	read packets from pcap files
   -reg_exp_delta uint
     	extra REGISTER expiration delta for absorbing delayed re-REGISTERs (default 30)
   -replay
-    	replay packets from pcap keeping simulating delays between packets
+    	replay packets from pcap keeping recorded delays between packets
+  -replay_max_delay string
+    	maximum delay when replaying pcaps (default "0s")
+  -replay_min_delay string
+    	minimum delay when replaying pcaps (default "0s")
+  -replay_scale float
+    	scale factor for inter packet delay intervals
+  -run_forever
+    	keep web server running
   -tcp_connection_timeout string
     	tcp connection timeout (default "1h0m0s")
-  -tcp_gc_interval string
-    	tcp garbage collection interval (default "30s")
+  -tcp_gc_int string
+    	tcp connections garbage collection interval (default "30s")
   -tcp_reorder_timeout string
     	tcp reorder timeout (default "1m0s")
   -verbose
@@ -65,6 +85,12 @@ It can either capture live packets or replay pcap files.
 | /events | list first 100 events (add ?n=NNN to change the number) |
 | /events/blst | blacklist specific event types |
 | /events/query | list events matching the query (form) |
+| /evrateblst | event rate based blacklist hash table statistics |
+| /evrateblst/list | list first 100 event rate tracking entries (params: n, s, ip, rate, ridx, val, re) |
+| /evrateblst/rates | rates value for blacklisting and blacklist reporting |
+| /evrateblst/forcegc | force GC for event rate tracking entries (params: n = target) |
+| /evrateblst/gccfg1 | periodic GC config for event rates entries |
+| /evrateblst/gccfg2 | memory pressure GC config and strategies for event rates entries |
 | /inject | inject a sip message (via web form) |
 | /regs | registration bindings hash table statistics |
 | /regs/list | list 100 register bindings (add ?n=NNN to change) |
@@ -91,7 +117,7 @@ sipcm supports different pcap replay speeds:
 Example pcap replay:
 
 ```
-./sipcm -pcap test.pcap  -p 8081 -bpf "port 5060" -forever -event_buffer_size 100000 >/tmp/sipcm.log
+./sipcm -pcap test.pcap  -http_port 8081 -bpf "port 5060" -run_forever -event_buffer_size 100000 >/tmp/sipcm.log
 ```
 
 Note that the event buffer should be large enough to save all the events you

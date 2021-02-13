@@ -134,32 +134,34 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 	flag.BoolVar(&cfg.Verbose, "verbose", c.Verbose, "turn on verbose mode")
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
-	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")
-	flag.StringVar(&cfg.Iface, "i", c.Iface,
-		"interface to capture packets from")
-	flag.IntVar(&cfg.HTTPport, "p", c.HTTPport,
-		"port for the internal http server, 0 == disable")
-	flag.StringVar(&cfg.HTTPaddr, "l", c.HTTPaddr,
-		"listen address for the internal http server")
-	flag.BoolVar(&cfg.RunForever, "forever", c.RunForever,
-		"keep web server running")
-	flag.Float64Var(&cfg.ReplayScale, "delay_scale", c.ReplayScale,
-		"scale factor for inter packet delay intervals")
-	replMinDelayS := flag.String("min_delay", c.ReplayMaxDelay.String(),
+	replMinDelayS := flag.String("replay_min_delay", c.ReplayMaxDelay.String(),
 		"minimum delay when replaying pcaps")
-	replMaxDelayS := flag.String("max_delay", c.ReplayMaxDelay.String(),
+	replMaxDelayS := flag.String("replay_max_delay", c.ReplayMaxDelay.String(),
 		"maximum delay when replaying pcaps")
-	tcpGCIntS := flag.String("tcp_gc_interval", c.TCPGcInt.String(),
+	flag.Float64Var(&cfg.ReplayScale, "replay_scale", c.ReplayScale,
+		"scale factor for inter packet delay intervals")
+	flag.BoolVar(&cfg.RunForever, "run_forever", c.RunForever,
+		"keep web server running")
+
+	flag.StringVar(&cfg.Iface, "iface", c.Iface,
+		"interface to capture packets from")
+	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
+
+	flag.IntVar(&cfg.HTTPport, "http_port", c.HTTPport,
+		"port for the internal http server, 0 == disable")
+	flag.StringVar(&cfg.HTTPaddr, "http_addr", c.HTTPaddr,
+		"listen address for the internal http server")
+
+	tcpGCIntS := flag.String("tcp_gc_int", c.TCPGcInt.String(),
 		"tcp connections garbage collection interval")
 	tcpReorderToS := flag.String("tcp_reorder_timeout", c.TCPReorderTo.String(),
 		"tcp reorder timeout")
 	tcpConnToS := flag.String("tcp_connection_timeout", c.TCPConnTo.String(),
 		"tcp connection timeout")
 	maxBlockedToS := flag.String("max_blocked_timeout",
-		c.MaxBlockedTo.String(),
-		"maximum blocked timeout")
+		c.MaxBlockedTo.String(), "maximum blocked timeout")
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
 	flag.UintVar(&cfg.EvRblstMax, "event_rate_max_sz", c.EvRblstMax,

@@ -90,7 +90,7 @@ var defaultConfigVals = Config{
 }
 
 var DefaultMaxRates = calltr.EvRateMaxes{
-	{100, time.Second}, // max 100 evs per s
+	{20, time.Second}, // max 20 evs per s
 	{240, time.Minute},
 	{3600, time.Hour},
 }
@@ -136,13 +136,13 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
 	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
-		"keeping simulating delays between packets")
+		"keeping recorded delays between packets")
 	flag.StringVar(&cfg.Iface, "i", c.Iface,
 		"interface to capture packets from")
 	flag.IntVar(&cfg.HTTPport, "p", c.HTTPport,
-		"port for http server, 0 == disable")
+		"port for the internal http server, 0 == disable")
 	flag.StringVar(&cfg.HTTPaddr, "l", c.HTTPaddr,
-		"listen address for http server")
+		"listen address for the internal http server")
 	flag.BoolVar(&cfg.RunForever, "forever", c.RunForever,
 		"keep web server running")
 	flag.Float64Var(&cfg.ReplayScale, "delay_scale", c.ReplayScale,
@@ -152,7 +152,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	replMaxDelayS := flag.String("max_delay", c.ReplayMaxDelay.String(),
 		"maximum delay when replaying pcaps")
 	tcpGCIntS := flag.String("tcp_gc_interval", c.TCPGcInt.String(),
-		"tcp garbage collection interval")
+		"tcp connections garbage collection interval")
 	tcpReorderToS := flag.String("tcp_reorder_timeout", c.TCPReorderTo.String(),
 		"tcp reorder timeout")
 	tcpConnToS := flag.String("tcp_connection_timeout", c.TCPConnTo.String(),
@@ -163,7 +163,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
 	flag.UintVar(&cfg.EvRblstMax, "event_rate_max_sz", c.EvRblstMax,
-		"maximum number for the event rate based blacklist table")
+		"maximum tracked event rates")
 	flag.StringVar(&evRmaxVals, "event_rate_values", defaultEvRmaxVals,
 		"event rate max values list, comma or space separated")
 	flag.StringVar(&evRIntvls, "event_rate_intervals", defaultEvRIntvls,
@@ -186,7 +186,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	evRgcMaxRunS := flag.String("evr_gc_max_run_time",
 		c.EvRgcMaxRunT.String(), "maximum runtime for each periodic GC run")
 	flag.Uint64Var(&cfg.EvRgcTarget, "evr_gc_target", c.EvRgcTarget,
-		"event rate periodic GC target: GC will stop if the number off"+
+		"event rate periodic GC target: GC will stop if the number of"+
 			" remaining entries is less then this value")
 
 	flag.UintVar(&cfg.RegDelta, "reg_exp_delta", c.RegDelta,

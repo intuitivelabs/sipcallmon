@@ -343,6 +343,12 @@ nextpkt:
 				if !nonSIP(payload, &sip, sport, &dip, dport) {
 					udpSIPMsg(os.Stdout, payload, n, &sip, sport, &dip, dport,
 						cfg.Verbose)
+				} else {
+					// not sip -> probe
+					EventsRing.AddBasic(calltr.EvNonSIPprobe,
+						sip, uint16(sport), dip, uint16(dport),
+						calltr.NProtoUDP,
+						nil, nil)
 				}
 				break nextlayer // exit the loop
 
@@ -446,6 +452,17 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 				}
 				fmt.Fprintf(w, "error before:\n%q\n", buf[o:l])
 			}
+			// parse error event
+			rep := o
+			// report for 60 parsed ok chars from the message
+			if rep > 60 {
+				rep = 60
+			}
+			EventsRing.AddBasic(calltr.EvParseErr,
+				*sip, uint16(sport), *dip, uint16(dport),
+				calltr.NProtoUDP,
+				sipmsg.PV.GetCallID().CallID.Get(buf),
+				buf[:rep])
 			ret = false
 		} else {
 			stats.ok++
@@ -486,6 +503,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 					int(sipmsg.Body.Len+sipmsg.Body.Offs))
 				fmt.Fprintf(w, "body: %q\n", sipmsg.Body.Get(buf))
 			}
+			// TODO: event for bad body over UDP?
 		}
 		if verbose || err != 0 || o != len(buf) {
 			fmt.Fprintln(w)

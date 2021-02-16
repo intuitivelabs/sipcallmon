@@ -9,6 +9,7 @@ package sipcallmon
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"regexp"
 	"strconv"
@@ -108,6 +109,11 @@ func (er *EvRing) ResetBlst() {
 	er.evBlst.ResetAll()
 }
 
+// Blacklisted returns true if the corresponding event type is blacklisted.
+func (er *EvRing) Blacklisted(ev calltr.EventType) bool {
+	return er.evBlst.Test(ev)
+}
+
 func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 	if len(er.events) == 0 {
 		return false
@@ -165,7 +171,7 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 func (er *EvRing) Add(ev *calltr.EventData) bool {
 	er.stats.Inc(cntEvMaxParallel)
 	er.evStats.Inc(cntEvType[int(ev.Type)])
-	if er.evBlst.Test(ev.Type) {
+	if er.Blacklisted(ev.Type) {
 		er.stats.Inc(cntEvBlst)
 		er.stats.Dec(cntEvMaxParallel)
 		return true // no failure, we just ignore it
@@ -201,6 +207,29 @@ func (er *EvRing) Add(ev *calltr.EventData) bool {
 	}
 	er.stats.Dec(cntEvMaxParallel)
 	return ret
+}
+
+// AddBasic adds a new "basic" event to the ring, created from
+// the provided source, destination and protocol information + optional
+// call-id and reason.
+func (er *EvRing) AddBasic(evt calltr.EventType,
+	srcIP net.IP, srcPort uint16,
+	dstIP net.IP, dstPort uint16,
+	proto calltr.NAddrFlags,
+	callid []byte, reason []byte,
+) bool {
+	if er.Blacklisted(evt) {
+		er.evStats.Inc(cntEvType[int(evt)])
+		er.stats.Inc(cntEvBlst)
+		er.stats.Dec(cntEvMaxParallel)
+		return true // no failure, we just ignore it
+	}
+	var evd calltr.EventData
+	evd.Init(make([]byte, calltr.EventDataMaxBuf()))
+	evd.FillBasic(evt, srcIP, srcPort, dstIP, dstPort, proto, callid, reason)
+	// TODO: split Add() into AquireEntry() => i; Fill(); ReleaseEntry(i)
+	return er.Add(&evd)
+
 }
 
 type GetEvErr uint8
@@ -408,6 +437,7 @@ func (er *EvRing) Init(no int) {
 	}
 	er.stats.Init(fmt.Sprintf("ev_ring%d", ringNo), nil, len(cntDefs))
 	if !er.stats.RegisterDefs(cntDefs[:]) {
+		fmt.Fprintf(os.Stderr, "BUG: PANIC: EvRing.Init after stats1\n")
 		panic("failed to register ev ring counters")
 	}
 
@@ -418,6 +448,7 @@ func (er *EvRing) Init(no int) {
 			&counters.Def{&cntEvType[i], 0, nil, nil,
 				calltr.EventType(i).String(), ""})
 		if !ok {
+			fmt.Fprintf(os.Stderr, "BUG: PANIC: EvRing.Init after stats2\n")
 			panic(fmt.Sprintf("failed to register counter %d", i))
 		}
 	}

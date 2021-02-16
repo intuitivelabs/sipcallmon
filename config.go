@@ -35,11 +35,11 @@ type Config struct {
 	MaxBlockedTo   time.Duration `config:"max_blocked_timeout"`
 	EvBufferSz     int           `config:"event_buffer_size"`
 	// maximum entries in the rate blacklist table.
-	EvRblstMax uint `config:"event_rate_max_sz"`
+	EvRblstMax uint `config:"evr_max_entries"`
 	// ev rate blacklist max values for each rate
-	EvRblstMaxVals [calltr.NEvRates]float64 `config:"event_rate_values"`
+	EvRblstMaxVals [calltr.NEvRates]float64 `config:"evr_limits"`
 	// ev rate blacklist time intervals for each rate
-	EvRblstIntvls [calltr.NEvRates]time.Duration `config:"event_rate_intervals"`
+	EvRblstIntvls [calltr.NEvRates]time.Duration `config:"evr_intervals"`
 	// ev rate blacklist re-repeat report event minimum
 	EvRConseqRmin uint64 `config:"evr_conseq_report_min"`
 	// ev rate blacklist re-repeat report event maximum
@@ -164,11 +164,11 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		c.MaxBlockedTo.String(), "maximum blocked timeout")
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
-	flag.UintVar(&cfg.EvRblstMax, "event_rate_max_sz", c.EvRblstMax,
+	flag.UintVar(&cfg.EvRblstMax, "evr_max_entries", c.EvRblstMax,
 		"maximum tracked event rates")
-	flag.StringVar(&evRmaxVals, "event_rate_values", defaultEvRmaxVals,
+	flag.StringVar(&evRmaxVals, "evr_limits", defaultEvRmaxVals,
 		"event rate max values list, comma or space separated")
-	flag.StringVar(&evRIntvls, "event_rate_intervals", defaultEvRIntvls,
+	flag.StringVar(&evRIntvls, "evr_intervals", defaultEvRIntvls,
 		"event rate intervals list, comma or space separated")
 	flag.Uint64Var(&cfg.EvRConseqRmin, "evr_conseq_report_min",
 		c.EvRConseqRmin,

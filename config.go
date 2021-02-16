@@ -34,6 +34,7 @@ type Config struct {
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
 	MaxBlockedTo   time.Duration `config:"max_blocked_timeout"`
 	EvBufferSz     int           `config:"event_buffer_size"`
+	EvTblst        []string      `config:"event_types_blst"`
 	// maximum entries in the rate blacklist table.
 	EvRblstMax uint `config:"evr_max_entries"`
 	// ev rate blacklist max values for each rate
@@ -95,6 +96,8 @@ var DefaultMaxRates = calltr.EvRateMaxes{
 	{3600, time.Hour},
 }
 
+var defaultEvTblst = ""
+
 func GetDefaultCfg() Config {
 	cfg := defaultConfigVals
 	for i, v := range DefaultMaxRates {
@@ -108,6 +111,7 @@ func GetDefaultCfg() Config {
 // passed default config (c).
 func CfgFromOSArgs(c *Config) (Config, error) {
 	var cfg Config
+	var evTblst string
 	var evRmaxVals string
 	var evRIntvls string
 
@@ -164,6 +168,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		c.MaxBlockedTo.String(), "maximum blocked timeout")
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
+	flag.StringVar(&evTblst, "event_types_blst", defaultEvTblst,
+		"list of event types that should be blacklisted,"+
+			" comma or space separated")
 	flag.UintVar(&cfg.EvRblstMax, "evr_max_entries", c.EvRblstMax,
 		"maximum tracked event rates")
 	flag.StringVar(&evRmaxVals, "evr_limits", defaultEvRmaxVals,
@@ -248,58 +255,73 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		// parse the ev rate blacklist max and intervals lists
 		// function to check for valid separators
 		checkSep := func(r rune) bool {
-			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) {
+			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
+				r == rune('[') || r == rune(']') {
 				return true
 			}
 			return false
 		}
+		cfg.EvTblst = c.EvTblst
+		blst_types := strings.FieldsFunc(evTblst, checkSep)
+		blst_vals := make([]string, 0, 10)
+		for _, t := range blst_types {
+			if len(t) == 0 {
+				continue
+			}
+			blst_vals = append(blst_vals, t)
+		}
+		if len(blst_vals) > 0 {
+			cfg.EvTblst = blst_vals
+		}
+
 		cfg.EvRblstMaxVals = c.EvRblstMaxVals
 		rate_vals := strings.FieldsFunc(evRmaxVals, checkSep)
-		for i, s := range rate_vals {
-			if i < len(cfg.EvRblstMaxVals) {
+		k := 0
+		for _, s := range rate_vals {
+			if len(s) == 0 {
+				continue
+			}
+			if k < len(cfg.EvRblstMaxVals) {
 				if v, perr := strconv.ParseFloat(s, 64); perr == nil {
-					cfg.EvRblstMaxVals[i] = v
+					cfg.EvRblstMaxVals[k] = v
 				} else {
 					e := fmt.Errorf("invalid rate max[%d]: %q in %q",
-						i, s, evRmaxVals)
+						k, s, evRmaxVals)
 					errs++
 					return cfg, e
 				}
 			} else {
-				if i == (len(rate_vals)-1) && len(s) == 0 {
-					// allow strings ending in ','
-					break
-				}
 				e := fmt.Errorf("too many rate max values: %d (max %d) in %q",
-					len(rate_vals), len(cfg.EvRblstMaxVals),
-					evRmaxVals)
+					k, len(cfg.EvRblstMaxVals), evRmaxVals)
 				errs++
 				return cfg, e
 			}
+			k++
 		}
 		cfg.EvRblstIntvls = c.EvRblstIntvls
 		rate_intvls := strings.FieldsFunc(evRIntvls, checkSep)
-		for i, s := range rate_intvls {
-			if i < len(cfg.EvRblstIntvls) {
+		k = 0
+		for _, s := range rate_intvls {
+			if len(s) == 0 {
+				continue
+			}
+			if k < len(cfg.EvRblstIntvls) {
 				if v, perr := time.ParseDuration(s); perr == nil {
-					cfg.EvRblstIntvls[i] = v
+					cfg.EvRblstIntvls[k] = v
 				} else {
 					e := fmt.Errorf("invalid rate interval[%d]: %q in %q",
-						i, s, evRIntvls)
+						k, s, evRIntvls)
 					errs++
 					return cfg, e
 				}
 			} else {
-				if i == (len(rate_intvls)-1) && len(s) == 0 {
-					// allow strings ending in ','
-					break
-				}
 				e := fmt.Errorf("too many rate interval values:"+
 					" %d (max %d) in %q",
-					len(rate_intvls), len(cfg.EvRblstIntvls), evRIntvls)
+					k, len(cfg.EvRblstIntvls), evRIntvls)
 				errs++
 				return cfg, e
 			}
+			k++
 		}
 
 		cfg.EvRgcInterval, perr = time.ParseDuration(*evRgcIntervalS)
@@ -327,9 +349,26 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	return cfg, nil
 }
 
+func parseEvType(t string) (calltr.EventType, error) {
+	for i := calltr.EvNone + 1; i < calltr.EvBad; i++ {
+		if strings.EqualFold(t, i.String()) {
+			return i, nil
+		}
+	}
+	return calltr.EvBad, fmt.Errorf("invalid event %q", t)
+}
+
 func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
+	}
+	for _, t := range cfg.EvTblst {
+		if len(t) > 0 {
+			if _, perr := parseEvType(t); perr != nil {
+				return fmt.Errorf("invalid event type in even_type_blst: %q",
+					t)
+			}
+		}
 	}
 	return nil
 }

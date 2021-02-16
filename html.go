@@ -206,6 +206,47 @@ func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 
 }
 
+func htmlQueryEvRateBlst(w http.ResponseWriter) {
+
+	fmt.Fprintln(w, httpHeader)
+	fmt.Fprintln(w, `<h2>Filter Event Rate Entries</h2>`)
+	fmt.Fprintln(w, `<form action="/evrateblst/list" method="get">`)
+
+	fmt.Fprintln(w, `Blacklisted: <select name="val">`)
+	fmt.Fprintf(w, "	<option value=\"-1\">ignore</option>\n")
+	fmt.Fprintf(w, "	<option value=\"0\">false</option>\n")
+	fmt.Fprintf(w, "	<option value=\"1\">true</option>\n")
+	fmt.Fprintln(w, `</select>`)
+
+	fmt.Fprintln(w, "Rate:")
+	fmt.Fprintln(w, ` <select name="rop">`)
+	fmt.Fprintf(w, "	<option value=\">=\">&gt=</option>\n")
+	fmt.Fprintf(w, "	<option value=\"<\">&lt</option>\n")
+	fmt.Fprintln(w, `</select>`)
+	fmt.Fprintln(w, `<input type="text" name="rate" size="4">`)
+	fmt.Fprintln(w, `Rate Interval: <select name="ridx">`)
+	for i := 0; i < calltr.NEvRates; i++ {
+		intvl := EvRateBlst.GetRateIntvl(i)
+		if intvl != 0 {
+			fmt.Fprintf(w, "	<option value=\"%d\">%s</option>\n",
+				i, intvl)
+		}
+	}
+	fmt.Fprintln(w, `</select>`)
+
+	fmt.Fprintln(w, `	IP: <input type="text" name="ip" size="20">`)
+	fmt.Fprintln(w, `	<input type="checkbox" name="re" id="re" value="1">`)
+	fmt.Fprintln(w, `	<label for="re">RE</label><br>`)
+
+	fmt.Fprintln(w, `	Max matches: <input type="text" name="n" size="4">`)
+	fmt.Fprintln(w, `	Start: <input type="text" name="s" size="4">`)
+	fmt.Fprintln(w, `<input type="submit">`)
+	fmt.Fprintln(w, `</form>`)
+
+	fmt.Fprintln(w, httpFooter)
+
+}
+
 func htmlEvRateSetForm(w http.ResponseWriter) {
 
 	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)

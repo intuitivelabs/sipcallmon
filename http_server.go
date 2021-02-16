@@ -46,6 +46,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/events/query", "", httpEventsQuery},
 	{"/evrateblst", "", httpEvRateBlstStats},
 	{"/evrateblst/list", "", httpEvRateBlstList},
+	{"/evrateblst/list/query", "", httpEvRateBlstListQuery},
 	{"/evrateblst/rates", "", httpEventsRates},
 	{"/evrateblst/forcegc", "", httpEvRateBlstForceGC},
 	{"/evrateblst/gccfg1", "", httpEvRateBlstGCcfg1},
@@ -498,6 +499,7 @@ func httpRegBindingsList(w http.ResponseWriter, r *http.Request) {
 		s, n, opName, tst, isRe)
 	calltr.PrintRegBindingsFilter(w, s, n, operand, []byte(tst), re)
 }
+
 func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
 	n := 100 // default
 	s := 0
@@ -514,6 +516,7 @@ func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
 	paramIP := r.URL.Query()["ip"] // match against
 	paramRate := r.URL.Query()["rate"]
 	paramRateIdx := r.URL.Query()["ridx"]
+	paramRop := r.URL.Query()["rop"]
 	paramVal := r.URL.Query()["val"]
 	if len(paramIP) > 0 && len(paramIP[0]) > 0 && len(tst) == 0 {
 		tst = paramIP[0]
@@ -546,16 +549,32 @@ func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
 		if i, err := strconv.Atoi(paramRate[0]); err == nil {
 			rVal = i
 		} else {
-			fmt.Fprintf(w, "Error: rate is non-number %q: %s\n",
+			fmt.Fprintf(w, "Error: rate is non-integer %q: %s\n",
 				paramRate[0], err)
 		}
 		if rIdx == -1 {
 			rIdx = 0
 		}
 	}
+	if len(paramRop) > 0 && len(paramRop[0]) > 0 {
+		switch paramRop[0] {
+		case ">=":
+			// do nothing
+		case "<":
+			rVal = -rVal
+		default:
+			fmt.Fprintf(w, "Error: invalid rop value %q"+
+				" (expected &gt= or &lt)\n")
+		}
+	}
 	if len(paramRateIdx) > 0 && len(paramRateIdx[0]) > 0 {
 		if i, err := strconv.Atoi(paramRateIdx[0]); err == nil {
 			rIdx = i
+			if rIdx < 0 || rIdx >= calltr.NEvRates {
+				fmt.Fprintf(w, "Error: invalid value for ridx  %q"+
+					" (interval 0 %d)\n",
+					paramRateIdx[0], calltr.NEvRates-1)
+			}
 		} else {
 			fmt.Fprintf(w, "Error: ridx is non-number %q: %s\n",
 				paramRateIdx[0], err)
@@ -598,6 +617,10 @@ func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
 		uint64(evrStats.Get(evrCnts.trackFail)))
 
 	EvRateBlst.PrintFilter(w, s, n, mVal, rIdx, rVal, ipnet, re)
+}
+
+func httpEvRateBlstListQuery(w http.ResponseWriter, r *http.Request) {
+	htmlQueryEvRateBlst(w)
 }
 
 func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
@@ -1148,7 +1171,7 @@ func httpEventsRates(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		param, ok = r.URL.Query()[rintvl]
-		// val !=0 -> set interval value (== 0 means rate disables)
+		// val !=0 -> set interval value (== 0 means (here) keep the old value)
 		// val < 0 -> don't change the current value
 		if ok && len(param) > 0 && len(param[0]) > 0 {
 			if d, err := time.ParseDuration(param[0]); err == nil {

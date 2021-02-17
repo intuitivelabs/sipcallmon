@@ -21,12 +21,8 @@ It can either capture live packets or replay pcap files.
     	ignore port number when comparing contacts (but not AORs)
   -event_buffer_size int
     	how many events will be buffered (default 10240)
-  -event_rate_intervals string
-    	event rate intervals list, comma or space separated (default "1s,1m0s,1h0m0s")
-  -event_rate_max_sz uint
-    	maximum tracked event rates (default 1048576)
-  -event_rate_values string
-    	event rate max values list, comma or space separated (default "20,240,3600")
+  -event_types_blst string
+    	list of event types that should be blacklisted, comma or space separated
   -evr_conseq_report_max uint
     	report blacklisted events only if the number is a multiple of this value (use 0 to disable) (default 10000)
   -evr_conseq_report_min uint
@@ -39,6 +35,12 @@ It can either capture live packets or replay pcap files.
     	event rate old age: non-blst. entries idle for more then this value will be GCed (default "5m0s")
   -evr_gc_target uint
     	event rate periodic GC target: GC will stop if the number of remaining entries is less then this value (default 10)
+  -evr_intervals string
+    	event rate intervals list, comma or space separated (default "1s,1m0s,1h0m0s")
+  -evr_limits string
+    	event rate max values list, comma or space separated (default "20,240,3600")
+  -evr_max_entries uint
+    	maximum tracked event rates (default 1048576)
   -http_addr string
     	listen address for the internal http server
   -http_port int
@@ -87,6 +89,7 @@ It can either capture live packets or replay pcap files.
 | /events/query | list events matching the query (form) |
 | /evrateblst | event rate based blacklist hash table statistics |
 | /evrateblst/list | list first 100 event rate tracking entries (params: n, s, ip, rate, ridx, val, re) |
+| /evrateblst/list/query | list event rate tracking entries matching a query (form) |
 | /evrateblst/rates | rates value for blacklisting and blacklist reporting |
 | /evrateblst/forcegc | force GC for event rate tracking entries (params: n = target) |
 | /evrateblst/gccfg1 | periodic GC config for event rates entries |

@@ -200,8 +200,9 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	tcpStartupOver := time.Now().Add(TCPstartupInt)
 	tcpReorderTo := TCPstartupReorderTimeout // initial
 	var last time.Time
+	var sleep *time.Timer
 nextpkt:
-	for !stopProcessing {
+	for atomic.LoadUint32(&stopProcessing) == 0 {
 		now := time.Now()
 		if cfg.TCPGcInt > 0 && now.After(tcpGCRun) {
 			if now.After(tcpStartupOver) {
@@ -265,7 +266,23 @@ nextpkt:
 				}
 				DBG("replay: final %s\n", wait)
 				if wait > 0 {
-					time.Sleep(wait)
+					if sleep == nil {
+						sleep = time.NewTimer(wait)
+					} else {
+						sleep.Reset(wait)
+					}
+					// equivalent to time.Sleep(wait), but handles stopCh
+					select {
+					case <-sleep.C:
+					// do nothing (sleep period ended)
+					case <-stopCh:
+						// termination request via stopCh
+						if !sleep.Stop() {
+							// be nice and drain the channel
+							<-sleep.C
+						}
+						break nextpkt
+					}
 				}
 			}
 			last = ts

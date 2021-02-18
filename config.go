@@ -179,10 +179,15 @@ func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
 	}
-	if cfg.UseAnonymization() &&
-		len(cfg.EncryptionPassphrase) == 0 &&
-		len(cfg.EncryptionKey) == 0 {
-		return fmt.Errorf("Anonymization required and no encryption passphrase/key provided")
+	if cfg.UseAnonymization() {
+		if len(cfg.EncryptionPassphrase) == 0 &&
+			len(cfg.EncryptionKey) == 0 {
+			return fmt.Errorf("Anonymization required and neither encryption passphrase nor key provided")
+		}
+		if len(cfg.EncryptionPassphrase) != 0 &&
+			len(cfg.EncryptionKey) != 0 {
+			return fmt.Errorf("Anonymization required and both encryption passphrase and key provided")
+		}
 	}
 	return nil
 }

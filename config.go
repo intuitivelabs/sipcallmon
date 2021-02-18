@@ -34,6 +34,19 @@ type Config struct {
 	RegDelta uint `config:"reg_exp_delta"` // seconds
 	// contact matching options
 	ContactIgnorePort bool `config:"contact_ignore_port"`
+
+	// anonymization/encryption options
+	// are the IPs encrypted?
+	EncryptIPs bool `config:"encrypt_ip_addresses"`
+	// are the URIs encrypted?
+	EncryptURIs bool `config:"encrypt_uris"`
+	// are the CallIDs encrypted?
+	EncryptCallIDs bool `config:"encrypt_call_ids"`
+
+	// encryption key is either generated from a configured passphrase...
+	EncryptionPassphrase string `config:"encryption_passphrase"`
+	// ... or directly configured
+	EncryptionKey string `config:"encryption_key"`
 }
 
 var DefaultConfig = Config{
@@ -46,6 +59,27 @@ var DefaultConfig = Config{
 	EvBufferSz:        10240,
 	RegDelta:          30, // seconds
 	ContactIgnorePort: false,
+	EncryptIPs:        false,
+	EncryptURIs:       false,
+	EncryptCallIDs:    false,
+}
+
+func (cfg Config) UseIPAnonymization() bool {
+	return cfg.EncryptIPs
+}
+
+func (cfg Config) UseURIAnonymization() bool {
+	return cfg.EncryptURIs
+}
+
+func (cfg Config) UseCallIDAnonymization() bool {
+	return cfg.EncryptCallIDs
+}
+
+func (cfg Config) UseAnonymization() bool {
+	return cfg.UseIPAnonymization() ||
+		cfg.UseURIAnonymization() ||
+		cfg.UseCallIDAnonymization()
 }
 
 // FromOsArgs intializes and returns a config from cmd line args and
@@ -144,6 +178,16 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
+	}
+	if cfg.UseAnonymization() {
+		if len(cfg.EncryptionPassphrase) == 0 &&
+			len(cfg.EncryptionKey) == 0 {
+			return fmt.Errorf("Anonymization required and neither encryption passphrase nor key provided")
+		}
+		if len(cfg.EncryptionPassphrase) != 0 &&
+			len(cfg.EncryptionKey) != 0 {
+			return fmt.Errorf("Anonymization required and both encryption passphrase and key provided")
+		}
 	}
 	return nil
 }

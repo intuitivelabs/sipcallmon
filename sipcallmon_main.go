@@ -9,6 +9,7 @@ package sipcallmon
 import (
 	"fmt"
 	"math/rand"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ var waitgrp *sync.WaitGroup
 var stopProcessing = false // if set to 1, will stop
 var stopCh chan struct{}
 var gcTicker *time.Ticker
+var httpSrv *http.Server
 
 // global counters / stats
 
@@ -72,6 +74,15 @@ func Stop() {
 		gcTicker.Stop()
 	}
 	stopProcessing = true
+	// stop web server
+	if httpSrv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "http server shutdown failed: %s\n", err)
+			httpSrv.Close() // force Close() just to be sure
+		}
+	}
 	if waitgrp != nil {
 		waitgrp.Add(-1)
 		waitgrp = nil

@@ -20,6 +20,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/intuitivelabs/sipcallmon"
 )
@@ -41,7 +43,55 @@ func main() {
 		fmt.Printf("init error %s\n", err)
 		os.Exit(-1)
 	}
-	if err = sipcallmon.Run(&cfg); err != nil {
-		fmt.Printf("run failed %s\n", err)
+
+	sigch := make(chan os.Signal, 1)
+	signal.Notify(sigch, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigch)
+
+	done := make(chan struct{}, 1)
+	exitCode := 0
+
+	go func() {
+		if err = sipcallmon.Run(&cfg); err != nil {
+			fmt.Printf("run failed: %s\n", err)
+			exitCode = -1
+			//os.Exit(-1)
+		}
+		close(done)
+	}()
+
+	// wait till Run() exits or we get a signal
+
+	select {
+	case sig := <-sigch:
+		switch sig {
+		case syscall.SIGINT:
+			fallthrough
+		case syscall.SIGTERM:
+			// terminate immediatly
+			go sipcallmon.Stop()
+			// in case it did not stop and we receive more
+			// signals force-quit
+			var i int
+		countsigs:
+			for i = 0; i < 2; i++ {
+				select {
+				case <-done:
+					break countsigs
+				case s := <-sigch:
+					if s == syscall.SIGINT || s == syscall.SIGTERM {
+						fmt.Fprintf(os.Stderr, "repeated signal (%d/3) : %d\n",
+							i+2, s)
+					}
+				}
+			}
+			if i == 2 {
+				fmt.Fprintf(os.Stderr, "force exit after  %d signals\n", i)
+				os.Exit(1)
+			}
+		}
+	case <-done:
+		// Run() has finished -> gracefull exit
 	}
+	os.Exit(exitCode)
 }

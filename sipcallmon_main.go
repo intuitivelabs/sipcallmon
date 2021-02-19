@@ -7,8 +7,10 @@
 package sipcallmon
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -30,9 +32,11 @@ func DBG(f string, a ...interface{}) {
 
 // ugly temporary hack
 var waitgrp *sync.WaitGroup
-var stopProcessing = false // if set to 1, will stop
-var stopCh chan struct{}
+var stopProcessing uint32 // if set to 1, will stop (atomic access)
+var stopCh chan struct{}  // stop channel used by Stop() to stop threads a.s.o.
 var gcTicker *time.Ticker
+var httpSrv *http.Server
+var stopLock sync.Mutex // avoid running Stop() in parallel
 
 // global counters / stats
 
@@ -65,17 +69,30 @@ var cntEvRpGCto counters.Handle
 
 // Stop() would signal Run() to exit the processing loop.
 func Stop() {
+	stopLock.Lock()
 	if stopCh != nil {
 		close(stopCh)
 	}
 	if gcTicker != nil && gcTicker.C != nil {
 		gcTicker.Stop()
 	}
-	stopProcessing = true
-	if waitgrp != nil {
-		waitgrp.Add(-1)
-		waitgrp = nil
+	atomic.StoreUint32(&stopProcessing, 1)
+	// stop web server
+	if httpSrv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "http server shutdown failed: %s\n", err)
+			httpSrv.Close() // force Close() just to be sure
+		}
 	}
+	if waitgrp != nil {
+		waitgrp.Wait()
+	}
+	stopCh = nil
+	gcTicker = nil
+	httpSrv = nil
+	stopLock.Unlock()
 }
 
 // EvRateBlstGCChangeIntvl changes the interval used for the periodic GC.
@@ -117,7 +134,6 @@ func EvRateBlstGCChangeIntvl(intvl time.Duration) bool {
 // (based on the passed time.Ticker). It should be run in a separate
 // thread.
 func evRateBlstGCRun(ticker *time.Ticker, done chan struct{}) {
-	// TODO: counters
 	defer waitgrp.Done()
 	m := calltr.MatchEvRTS{
 		OpEx:      calltr.MOpEQ,
@@ -325,7 +341,13 @@ func Run(cfg *Config) error {
 		}
 	}
 
+	stopLock.Lock()
+	if atomic.LoadUint32(&stopProcessing) != 0 {
+		stopLock.Unlock()
+		return nil
+	}
 	waitgrp = &sync.WaitGroup{}
+	waitgrp.Add(1) // acount for Run()
 	stopCh = make(chan struct{})
 	if cfg.EvRgcInterval != 0 {
 		gcTicker = time.NewTicker(cfg.EvRgcInterval)
@@ -334,15 +356,19 @@ func Run(cfg *Config) error {
 
 	StartTS = time.Now()
 
-	// ...
-
 	// start web sever
 	if cfg.HTTPport != 0 {
 		if err := HTTPServerRun(cfg.HTTPaddr, cfg.HTTPport, waitgrp); err != nil {
-			fmt.Printf("starting web server error: %s\n", err)
-			os.Exit(-1)
+			stopLock.Unlock()
+			fmt.Printf("DBG: starting web server error: %s\n", err)
+			waitgrp.Done()
+			Stop()
+			return fmt.Errorf("starting web server error: %s", err)
+			// TODO: Stop(); return fmt.ErrorF()
+			// os.Exit(-1)
 		}
 	}
+	stopLock.Unlock()
 
 	if len(cfg.PCAPs) > 0 {
 		/*
@@ -360,12 +386,11 @@ func Run(cfg *Config) error {
 	StopTS = time.Now()
 	// print stats
 	printStats(os.Stdout, &stats)
-	if cfg.RunForever && !stopProcessing && waitgrp != nil {
-		waitgrp.Wait()
-	} else {
-		if stopCh != nil {
-			close(stopCh)
-		}
+	if cfg.RunForever && (atomic.LoadUint32(&stopProcessing) == 0) &&
+		stopCh != nil {
+		<-stopCh
 	}
+	waitgrp.Done() // must be before Stop() since stop will Wait()
+	Stop()         // block waiting for everything to stop
 	return nil
 }

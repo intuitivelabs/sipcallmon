@@ -76,17 +76,24 @@ func init() {
 }
 
 func HTTPServerRun(laddr string, port int, wg *sync.WaitGroup) error {
-	for _, h := range httpHandlers {
-		if h.hF != nil {
-			http.HandleFunc(h.url, h.hF)
-		}
+	if httpSrv != nil {
+		return fmt.Errorf("http server already intialised")
 	}
-	http.HandleFunc("/", httpIndex)
 	addr := fmt.Sprintf("%s:%d", laddr, port)
 	listener, err := net.Listen("tcp4", addr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %s\n", addr, err)
+		return fmt.Errorf("failed to listen on %s: %s", addr, err)
 	}
+
+	// mux := http.NewServeMux()
+	mux := http.DefaultServeMux
+	for _, h := range httpHandlers {
+		if h.hF != nil {
+			mux.HandleFunc(h.url, h.hF)
+		}
+	}
+	mux.HandleFunc("/", httpIndex)
+	httpSrv = &http.Server{Addr: addr, Handler: mux}
 	if wg != nil {
 		wg.Add(1)
 	}
@@ -97,12 +104,14 @@ func HTTPServerRun(laddr string, port int, wg *sync.WaitGroup) error {
 		/* ListenAndServer uses ipv6 by default if ip/host is empty
 		err := http.ListenAndServe(addr, nil)
 		*/
-		err = http.Serve(listener, nil)
-		if err != nil {
+		err = httpSrv.Serve(listener)
+		if err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "failed to start web server: %s\n",
 				err)
 			os.Exit(-1)
 		}
+		// httpSrv.Serve() should return only with http.ErrServerClosed
+		// (if not Shutdown() or Close() it will run forever)
 	}()
 	return nil
 }

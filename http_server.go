@@ -44,6 +44,13 @@ var httpInitHandlers = [...]httpHandler{
 	{"/events", "", httpEventsList},
 	{"/events/blst", "", httpEventsBlst},
 	{"/events/query", "", httpEventsQuery},
+	{"/evrateblst", "", httpEvRateBlstStats},
+	{"/evrateblst/list", "", httpEvRateBlstList},
+	{"/evrateblst/list/query", "", httpEvRateBlstListQuery},
+	{"/evrateblst/rates", "", httpEventsRates},
+	{"/evrateblst/forcegc", "", httpEvRateBlstForceGC},
+	{"/evrateblst/gccfg1", "", httpEvRateBlstGCcfg1},
+	{"/evrateblst/gccfg2", "", httpEvRateBlstGCcfg2},
 	{"/inject", "", httpInjectMsg},
 	{"/regs", "", httpRegStats},
 	{"/regs/list", "", httpRegBindingsList},
@@ -114,6 +121,9 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 
 func httpPrintVer(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s version %s\n", path.Base(os.Args[0]), Version)
+	fmt.Fprintf(w, "\ncalltr build tags: %v\n", calltr.BuildTags)
+	fmt.Fprintf(w, "\ncalltr alloc type: %v\n", calltr.AllocTypeName)
+
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		fmt.Fprintf(w, "\ndeps:\n")
 		for _, m := range bi.Deps[:] {
@@ -265,6 +275,12 @@ func httpRegStats(w http.ResponseWriter, r *http.Request) {
 	memStats(w, r, &calltr.RegEntryAllocStats)
 }
 
+func httpEvRateBlstStats(w http.ResponseWriter, r *http.Request) {
+	stats := EvRateBlst.Stats()
+	fmt.Fprintf(w, "EvRateBlst  Hash Stats: %+v\n", stats)
+	memStats(w, r, &calltr.EvRateEntryAllocStats)
+}
+
 func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 	fmt.Fprintf(w, "Memory Stats:\n"+
 		"	TotalSize: %d NewCalls: %d FreeCalls: %d Failures: %d\n",
@@ -273,6 +289,13 @@ func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 		atomic.LoadUint64((*uint64)(&ms.FreeCalls)),
 		atomic.LoadUint64((*uint64)(&ms.Failures)),
 	)
+	v := atomic.LoadUint64((*uint64)(&ms.ZeroSize))
+	if v != 0 {
+		fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: 0!\n",
+			v,
+			v*100/(calltr.AllocCallsPerEntry*
+				atomic.LoadUint64((*uint64)(&ms.NewCalls))))
+	}
 	for i := 0; i < len(ms.Sizes); i++ {
 		v := atomic.LoadUint64((*uint64)(&ms.Sizes[i]))
 		if v != 0 {
@@ -281,12 +304,12 @@ func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 					v,
 					v*100/(calltr.AllocCallsPerEntry*
 						atomic.LoadUint64((*uint64)(&ms.NewCalls))),
-					i*calltr.AllocRoundTo,
-					(i+1)*calltr.AllocRoundTo-1)
+					i*calltr.AllocRoundTo+1,
+					(i+1)*calltr.AllocRoundTo)
 			} else {
-				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: > %6d\n",
+				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: >=   %6d\n",
 					v, v*100/2*atomic.LoadUint64((*uint64)(&ms.NewCalls)),
-					i*calltr.AllocRoundTo)
+					i*calltr.AllocRoundTo+1)
 			}
 		}
 	}
@@ -475,6 +498,410 @@ func httpRegBindingsList(w http.ResponseWriter, r *http.Request) {
 		" match %s against %q regexp %v):\n",
 		s, n, opName, tst, isRe)
 	calltr.PrintRegBindingsFilter(w, s, n, operand, []byte(tst), re)
+}
+
+func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
+	n := 100 // default
+	s := 0
+	rIdx := -1 // no rate comp. by default
+	rVal := 0
+	mVal := -1 // match both blacklisted/exceeded and not blacklisted
+	var ipnet *net.IPNet
+	var re *regexp.Regexp
+
+	tst := ""
+
+	paramN := r.URL.Query()["n"]   // max entries
+	paramS := r.URL.Query()["s"]   // start
+	paramIP := r.URL.Query()["ip"] // match against
+	paramRate := r.URL.Query()["rate"]
+	paramRateIdx := r.URL.Query()["ridx"]
+	paramRop := r.URL.Query()["rop"]
+	paramVal := r.URL.Query()["val"]
+	if len(paramIP) > 0 && len(paramIP[0]) > 0 && len(tst) == 0 {
+		tst = paramIP[0]
+	}
+	paramRe, isRe := r.URL.Query()["re"]
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+	if len(paramS) > 0 && len(paramS[0]) > 0 {
+		if i, err := strconv.Atoi(paramS[0]); err == nil {
+			s = i
+		} else {
+			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
+		}
+	}
+	if len(paramRe) > 0 {
+		if i, err := strconv.Atoi(paramRe[0]); err == nil {
+			if i > 0 {
+				isRe = true
+			} else {
+				isRe = false
+			}
+		}
+	}
+	if len(paramRate) > 0 && len(paramRate[0]) > 0 {
+		if i, err := strconv.Atoi(paramRate[0]); err == nil {
+			rVal = i
+		} else {
+			fmt.Fprintf(w, "Error: rate is non-integer %q: %s\n",
+				paramRate[0], err)
+		}
+		if rIdx == -1 {
+			rIdx = 0
+		}
+	}
+	if len(paramRop) > 0 && len(paramRop[0]) > 0 {
+		switch paramRop[0] {
+		case ">=":
+			// do nothing
+		case "<":
+			rVal = -rVal
+		default:
+			fmt.Fprintf(w, "Error: invalid rop value %q"+
+				" (expected &gt= or &lt)\n")
+		}
+	}
+	if len(paramRateIdx) > 0 && len(paramRateIdx[0]) > 0 {
+		if i, err := strconv.Atoi(paramRateIdx[0]); err == nil {
+			rIdx = i
+			if rIdx < 0 || rIdx >= calltr.NEvRates {
+				fmt.Fprintf(w, "Error: invalid value for ridx  %q"+
+					" (interval 0 %d)\n",
+					paramRateIdx[0], calltr.NEvRates-1)
+			}
+		} else {
+			fmt.Fprintf(w, "Error: ridx is non-number %q: %s\n",
+				paramRateIdx[0], err)
+		}
+	}
+	if len(paramVal) > 0 && len(paramVal[0]) > 0 {
+		if i, err := strconv.Atoi(paramVal[0]); err == nil {
+			mVal = i
+		} else {
+			fmt.Fprintf(w, "Error: val is non-number %q: %s\n",
+				paramVal[0], err)
+		}
+	}
+	if len(tst) > 0 {
+		if isRe {
+			var err error
+			re, err = regexp.CompilePOSIX(tst)
+			if err != nil {
+				fmt.Fprintf(w, "Error bad regexp %q: %s\n", tst, err)
+				return
+			}
+		} else {
+			// ! RE, try to convert to IPNet or IP
+			var err error
+			_, ipnet, err = net.ParseCIDR(tst)
+			if err != nil {
+				ip := net.ParseIP(tst)
+				if ip != nil {
+					ipnet = &net.IPNet{ip, net.CIDRMask(len(ip)*8, len(ip)*8)}
+				}
+			}
+		}
+	}
+	fmt.Fprintf(w, "Event Rate Blacklist (filter: from %d max %d matches,"+
+		" match against %q regexp %v ip %v ridx %d rval %d):\n\n",
+		s, n, tst, isRe, ipnet != nil, rIdx, rVal)
+	fmt.Fprintf(w, "Total:  events: %d, blst %d, failed blst %d\n\n",
+		uint64(evrStats.Get(evrCnts.no)),
+		uint64(evrStats.Get(evrCnts.blst)),
+		uint64(evrStats.Get(evrCnts.trackFail)))
+
+	EvRateBlst.PrintFilter(w, s, n, mVal, rIdx, rVal, ipnet, re)
+}
+
+func httpEvRateBlstListQuery(w http.ResponseWriter, r *http.Request) {
+	htmlQueryEvRateBlst(w)
+}
+
+func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	n := 1
+
+	paramN := r.URL.Query()["n"] // target max entries in the hash
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+
+	eLim := now.Add(-2 * time.Second)
+	runLim := now.Add(10 * time.Millisecond)
+	fmt.Fprintf(w, "running GC, entries %v, target %d life time lim %v"+
+		" runtime limit %v ...\n",
+		EvRateBlst.CrtEntries(), n,
+		eLim.Sub(now), runLim.Sub(now))
+	// match non-exceeded (blacklisted entries), which were created (T0)
+	// more then 2s in the past (from the current time)
+	m := calltr.MatchEvRTS{
+		OpEx: calltr.MOpEQ, Ex: false,
+		OpT0: calltr.MOpLT, T0: eLim, // T0 < eLim
+	}
+	ok, entries, to := EvRateBlst.ForceEvict(uint64(n), m, now, runLim)
+	fmt.Fprintf(w, "GC run: target %d met: %v (crt %d entries),"+
+		" run timeout %v, entries walked: %v\n",
+		n, ok, EvRateBlst.CrtEntries(),
+		to, entries)
+}
+
+// runtime config for event rate blacklist hard & light GC
+// (GC done internally when running out of entries)
+func httpEvRateBlstGCcfg2(w http.ResponseWriter, r *http.Request) {
+	cfg := EvRateBlst.GetGCcfg()
+	matchCsz := len(*cfg.ForceGCMatchC)
+	if matchCsz < 10 {
+		matchCsz = 10 // maximum reasonable no of match conditions for hard gc
+	}
+	matchC := make([]calltr.MatchEvROffs, len(*cfg.ForceGCMatchC), matchCsz)
+	copy(matchC, *cfg.ForceGCMatchC)
+
+	runLsz := len(*cfg.ForceGCrunL)
+	if runLsz < 10 {
+		runLsz = 10 // maximum reasonable no of hard gc runtime limits
+	}
+	runL := make([]time.Duration, len(*cfg.ForceGCrunL), runLsz)
+	copy(runL, *cfg.ForceGCrunL)
+
+	gcCfg := *cfg
+	// deep copy, change array pointer to our copy
+	gcCfg.ForceGCMatchC = &matchC
+	gcCfg.ForceGCrunL = &runL
+
+	chgs := 0
+
+	s := r.FormValue("max_entries")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.MaxEntries = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad max_entries value (%q) : %s\n", s, err)
+		}
+	}
+
+	s = r.FormValue("hard_gc_target")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.TargetMax = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad hard_gc_target value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_trigger")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.GCtrigger = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_trigger value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_target")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			gcCfg.GCtarget = uint32(v)
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_target value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_lifetime")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			gcCfg.LightGCtimeL = v
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_lifetime value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("light_gc_max_runtime")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			gcCfg.LightGCrunL = v
+			chgs++
+		} else {
+			fmt.Fprintf(w, "ERROR: bad light_gc_max_runtime value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	// unpack []MatchEvRoffs (match conditions for each hard GC run)
+	for i := 0; i < cap(matchC); i++ {
+		var m calltr.MatchEvROffs
+		if i < len(matchC) {
+			m = matchC[i]
+		}
+		k := 0
+		n := "hard_gc_m" + strconv.Itoa(i)
+		if s = r.FormValue(n + "_opex"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpEx = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_ex"); len(s) > 0 {
+			if v, err := strconv.ParseBool(s); err == nil {
+				m.Ex = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opt0"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpT0 = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_dt0"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DT0 = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opexchgt"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpExChgT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_dexchgt"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DExChgT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opexlastt"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpExLastT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_dexlastt"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DExLastT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_opoklastt"); len(s) > 0 {
+			if v, err := calltr.ParseMatchOp(s); err == nil {
+				m.OpOkLastT = v
+				k++
+			}
+		}
+		if s = r.FormValue(n + "_doklastt"); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				m.DOkLastT = v
+				k++
+			}
+		}
+		if k > 0 {
+			if i < len(matchC) {
+				matchC[i] = m
+			} else {
+				matchC = append(matchC, m)
+			}
+		}
+	}
+	gcCfg.ForceGCMatchC = &matchC // in case it changes (append()...)
+
+	// unpack []time.Duration: ForeGCrunL (for each hard GC run)
+	for i := 0; i < cap(runL); i++ {
+		n := "rlim" + strconv.Itoa(i)
+		if s = r.FormValue(n); len(s) > 0 {
+			if v, err := time.ParseDuration(s); err == nil {
+				if i < len(runL) {
+					runL[i] = v
+				} else {
+					runL = append(runL, v)
+				}
+			}
+		}
+	}
+	gcCfg.ForceGCrunL = &runL // in case it changes (append()...)
+
+	htmlEvRateGCparams(w, &gcCfg)
+	if chgs > 0 {
+		EvRateBlst.SetGCcfg(&gcCfg)
+	}
+}
+
+// runtime config for event rate periodic GC
+// (GC done on timer)
+func httpEvRateBlstGCcfg1(w http.ResponseWriter, r *http.Request) {
+	cfg := RunningCfg
+
+	s := r.FormValue("evr_gc_interval")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			interval := time.Duration(
+				atomic.LoadInt64((*int64)(&cfg.EvRgcInterval)))
+			if interval != v {
+				if atomic.CompareAndSwapInt64(
+					(*int64)(&cfg.EvRgcInterval),
+					int64(interval), int64(v)) {
+					// only if nobody changed the value faster then us
+					if !EvRateBlstGCChangeIntvl(v) {
+						fmt.Fprintf(w, "ERROR: failed changing"+
+							" evr_gc_interval (%q)\n", s)
+					}
+				}
+			}
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_interval value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("evr_gc_old_age")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			atomic.StoreInt64((*int64)(&cfg.EvRgcOldAge), int64(v))
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_old_age value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("evr_gc_max_run_time")
+	if len(s) > 0 {
+		if v, err := time.ParseDuration(s); err == nil {
+			atomic.StoreInt64((*int64)(&cfg.EvRgcMaxRunT), int64(v))
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_max_run_time value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	s = r.FormValue("evr_gc_target")
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
+			atomic.StoreUint64(&cfg.EvRgcTarget, v)
+		} else {
+			fmt.Fprintf(w, "ERROR: bad evr_gc_target value (%q) : %s\n",
+				s, err)
+		}
+	}
+
+	htmlEvRatePerGCparams(w, cfg)
 }
 
 var ipLocalhost net.IP = net.IP{127, 0, 0, 1}
@@ -697,6 +1124,90 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 	counters.RootGrp.Print(w, "", flags)
 	counters.RootGrp.PrintSubGroups(w, flags)
 }
+
+func httpEventsRates(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, httpHeader)
+
+	errs := 0
+
+	n := "evr_conseq_report_min"
+	s := r.FormValue(n)
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
+			atomic.StoreUint64(&RunningCfg.EvRConseqRmin, v)
+		} else {
+			fmt.Fprintf(w, "ERROR: bad %s value (%q) : %s\n",
+				n, s, err)
+		}
+	}
+	n = "evr_conseq_report_max"
+	s = r.FormValue(n)
+	if len(s) > 0 {
+		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
+			atomic.StoreUint64(&RunningCfg.EvRConseqRmax, v)
+		} else {
+			fmt.Fprintf(w, "ERROR: bad %s value (%q) : %s\n",
+				n, s, err)
+		}
+	}
+
+	for i := 0; i < calltr.NEvRates; i++ {
+		rname := "rate" + strconv.Itoa(i)
+		rintvl := "interval" + strconv.Itoa(i)
+
+		param, ok := r.URL.Query()[rname]
+		// val >=0 -> set max rate value (== 0 means rate disables)
+		// val < 0 -> don't change the current value
+		if ok && len(param) > 0 && len(param[0]) > 0 {
+			if val, err := strconv.ParseFloat(param[0], 64); err == nil {
+				if val >= 0 {
+					EvRateBlst.SetRateMax(i, val)
+				} // else leave the current value
+			} else {
+				fmt.Fprintf(w, "ERROR: invalid max value for rate %d:"+
+					" %q\n",
+					i, param[0])
+				errs++
+			}
+		}
+		param, ok = r.URL.Query()[rintvl]
+		// val !=0 -> set interval value (== 0 means (here) keep the old value)
+		// val < 0 -> don't change the current value
+		if ok && len(param) > 0 && len(param[0]) > 0 {
+			if d, err := time.ParseDuration(param[0]); err == nil {
+				if d != 0 {
+					EvRateBlst.SetRateIntvl(i, d)
+				} // else if d == 0, leave it untouched
+			} else {
+				fmt.Fprintf(w, "ERROR: invalid interval for rate %d:"+
+					" %q (%s)\n",
+					i, param[0], err)
+				errs++
+			}
+		}
+	}
+	/*
+		maxRates := EvRateBlst.GetMaxRates()
+		for i, r := range maxRates {
+			fmt.Fprintf(w, "rate %d:	%.2f / %v\n", i, r.Max, r.Intvl)
+		}
+	*/
+
+	if errs > 0 {
+		fmt.Fprintln(w, `<br><br><hr><br>`)
+	}
+	htmlEvRateSetForm(w)
+	fmt.Fprintln(w, httpFooter)
+
+}
+
+/*
+func httpEventsRatesSet(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, httpHeader)
+	htmlEvRateSetForm(w)
+	fmt.Fprintln(w, httpFooter)
+}
+*/
 
 func unescapeMsg(msg string, format string) ([]byte, error) {
 	m := []byte(msg)

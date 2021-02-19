@@ -394,8 +394,6 @@ func (er *EvRing) Iterate(pos EvRingIdx, f IterateCbk, cbkArg interface{}) int {
 	return cnt
 }
 
-var EventsRing EvRing
-
 func (er *EvRing) Init(no int) {
 
 	er.events = make([]calltr.EventData, no)

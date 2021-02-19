@@ -298,6 +298,19 @@ func Init(cfg *Config) error {
 	// init the event rate blacklist: hash table buckets, max entries.
 	EvRateBlst.Init(65535, uint32(cfg.EvRblstMax), &maxRates)
 
+	// init the event ring
+	EventsRing.Init(cfg.EvBufferSz)
+	for _, t := range cfg.EvTblst {
+		if len(t) > 0 {
+			if evt, perr := parseEvType(t); perr == nil {
+				EventsRing.Ignore(evt)
+			} else {
+				return fmt.Errorf("invalid event type in even_type_blst: %q",
+					t)
+			}
+		}
+	}
+
 	return nil
 }
 

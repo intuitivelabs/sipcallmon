@@ -37,7 +37,6 @@ func main() {
 		fmt.Printf("config  error %s\n", err)
 		os.Exit(-1)
 	}
-	sipcallmon.EventsRing.Init(cfg.EvBufferSz)
 	if err = sipcallmon.Init(&cfg); err != nil {
 		fmt.Printf("init error %s\n", err)
 		os.Exit(-1)

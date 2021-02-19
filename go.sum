@@ -2,12 +2,10 @@ github.com/google/gopacket v1.1.18 h1:lum7VRA9kdlvBi7/v2p7/zcbkduHaCH/SVVyurs7Op
 github.com/google/gopacket v1.1.18/go.mod h1:UdDNZ1OO62aGYVnPhxT1U6aI7ukYtA/kB8vaU0diBUM=
 github.com/intuitivelabs/bytescase v1.0.1 h1:As9FoZOyQuaQa4StsNHGlMbweAf3rZ5Ku2U1QsXauhA=
 github.com/intuitivelabs/bytescase v1.0.1/go.mod h1:Gr+B79bV8+mDKvYr4hja6qPVHtYG4Knem0K8gzZKHHU=
-github.com/intuitivelabs/calltr v1.0.2-0.20210216200051-39a2ec41cc21 h1:mvBP+37DHvquAzcQ1awL7KAdGipmdhpdBO6rDWTe3mM=
-github.com/intuitivelabs/calltr v1.0.2-0.20210216200051-39a2ec41cc21/go.mod h1:XBOkVX9qeHyMq5hPLiNfav4jE6+ReGgV2X40v73CUPE=
+github.com/intuitivelabs/calltr v1.0.2-0.20210219152042-567985e89d34 h1:eDwVN79b5co/GapZ0WBRmOoie7ddQ3fkQWzc7aCzyII=
+github.com/intuitivelabs/calltr v1.0.2-0.20210219152042-567985e89d34/go.mod h1:qBLcsbhXihgAJkGuIpe0sOvZoj5eQACF8oPtfQjW4fM=
 github.com/intuitivelabs/counters v0.1.2-0.20210216181413-f773d9188db7 h1:M8DerTOMNz/vq5vDmcbf6LSFGF2yQC4YdSeKzH6CKoI=
 github.com/intuitivelabs/counters v0.1.2-0.20210216181413-f773d9188db7/go.mod h1:gg2mPscHiatkLfDWF7bSuUeHcmsiTazGQx1pW62uJ0w=
-github.com/intuitivelabs/sipsp v1.0.1 h1:EjGSg+CH2Tf6GoXfRYnouvXe/5bVxxrjNUCD1o1H0X8=
-github.com/intuitivelabs/sipsp v1.0.1/go.mod h1:cQ5p5hsd+DeKu1XbCH7f7NN5wH2b8SOwuJBfk6VC0ms=
 github.com/intuitivelabs/sipsp v1.0.2-0.20201123190413-cdee4299e270 h1:/xDI2e4acDwU7Fzto31gktlC2qe3BghHwOYxwIMA/9Y=
 github.com/intuitivelabs/sipsp v1.0.2-0.20201123190413-cdee4299e270/go.mod h1:cQ5p5hsd+DeKu1XbCH7f7NN5wH2b8SOwuJBfk6VC0ms=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

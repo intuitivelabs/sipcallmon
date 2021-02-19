@@ -188,6 +188,13 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					stats.errType[err]++
 					stats.bodyErr++
 					fmt.Fprintf(s.W, "tcp: missing Content-Length Header: %s\n", err)
+					// parse error event
+					EventsRing.AddBasic(calltr.EvParseErr,
+						s.srcIP, uint16(s.sport), s.dstIP, uint16(s.dport),
+						calltr.NProtoTCP,
+						s.pmsg.PV.GetCallID().CallID.Get(s.buf[s.mstart:s.bused]),
+						[]byte("missing Content-Length"))
+
 					// alternative try with 0 clen ?
 					s.state = SIPStreamParseError
 					s.mstart += o
@@ -211,6 +218,20 @@ func (s *SIPStreamData) Process(data []byte) bool {
 						}
 						fmt.Fprintf(s.W, "error before:\n%q\n", s.buf[s.mstart+o:l])
 					}
+					// parse error event
+					rep := o
+					if rep+s.mstart > s.bused {
+						rep = s.bused - s.mstart
+					}
+					// report first 60 parsed ok chars from the message
+					if rep > 60 {
+						rep = 60
+					}
+					EventsRing.AddBasic(calltr.EvParseErr,
+						s.srcIP, uint16(s.sport), s.dstIP, uint16(s.dport),
+						calltr.NProtoTCP,
+						s.pmsg.PV.GetCallID().CallID.Get(s.buf[s.mstart:s.bused]),
+						s.buf[s.mstart:s.mstart+rep])
 					// actual work
 					s.state = SIPStreamParseError
 					s.mstart += o

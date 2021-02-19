@@ -10,10 +10,12 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path"
+	"reflect"
 	"regexp"
 	"runtime/debug"
 	"strconv"
@@ -149,11 +151,32 @@ func httpPrintVer(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func printStruct(w io.Writer, prefix string, v reflect.Value) {
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		tf := t.Field(i)
+		tag := tf.Tag.Get("config")
+		if len(tag) == 0 {
+			tag = tf.Name
+		}
+		if tf.Type.Kind() == reflect.Struct {
+			printStruct(w, prefix+tag+".", f)
+		} else {
+			fmt.Fprintf(w, "%s%s: %v\n", prefix, tag, f.Interface())
+		}
+	}
+}
+
 func httpPrintConfig(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s command line arguments: %+v\n\n", os.Args[0], os.Args[1:])
-	fmt.Fprintf(w, "Config:\n%s\n",
-
-		strings.Replace(fmt.Sprintf("%+v", *RunningCfg), " ", "\n", -1))
+	//	fmt.Fprintf(w, "Config:\n%s\n",
+	//		strings.Replace(fmt.Sprintf("%+v", *RunningCfg), " ", "\n", -1))
+	fmt.Fprintln(w, "Config:")
+	printStruct(w, "	", reflect.ValueOf(RunningCfg).Elem())
 
 }
 

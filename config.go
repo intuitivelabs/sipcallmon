@@ -33,6 +33,10 @@ type Config struct {
 	TCPReorderTo   time.Duration `config:"tcp_reorder_timeout"`
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
 	MaxBlockedTo   time.Duration `config:"max_blocked_timeout"`
+	CallStMax      uint          `config:"calls_max_entries"`
+	CallStMaxMem   uint64        `config:"calls_max_mem"`
+	RegsMax        uint          `config:"regs_max_entries"`
+	RegsMaxMem     uint64        `config:"regs_max_mem"`
 	EvBufferSz     int           `config:"event_buffer_size"`
 	EvTblst        []string      `config:"event_types_blst"`
 	// maximum entries in the rate blacklist table.
@@ -200,6 +204,14 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"tcp connection timeout")
 	maxBlockedToS := flag.String("max_blocked_timeout",
 		c.MaxBlockedTo.String(), "maximum blocked timeout")
+	flag.UintVar(&cfg.CallStMax, "calls_max_entries", c.CallStMax,
+		"maximum tracked calls (0 for unlimited)")
+	flag.Uint64Var(&cfg.CallStMaxMem, "calls_max_mem", c.CallStMaxMem,
+		"maximum memory for keeping call state (0 for unlimited)")
+	flag.UintVar(&cfg.RegsMax, "regs_max_entries", c.RegsMax,
+		"maximum tracked register bindings (0 for unlimited)")
+	flag.Uint64Var(&cfg.RegsMaxMem, "regs_max_mem", c.RegsMaxMem,
+		"maximum memory for register bindings (0 for unlimited)")
 	flag.IntVar(&cfg.EvBufferSz, "event_buffer_size", c.EvBufferSz,
 		"how many events will be buffered")
 	flag.StringVar(&evTblst, "event_types_blst", defaultEvTblst,

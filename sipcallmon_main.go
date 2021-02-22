@@ -259,9 +259,15 @@ func Init(cfg *Config) error {
 
 	// save actual config for global ref.
 	RunningCfg = cfg
-	// forward config option to calltr
-	calltr.Cfg.RegDelta = uint32(cfg.RegDelta)
-	calltr.Cfg.ContactIgnorePort = cfg.ContactIgnorePort
+	// forward config options to calltr
+	calltrCfg := *calltr.GetCfg()
+	calltrCfg.RegDelta = uint32(cfg.RegDelta)
+	calltrCfg.ContactIgnorePort = cfg.ContactIgnorePort
+	calltrCfg.Mem.MaxCallEntries = uint64(cfg.CallStMax)
+	calltrCfg.Mem.MaxCallEntriesMem = cfg.CallStMaxMem
+	calltrCfg.Mem.MaxRegEntries = uint64(cfg.RegsMax)
+	calltrCfg.Mem.MaxRegEntriesMem = cfg.RegsMaxMem
+	calltr.SetCfg(&calltrCfg)
 
 	// init evr GC counters
 	evrGCcntDefs := [...]counters.Def{

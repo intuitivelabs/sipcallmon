@@ -17,6 +17,10 @@ It can either capture live packets or replay pcap files.
 ```
   -bpf string
     	berkley packet filter for capture
+  -calls_max_entries uint
+    	maximum tracked calls (0 for unlimited)
+  -calls_max_mem uint
+    	maximum memory for keeping call state (0 for unlimited)
   -contact_ignore_port
     	ignore port number when comparing contacts (but not AORs)
   -event_buffer_size int
@@ -53,6 +57,10 @@ It can either capture live packets or replay pcap files.
     	read packets from pcap files
   -reg_exp_delta uint
     	extra REGISTER expiration delta for absorbing delayed re-REGISTERs (default 30)
+  -regs_max_entries uint
+    	maximum tracked register bindings (0 for unlimited)
+  -regs_max_mem uint
+    	maximum memory for register bindings (0 for unlimited)
   -replay
     	replay packets from pcap keeping recorded delays between packets
   -replay_max_delay string

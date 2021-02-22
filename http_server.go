@@ -293,10 +293,38 @@ func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// print entries limits and percent used.
+// Params: crt entries, crt entries memory use, entries limit,
+// entries memory limit.
+func printEntriesLimits(w http.ResponseWriter, r *http.Request,
+	crt, crtMem, limit, limitMem uint64) {
+	fmt.Fprintf(w, "Limits: %d entries", limit)
+	if limit != 0 {
+		fmt.Fprintf(w, " (%d%% used)", crt*100/limit)
+	} else {
+		fmt.Fprintf(w, " (unlimited)")
+	}
+	fmt.Fprintf(w, " %d Kb memory", limitMem/1024)
+	if limitMem != 0 {
+		fmt.Fprintf(w, " (%d%% used)\n", crtMem*100/limitMem)
+	} else {
+		fmt.Fprintf(w, " (unlimited)\n")
+	}
+}
+
 func httpCallStats(w http.ResponseWriter, r *http.Request) {
 	var stats calltr.HStats
 	calltr.CallEntriesStatsHash(&stats)
 	fmt.Fprintf(w, "CallTracking Hash Stats: %+v\n", stats)
+
+	cCfg := calltr.GetCfg()
+	limit := cCfg.Mem.MaxCallEntries
+	limitMem := cCfg.Mem.MaxCallEntriesMem
+	crt := stats.Crt
+	crtMem := calltr.CallEntryAllocStats.TotalSize.Get()
+	printEntriesLimits(w, r, crt, crtMem, limit, limitMem)
+
+	fmt.Fprintln(w)
 	memStats(w, r, &calltr.CallEntryAllocStats)
 }
 
@@ -304,12 +332,29 @@ func httpRegStats(w http.ResponseWriter, r *http.Request) {
 	var stats calltr.HStats
 	calltr.RegEntriesStatsHash(&stats)
 	fmt.Fprintf(w, "Reg Bindings Hash Stats: %+v\n", stats)
+
+	cCfg := calltr.GetCfg()
+	limit := cCfg.Mem.MaxRegEntries
+	limitMem := cCfg.Mem.MaxRegEntriesMem
+	crt := stats.Crt
+	crtMem := calltr.RegEntryAllocStats.TotalSize.Get()
+	printEntriesLimits(w, r, crt, crtMem, limit, limitMem)
+
+	fmt.Fprintln(w)
 	memStats(w, r, &calltr.RegEntryAllocStats)
 }
 
 func httpEvRateBlstStats(w http.ResponseWriter, r *http.Request) {
 	stats := EvRateBlst.Stats()
 	fmt.Fprintf(w, "EvRateBlst  Hash Stats: %+v\n", stats)
+
+	gcCfg := EvRateBlst.GetGCcfg()
+	limit := gcCfg.MaxEntries
+	crt := stats.Crt
+	crtMem := calltr.EvRateEntryAllocStats.TotalSize.Get()
+	printEntriesLimits(w, r, crt, crtMem, uint64(limit), 0)
+
+	fmt.Fprintln(w)
 	memStats(w, r, &calltr.EvRateEntryAllocStats)
 }
 

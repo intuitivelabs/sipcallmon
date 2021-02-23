@@ -1266,7 +1266,7 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 		for _, cnt := range cntrs {
 			g, c, errpos := counters.RootGrp.GetCounterDot(cnt)
 			if g != nil && c != counters.Invalid {
-				fmt.Fprintf(w, "%-30s: %6d\n", cnt, g.Get(c))
+				g.PrintCounter(w, c, "", "", flags)
 			} else {
 				if g == nil {
 					fmt.Fprintf(w, "ERROR: counter group not"+

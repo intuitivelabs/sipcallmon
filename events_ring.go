@@ -223,7 +223,6 @@ func (er *EvRing) AddBasic(evt calltr.EventType,
 	if er.Blacklisted(evt) {
 		er.evStats.Inc(cntEvType[int(evt)])
 		er.stats.Inc(cntEvBlst)
-		er.stats.Dec(cntEvMaxParallel)
 		return true // no failure, we just ignore it
 	}
 	var evd calltr.EventData

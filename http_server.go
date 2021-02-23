@@ -1195,11 +1195,57 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "uptime: %s\n\n", time.Now().Sub(StartTS))
-	flags := counters.PrFullName | counters.PrVal | counters.PrDesc |
-		counters.PrRec
-	counters.RootGrp.Print(w, "", flags)
-	counters.RootGrp.PrintSubGroups(w, flags)
+	grp := r.FormValue("group")
+	cnt := r.FormValue("counter")
+	short := false
+	s := r.FormValue("short")
+
+	if len(s) > 0 {
+		if v, err := strconv.ParseBool(s); err == nil {
+			short = v
+		} else {
+			fmt.Fprintf(w, "ERROR: bad short value (%q) : %s\n", s, err)
+		}
+	}
+
+	flags := counters.PrFullName | counters.PrVal | counters.PrRec
+	if !short {
+		flags |= counters.PrDesc
+	}
+
+	if len(grp) == 0 && len(cnt) == 0 {
+		// print all counters
+		if !short {
+			fmt.Fprintf(w, "uptime: %s\n\n", time.Now().Sub(StartTS))
+		}
+		counters.RootGrp.Print(w, "", flags)
+		counters.RootGrp.PrintSubGroups(w, flags)
+	}
+
+	if len(grp) != 0 {
+		g, errpos := counters.RootGrp.GetSubGroupDot(grp)
+		if g != nil {
+			g.Print(w, "", flags)
+			g.PrintSubGroups(w, flags)
+		} else {
+			fmt.Fprintf(w, "ERROR: counter group not found after %q: %s\n",
+				grp[:errpos], grp[errpos:])
+		}
+	}
+	if len(cnt) != 0 {
+		g, c, errpos := counters.RootGrp.GetCounterDot(cnt)
+		if g != nil && c != counters.Invalid {
+			fmt.Fprintf(w, "%-30s: %6d", cnt, g.Get(c))
+		} else {
+			if g == nil {
+				fmt.Fprintf(w, "ERROR: counter group not found after %q: %s\n",
+					cnt[:errpos], cnt[errpos:])
+			} else {
+				fmt.Fprintf(w, "ERROR: counter name not found after %q: %s\n",
+					cnt[:errpos], cnt[errpos:])
+			}
+		}
+	}
 }
 
 func httpEventsRates(w http.ResponseWriter, r *http.Request) {

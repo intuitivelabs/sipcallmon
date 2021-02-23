@@ -1195,8 +1195,8 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
-	grp := r.FormValue("group")
-	cnt := r.FormValue("counter")
+	groups := r.URL.Query()["group"]
+	cntrs := r.URL.Query()["counter"]
 	short := false
 	s := r.FormValue("short")
 
@@ -1208,12 +1208,40 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	flags := counters.PrFullName | counters.PrVal | counters.PrRec
-	if !short {
-		flags |= counters.PrDesc
+	flags := 0
+	flgs := r.FormValue("flags")
+	if len(flgs) > 0 {
+		if v, err := strconv.ParseUint(flgs, 10, 8); err == nil {
+			// numeric format
+			flags = int(v)
+		} else if v, err := strconv.ParseUint(flgs, 16, 8); err == nil {
+			// hex format
+			flags = int(v)
+		} else {
+			// string: flags names separated by "|"
+			fvals := map[string]int{
+				"fullname": counters.PrFullName,
+				"val":      counters.PrVal,
+				"desc":     counters.PrDesc,
+				"rec":      counters.PrRec,
+			}
+			for _, f := range strings.Split(flgs, "|") {
+				if v, ok := fvals[f]; ok {
+					flags |= v
+				} else {
+					fmt.Fprintf(w, "ERROR: unknown flag %s in flags=%q\n",
+						f, flgs)
+				}
+			}
+		}
+	} else {
+		flags = counters.PrFullName | counters.PrVal | counters.PrRec
+		if !short {
+			flags |= counters.PrDesc
+		}
 	}
 
-	if len(grp) == 0 && len(cnt) == 0 {
+	if len(groups) == 0 && len(cntrs) == 0 {
 		// print all counters
 		if !short {
 			fmt.Fprintf(w, "uptime: %s\n\n", time.Now().Sub(StartTS))
@@ -1222,27 +1250,33 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 		counters.RootGrp.PrintSubGroups(w, flags)
 	}
 
-	if len(grp) != 0 {
-		g, errpos := counters.RootGrp.GetSubGroupDot(grp)
-		if g != nil {
-			g.Print(w, "", flags)
-			g.PrintSubGroups(w, flags)
-		} else {
-			fmt.Fprintf(w, "ERROR: counter group not found after %q: %s\n",
-				grp[:errpos], grp[errpos:])
+	if len(groups) != 0 {
+		for _, grp := range groups {
+			g, errpos := counters.RootGrp.GetSubGroupDot(grp)
+			if g != nil {
+				g.Print(w, "", flags)
+				g.PrintSubGroups(w, flags)
+			} else {
+				fmt.Fprintf(w, "ERROR: counter group not found after %q: %s\n",
+					grp[:errpos], grp[errpos:])
+			}
 		}
 	}
-	if len(cnt) != 0 {
-		g, c, errpos := counters.RootGrp.GetCounterDot(cnt)
-		if g != nil && c != counters.Invalid {
-			fmt.Fprintf(w, "%-30s: %6d", cnt, g.Get(c))
-		} else {
-			if g == nil {
-				fmt.Fprintf(w, "ERROR: counter group not found after %q: %s\n",
-					cnt[:errpos], cnt[errpos:])
+	if len(cntrs) != 0 {
+		for _, cnt := range cntrs {
+			g, c, errpos := counters.RootGrp.GetCounterDot(cnt)
+			if g != nil && c != counters.Invalid {
+				fmt.Fprintf(w, "%-30s: %6d\n", cnt, g.Get(c))
 			} else {
-				fmt.Fprintf(w, "ERROR: counter name not found after %q: %s\n",
-					cnt[:errpos], cnt[errpos:])
+				if g == nil {
+					fmt.Fprintf(w, "ERROR: counter group not"+
+						" found after %q: %s\n",
+						cnt[:errpos], cnt[errpos:])
+				} else {
+					fmt.Fprintf(w, "ERROR: counter name not found"+
+						" after %q: %s\n",
+						cnt[:errpos], cnt[errpos:])
+				}
 			}
 		}
 	}

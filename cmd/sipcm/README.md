@@ -91,7 +91,7 @@ It can either capture live packets or replay pcap files.
 | /calls | call tracking hash table statistics |
 | /calls/list | list 100 calls (add ?n=NNN to change the number) |
 | /calls/list/query | list only calls matching a query (form) |
-| /counters | list statistics counters (params: group, counter, short) |
+| /counters | list statistics counters (params: group, counter, short, flags) |
 | /events | list first 100 events (add ?n=NNN to change the number) |
 | /events/blst | blacklist specific event types |
 | /events/query | list events matching the query (form) |

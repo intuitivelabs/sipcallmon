@@ -392,6 +392,12 @@ func Run(cfg *Config) error {
 	StopTS = time.Now()
 	// print stats
 	printStats(os.Stdout, &stats)
+	// print the counters
+	flags := counters.PrFullName | counters.PrVal | counters.PrRec
+	//flags |= counters.PrDesc
+	counters.RootGrp.Print(os.Stdout, "", flags)
+	counters.RootGrp.PrintSubGroups(os.Stdout, flags)
+
 	if cfg.RunForever && (atomic.LoadUint32(&stopProcessing) == 0) &&
 		stopCh != nil {
 		<-stopCh

@@ -24,11 +24,9 @@ import (
 
 const Version = "0.7.0"
 
-var RunningCfg *Config
+var BuildTags []string
 
-func DBG(f string, a ...interface{}) {
-	//	fmt.Printf("DBG: "+f, a...)
-}
+var RunningCfg *Config
 
 // ugly temporary hack
 var waitgrp *sync.WaitGroup

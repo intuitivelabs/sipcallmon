@@ -132,8 +132,9 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 
 func httpPrintVer(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s version %s\n", path.Base(os.Args[0]), Version)
+	fmt.Fprintf(w, "%s build tags: %v\n", path.Base(os.Args[0]), BuildTags)
 	fmt.Fprintf(w, "\ncalltr build tags: %v\n", calltr.BuildTags)
-	fmt.Fprintf(w, "\ncalltr alloc type: %v\n", calltr.AllocTypeName)
+	fmt.Fprintf(w, "calltr alloc type: %v\n", calltr.AllocTypeName)
 
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		fmt.Fprintf(w, "\ndeps:\n")

@@ -391,6 +391,7 @@ func Run(cfg *Config) error {
 	}
 	StopTS = time.Now()
 	// print stats
+	fmt.Fprintf(os.Stdout, "run time: %s\n\n", StopTS.Sub(StartTS))
 	printStats(os.Stdout, &stats)
 	// print the counters
 	flags := counters.PrFullName | counters.PrVal | counters.PrRec

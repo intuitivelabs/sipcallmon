@@ -199,7 +199,8 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	statsUpd := time.Now().Add(5 * time.Second)
 	tcpStartupOver := time.Now().Add(TCPstartupInt)
 	tcpReorderTo := TCPstartupReorderTimeout // initial
-	var last time.Time
+	var lastPCAPts time.Time                 // previous pcap packet timestamp (pcap time)
+	var replayTS time.Time                   // sys time when a packet should be replied
 	var sleep *time.Timer
 nextpkt:
 	for atomic.LoadUint32(&stopProcessing) == 0 {
@@ -251,8 +252,8 @@ nextpkt:
 		}
 		if replay {
 			ts := ci.Timestamp
-			if !last.IsZero() {
-				wait := ts.Sub(last)
+			if !lastPCAPts.IsZero() {
+				wait := ts.Sub(lastPCAPts)
 				DBG("replay: wait %s\n", wait)
 				if cfg.ReplayScale > 0 {
 					wait = time.Duration(uint64(float64(wait) * cfg.ReplayScale))
@@ -265,6 +266,19 @@ nextpkt:
 					wait = cfg.ReplayMaxDelay
 				}
 				DBG("replay: final %s\n", wait)
+				replayTS = replayTS.Add(wait)
+				now := time.Now()
+				if replayTS.Before(now) {
+					wait = 0
+					diff := now.Sub(replayTS)
+					if diff > 10*time.Millisecond {
+						// TODO: keep some counter for max diff and number of
+						//       conseq big diffs.
+						DBG("replay wait too big, diff: %v\n", diff)
+					}
+				} else {
+					wait = replayTS.Sub(now)
+				}
 				if wait > 0 {
 					if sleep == nil {
 						sleep = time.NewTimer(wait)
@@ -284,8 +298,11 @@ nextpkt:
 						break nextpkt
 					}
 				}
+			} else {
+				// initial, 0 ts => intialize replayTS
+				replayTS = time.Now()
 			}
-			last = ts
+			lastPCAPts = ts
 		}
 		n++
 		stats.n++

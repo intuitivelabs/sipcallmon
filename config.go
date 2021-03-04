@@ -86,6 +86,8 @@ type Config struct {
 	EncryptionPassphrase string `config:"encryption_passphrase"`
 	// ... or directly configured
 	EncryptionKey string `config:"encryption_key"`
+	// encryption key validation salt
+	EncryptionValSalt string `config:"encryption_salt"`
 }
 
 var defaultConfigVals = Config{

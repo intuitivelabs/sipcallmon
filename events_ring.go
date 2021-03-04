@@ -450,7 +450,7 @@ func (er *EvRing) Init(no int) {
 		{&cntEvFailAllWrBusy, 0, nil, nil, "wr_busy",
 			"failed add event operation - all entries are write-busy: event ring too small"},
 		{&cntEvBlst, 0, nil, nil, "blst",
-			"blacklisted events"},
+			"blacklisted events based on event type"},
 		{&cntEvQueued, 0, nil, nil, "queued",
 			"successfully queued/added events"},
 		{&cntEvReadOnly, counters.CntMaxF, nil, nil, "read_only",

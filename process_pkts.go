@@ -9,6 +9,7 @@ package sipcallmon
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/bits"
 	"net"
 	"os"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/slog"
 )
 
 const (
@@ -39,20 +41,19 @@ var EvRateBlst calltr.EvRateHash
 
 func processPCAP(fname string, cfg *Config) {
 	if fname == "" {
-		fmt.Fprintf(os.Stderr, "error: processPCAP: empty filename\n")
+		ERR("processPCAP: empty filename\n")
 		return
 	}
 	var h *pcap.Handle
 	var err error
 
 	if h, err = pcap.OpenOffline(fname); err != nil {
-		fmt.Fprintf(os.Stderr, "error: processPCAP: %s\n", err)
+		ERR("processPCAP: %s\n", err)
 		return
 	}
 	defer h.Close()
 	if err = h.SetBPFFilter(cfg.BPF); err != nil {
-		fmt.Fprintf(os.Stderr, "error: processLive: bpf %q: %s\n",
-			cfg.BPF, err)
+		ERR("processLive: bpf %q: %s\n", cfg.BPF, err)
 		return
 	}
 	//packetSrc := gopacket.NewPacketSource(h, h.LinkType())
@@ -75,12 +76,11 @@ func processLive(iface, bpf string, cfg *Config) {
 	}
 
 	if h, err = pcap.OpenLive(iface, 65535, true, timeout); err != nil {
-		fmt.Fprintf(os.Stderr,
-			"error: processLive: failed opening %q: %s\n", iface, err)
+		ERR("processLive: failed opening %q: %s\n", iface, err)
 		return
 	}
 	if err = h.SetBPFFilter(bpf); err != nil {
-		fmt.Fprintf(os.Stderr, "error: processLive: bpf %q: %s\n", bpf, err)
+		ERR("processLive: bpf %q: %s\n", bpf, err)
 		return
 	}
 	defer h.Close()
@@ -88,16 +88,16 @@ func processLive(iface, bpf string, cfg *Config) {
 }
 
 func printPacket(w io.Writer, cfg *Config, n int, sip, dip *net.IP, sport, dport int, name string, l int) {
-	if cfg.Verbose {
-		fmt.Fprintf(w, "%d. %s:%d -> %s:%d %s	payload len: %d\n",
+	if cfg.Verbose && PDBGon() {
+		PDBG("%d. %s:%d -> %s:%d %s	payload len: %d\n",
 			n, sip, sport, dip, dport, name, l)
 	}
 }
 
 func printTLPacket(w io.Writer, cfg *Config, n int, ipl gopacket.NetworkLayer,
 	trl gopacket.TransportLayer) {
-	if cfg.Verbose {
-		fmt.Fprintf(w, "%d. %s:%s -> %s:%s %s	payload len: %d\n",
+	if cfg.Verbose && PDBGon() {
+		PDBG("%d. %s:%s -> %s:%s %s	payload len: %d\n",
 			n, ipl.NetworkFlow().Src(), trl.TransportFlow().Src(),
 			ipl.NetworkFlow().Dst(), trl.TransportFlow().Dst(),
 			trl.LayerType(), len(trl.LayerPayload()))
@@ -157,7 +157,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 		fallthrough
 	case layers.LinkTypeRaw:
 		layerType = layers.LayerTypeIPv4
-		fmt.Printf("Raw LinkType %s => layerType IPV4 %s (raw layer %q)\n",
+		PDBG("Raw LinkType %s => layerType IPV4 %s (raw layer %q)\n",
 			h.LinkType(), layerType, layers.LinkTypeRaw.LayerType())
 	case layers.LinkTypeLoop:
 		layerType = layers.LayerTypeLoopback
@@ -168,8 +168,8 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	default: // fallback
 		layerType = h.LinkType().LayerType()
 	}
-	if cfg.Verbose {
-		fmt.Printf("LinkType %s (%d)=> forced layerType %q (from %q)\n",
+	if cfg.Verbose && PDBGon() {
+		PDBG("LinkType %s (%d)=> forced layerType %q (from %q)\n",
 			h.LinkType(), h.LinkType(),
 			layerType, h.LinkType().LayerType())
 	}
@@ -187,7 +187,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 		bufSize: 4096,
 	}
 	tcpStreamFactory.SIPStreamOptions =
-		SIPStreamOptions{Verbose: cfg.Verbose, W: os.Stdout}
+		SIPStreamOptions{Verbose: cfg.Verbose, W: ioutil.Discard}
 	tcpStreamPool := tcpassembly.NewStreamPool(tcpStreamFactory)
 	tcpAssembler := tcpassembly.NewAssembler(tcpStreamPool)
 	// TODO: config options
@@ -242,11 +242,10 @@ nextpkt:
 					continue nextpkt
 				}
 			case pcap.NextErrorNotActivated:
-				fmt.Printf("BUG: capture: filter not activated %d: %s\n",
-					n, err)
+				Plog.BUG("capture: filter not activated %d: %s\n", n, err)
 				break nextpkt
 			default:
-				fmt.Printf("Error: capture: packet %d: %s\n", n, err)
+				PERR("Error: capture: packet %d: %s\n", n, err)
 			}
 			continue nextpkt
 		}
@@ -254,10 +253,10 @@ nextpkt:
 			ts := ci.Timestamp
 			if !lastPCAPts.IsZero() {
 				wait := ts.Sub(lastPCAPts)
-				DBG("replay: wait %s\n", wait)
+				//	PDBG("replay: wait %s\n", wait)
 				if cfg.ReplayScale > 0 {
 					wait = time.Duration(uint64(float64(wait) * cfg.ReplayScale))
-					DBG("replay: wait scaled to %s\n", wait)
+					//	PDBG("replay: wait scaled to %s\n", wait)
 				}
 				if cfg.ReplayMinDelay > wait {
 					wait = cfg.ReplayMinDelay
@@ -265,7 +264,7 @@ nextpkt:
 				if cfg.ReplayMaxDelay != 0 && wait > cfg.ReplayMaxDelay {
 					wait = cfg.ReplayMaxDelay
 				}
-				DBG("replay: final %s\n", wait)
+				// PDBG("replay: final %s\n", wait)
 				replayTS = replayTS.Add(wait)
 				now := time.Now()
 				if replayTS.Before(now) {
@@ -274,7 +273,7 @@ nextpkt:
 					if diff > 10*time.Millisecond {
 						// TODO: keep some counter for max diff and number of
 						//       conseq big diffs.
-						DBG("replay wait too big, diff: %v\n", diff)
+						PDBG("replay wait too big, diff: %v\n", diff)
 					}
 				} else {
 					wait = replayTS.Sub(now)
@@ -311,12 +310,14 @@ nextpkt:
 		//  error != UnsupportedLayerType class of errors
 		if err != nil {
 			if _, ok := err.(gopacket.UnsupportedLayerType); !ok || len(decodedLayers) == 0 {
-				fmt.Printf("Error: decoding packet %d: %s\n", n, err)
+				PERR("decoding packet %d: %s\n", n, err)
 				stats.decodeErrs++
 			}
 		}
-		if cfg.Verbose {
-			fmt.Printf("link type %s: layer type: %s: packet %d size %d- decoded layers %v\n", h.LinkType(), layerType, n, len(buf), decodedLayers)
+		if cfg.Verbose && PDBGon() {
+			PDBG("link type %s: layer type: %s: packet %d size %d"+
+				"- decoded layers %v\n",
+				h.LinkType(), layerType, n, len(buf), decodedLayers)
 		}
 		var sport, dport int
 		var sip, dip net.IP
@@ -352,8 +353,10 @@ nextpkt:
 				} else if ipl == &ip6 {
 					stats.udp6++
 				} else {
-					DBG("strange packet %d  udp but no network layer"+
-						": %s \n", n, udp.TransportFlow())
+					if PDBGon() {
+						PDBG("strange packet %d  udp but no network layer"+
+							": %s \n", n, udp.TransportFlow())
+					}
 					stats.decodeErrs++
 					continue nextpkt
 				}
@@ -375,8 +378,8 @@ nextpkt:
 				stats.seen++
 				var payload []byte = tl.LayerPayload()
 				if !nonSIP(payload, &sip, sport, &dip, dport) {
-					udpSIPMsg(os.Stdout, payload, n, &sip, sport, &dip, dport,
-						cfg.Verbose)
+					udpSIPMsg(ioutil.Discard, payload, n, &sip, sport,
+						&dip, dport, cfg.Verbose)
 				} else {
 					// not sip -> probe
 					EventsRing.AddBasic(calltr.EvNonSIPprobe,
@@ -396,8 +399,10 @@ nextpkt:
 				} else if ipl == &ip6 {
 					stats.tcp6++
 				} else {
-					DBG("strange packet %d  tcp but no network layer"+
-						": %s \n", n, tcp.TransportFlow())
+					if PDBGon() {
+						PDBG("strange packet %d  tcp but no network layer"+
+							": %s \n", n, tcp.TransportFlow())
+					}
 					stats.decodeErrs++
 					continue nextpkt
 				}
@@ -420,14 +425,16 @@ nextpkt:
 				} else if ipl == &ip6 {
 					stats.sctp6++
 				} else {
-					DBG("strange packet %d  tcp but no network layer"+
-						": %s \n", n, tcp.TransportFlow())
+					if PDBGon() {
+						PDBG("strange packet %d  tcp but no network layer"+
+							": %s \n", n, tcp.TransportFlow())
+					}
 					stats.decodeErrs++
 					continue nextpkt
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
-				if cfg.Verbose {
-					fmt.Printf("ignoring SCTP for now...\n\n")
+				if cfg.Verbose && PDBGon() {
+					PDBG("ignoring SCTP for now...\n\n")
 				}
 			case layers.LayerTypeTLS:
 				if tl == &tcp {
@@ -435,8 +442,8 @@ nextpkt:
 				} else {
 					stats.dtlsN++
 				}
-				if cfg.Verbose {
-					fmt.Printf("ignoring TLS for now...\n\n")
+				if cfg.Verbose && PDBGon() {
+					PDBG("ignoring TLS for now...\n\n")
 				}
 			}
 		}
@@ -454,37 +461,45 @@ nextpkt:
 	tcpAssembler.FlushAll()
 }
 
+// parse & process (calltrack) an udp message
+// If verbose is set, extra information will be logged to w (otherwise only
+// to the log)
 func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.IP, dport int, verbose bool) bool {
 	ret := true
-	if verbose {
-		fmt.Fprintf(w, "%q\n", buf)
+	if verbose && (Plog.DBGon() || w != ioutil.Discard) {
+		Plog.LogMux(w, verbose, slog.LDBG, "udp pkt: %q\n", buf)
 	}
 	var sipmsg sipsp.PSIPMsg
 	sipmsg.Init(nil, nil, nil)
 	o, err := sipsp.ParseSIPMsg(buf, 0, &sipmsg, sipsp.SIPMsgNoMoreDataF)
-	if verbose {
-		fmt.Fprintf(w, "after parsing => %d, %s\n", o, err)
-	}
 	if len(buf) > 12 || (len(buf) <= 12 && err != sipsp.ErrHdrTrunc) {
-		if !verbose && (err != 0 || o != len(buf)) {
-			fmt.Fprintf(w, "%d. %s:%d -> %s:%d UDP	payload len: %d\n",
+		if !verbose && (err != 0 || o != len(buf)) &&
+			(Plog.L(slog.LNOTICE) || w != ioutil.Discard) {
+			Plog.LogMux(w, true, slog.LNOTICE,
+				"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
 				n, sip, sport, dip, dport,
 				len(buf))
-			fmt.Fprintf(w, "%q\n", buf)
+			Plog.LogMux(w, true, slog.LNOTICE, "%q\n", buf)
 		}
 		if err != 0 {
 			stats.errs++
 			stats.errsUDP++
 			stats.errType[err]++
-			fmt.Fprintf(w, "unexpected error after parsing => %s\n", err)
-			fmt.Fprintf(w, "parsed ok:\n%q\n", buf[:o])
+			if Plog.L(slog.LNOTICE) || w != ioutil.Discard {
+				Plog.LogMux(w, true, slog.LNOTICE,
+					"unexpected error after parsing => %s\n", err)
+				Plog.LogMux(w, true, slog.LNOTICE, "parsed ok:\n%q\n", buf[:o])
+			}
 			var l int
 			if o < len(buf) {
 				l = o + 40
 				if l > len(buf) {
 					l = len(buf)
 				}
-				fmt.Fprintf(w, "error before:\n%q\n", buf[o:l])
+				if Plog.L(slog.LNOTICE) || w != ioutil.Discard {
+					Plog.LogMux(w, true, slog.LNOTICE, "error before:\n%q\n",
+						buf[o:l])
+				}
 			}
 			// parse error event
 			rep := o
@@ -528,14 +543,21 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 			if err == 0 {
 				stats.offsetErr++
 			}
-			fmt.Fprintf(w, "unexpected offset after parsing => %d / %d\n",
-				o, len(buf))
+			if Plog.L(slog.LNOTICE) || w != ioutil.Discard {
+				Plog.LogMux(w, true, slog.LNOTICE,
+					"unexpected offset after parsing => %d / %d\n",
+					o, len(buf))
+			}
 			if err == 0 && int(sipmsg.Body.Len+sipmsg.Body.Offs) != len(buf) {
 				stats.bodyErr++
-				fmt.Fprintf(w, "clen: %d, actual body len %d, body end %d\n",
-					sipmsg.PV.CLen.UIVal, int(sipmsg.Body.Len),
-					int(sipmsg.Body.Len+sipmsg.Body.Offs))
-				fmt.Fprintf(w, "body: %q\n", sipmsg.Body.Get(buf))
+				if Plog.L(slog.LNOTICE) || w != ioutil.Discard {
+					Plog.LogMux(w, true, slog.LNOTICE,
+						"clen: %d, actual body len %d, body end %d\n",
+						sipmsg.PV.CLen.UIVal, int(sipmsg.Body.Len),
+						int(sipmsg.Body.Len+sipmsg.Body.Offs))
+					Plog.LogMux(w, true, slog.LDBG, "body: %q\n",
+						sipmsg.Body.Get(buf))
+				}
 			}
 			// TODO: event for bad body over UDP?
 		}
@@ -633,22 +655,25 @@ func evHandler(ed *calltr.EventData) {
 	src.SetProto(ed.ProtoF)
 
 	evrStats.Inc(evrCnts.no)
-	//fmt.Printf("Event %d: %s\n", evCnt, ed.String())
 	ok, ridx, rv, info :=
 		EvRateBlst.IncUpdate(ed.Type, &src, time.Now())
 	if !ok {
 		evrStats.Inc(evrCnts.trackFail)
-		DBG("max event blacklist size exceeded: %v / %v\n",
-			EvRateBlst.CrtEntries(), EvRateBlst.MaxEntries())
+		if DBGon() {
+			DBG("max event blacklist size exceeded: %v / %v\n",
+				EvRateBlst.CrtEntries(), EvRateBlst.MaxEntries())
+		}
 		return
 	}
 	_, rateMax := EvRateBlst.GetRateMax(ridx)
 	if info.Exceeded {
 		evrStats.Inc(evrCnts.blst)
-		DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
-			" since %v (%v times)\n",
-			ed.Type, src.IP(), rv, rateMax.Max, rateMax.Intvl,
-			time.Now().Sub(info.ExChgT), info.ExConseq)
+		if DBGon() {
+			DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
+				" since %v (%v times)\n",
+				ed.Type, src.IP(), rv, rateMax.Max, rateMax.Intvl,
+				time.Now().Sub(info.ExChgT), info.ExConseq)
+		}
 		minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
 		maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
 		// don't report all blacklisted events, only the 1st one and
@@ -666,7 +691,7 @@ func evHandler(ed *calltr.EventData) {
 	calltr.FillEvRateInfo(&ed.Rate, &info, rv, rateMax.Max, rateMax.Intvl,
 		diff)
 	if !EventsRing.Add(ed) {
-		fmt.Fprintf(os.Stderr, "Failed to add event %d: %s\n",
+		ERR("Failed to add event %d: %s\n",
 			evrStats.Get(evrCnts.no), ed.String())
 	}
 }

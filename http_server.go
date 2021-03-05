@@ -108,8 +108,7 @@ func HTTPServerRun(laddr string, port int, wg *sync.WaitGroup) error {
 		*/
 		err = httpSrv.Serve(listener)
 		if err != nil && err != http.ErrServerClosed {
-			fmt.Fprintf(os.Stderr, "failed to start web server: %s\n",
-				err)
+			ERR("failed to start web server: %s\n", err)
 			os.Exit(-1)
 		}
 		// httpSrv.Serve() should return only with http.ErrServerClosed

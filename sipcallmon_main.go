@@ -20,6 +20,7 @@ import (
 
 	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/counters"
+	"github.com/intuitivelabs/slog"
 )
 
 const Version = "0.7.0"
@@ -80,7 +81,7 @@ func Stop() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		if err := httpSrv.Shutdown(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "http server shutdown failed: %s\n", err)
+			WARN("http server shutdown failed: %s\n", err)
 			httpSrv.Close() // force Close() just to be sure
 		}
 	}
@@ -160,10 +161,10 @@ mainloop:
 			m.OkLastT = now.Add(-lifetime)
 			runLim := now.Add(maxRunT)
 			// run GC
-			e0 := EvRateBlst.CrtEntries()
+			//e0 := EvRateBlst.CrtEntries()
 			tgt, n, to := EvRateBlst.ForceEvict(target, m, now, runLim)
-			e1 := EvRateBlst.CrtEntries()
-			DBG("GC run => target met: %v (%v / %v) n: %v / %v timeout: %v\n", tgt, e1, e0, n, e0, to)
+			//e1 := EvRateBlst.CrtEntries()
+			// DBG("GC run => target met: %v (%v / %v) n: %v / %v timeout: %v\n", tgt, e1, e0, n, e0, to)
 			evrGCstats.Set(evrGCcnts.n, counters.Val(n))
 			if tgt {
 				evrGCstats.Inc(evrGCcnts.tgtMet)
@@ -188,7 +189,9 @@ mainloop:
 			if missed > 0 {
 				// GC takes more then 1 tick
 				evrGCstats.Add(evrGCcnts.gcMticks, counters.Val(missed))
-				DBG("GC run missed ticks: %v\n", time.Now().Sub(now))
+				if DBGon() {
+					DBG("GC run missed ticks: %v\n", time.Now().Sub(now))
+				}
 			}
 		}
 	}
@@ -364,12 +367,10 @@ func Run(cfg *Config) error {
 	if cfg.HTTPport != 0 {
 		if err := HTTPServerRun(cfg.HTTPaddr, cfg.HTTPport, waitgrp); err != nil {
 			stopLock.Unlock()
-			fmt.Printf("DBG: starting web server error: %s\n", err)
+			DBG("starting web server error: %s\n", err)
 			waitgrp.Done()
 			Stop()
 			return fmt.Errorf("starting web server error: %s", err)
-			// TODO: Stop(); return fmt.ErrorF()
-			// os.Exit(-1)
 		}
 	}
 	stopLock.Unlock()

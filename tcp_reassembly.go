@@ -11,11 +11,13 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/tcpassembly"
 	"io"
+	"io/ioutil"
 	"net"
 	"time"
 
 	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/slog"
 )
 
 type SIPStreamState uint8
@@ -118,12 +120,18 @@ func (s *SIPStreamData) Process(data []byte) bool {
 		var err sipsp.ErrorHdr
 		var o int
 		var dbgl int
-		if s.Verbose {
-			fmt.Fprintf(s.W, "Process %p pre-loop: state %s, mstart %d, bused %d, skip %d, copied %d bytes\n", s, s.state, s.mstart, s.bused, s.skip, l)
+		if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+			Plog.LogMux(s.W, true, slog.LDBG,
+				"Process %p pre-loop: state %s, mstart %d,"+
+					" bused %d, skip %d, copied %d bytes\n",
+				s, s.state, s.mstart, s.bused, s.skip, l)
 		}
 		for err == 0 && s.mstart < s.bused {
-			if s.Verbose {
-				fmt.Fprintf(s.W, "Process %p loop %d: state %s, mstart %d, bused %d, skip %d\n", s, dbgl, s.state, s.mstart, s.bused, s.skip)
+			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+				Plog.LogMux(s.W, true, slog.LDBG,
+					"Process %p loop %d: state %s, mstart %d,"+
+						" bused %d, skip %d\n",
+					s, dbgl, s.state, s.mstart, s.bused, s.skip)
 				dbgl++
 			}
 			switch s.state {
@@ -132,8 +140,9 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					&s.pmsg,
 					sipsp.SIPMsgSkipBodyF|sipsp.SIPMsgCLenReqF)
 				s.offs = o
-				if s.Verbose {
-					fmt.Fprintf(s.W, "tcp after parsing => %d, %s\n", o, err)
+				if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+					Plog.LogMux(s.W, true, slog.LDBG,
+						"tcp after parsing => %d, %s\n", o, err)
 				}
 				switch err {
 				case 0:
@@ -163,8 +172,10 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					if ok {
 						stats.callTrTCP++
 					} else {
-						if s.Verbose {
-							fmt.Fprintf(s.W, "tcp CallTrack failed\n")
+						if s.Verbose &&
+							(Plog.L(slog.LERR) || s.W != ioutil.Discard) {
+							Plog.LogMux(s.W, true, slog.LERR,
+								"ERROR: tcp CallTrack failed\n")
 						}
 						stats.callTrErrTCP++
 					}
@@ -187,7 +198,10 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					stats.errsTCP++
 					stats.errType[err]++
 					stats.bodyErr++
-					fmt.Fprintf(s.W, "tcp: missing Content-Length Header: %s\n", err)
+					if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
+						Plog.LogMux(s.W, true, slog.LNOTICE,
+							"tcp: missing Content-Length Header: %s\n", err)
+					}
 					// parse error event
 					EventsRing.AddBasic(calltr.EvParseErr,
 						s.srcIP, uint16(s.sport), s.dstIP, uint16(s.dport),
@@ -205,18 +219,25 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					stats.errs++
 					stats.errsTCP++
 					stats.errType[err]++
-					fmt.Fprintf(s.W, "tcp: unexpected error after parsing "+
-						"stream sync lost for %p => %s\n", s, err)
-					fmt.Fprintf(s.W, "parsed ok:\n%q\n",
-						s.buf[s.mstart:s.mstart+o])
-					fmt.Fprintln(s.W)
+					if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
+						Plog.LogMux(s.W, true, slog.LNOTICE,
+							"tcp: unexpected error after parsing "+
+								"stream sync lost for %p => %s\n", s, err)
+						Plog.LogMux(s.W, true, slog.LNOTICE,
+							"parsed ok:\n%q\n",
+							s.buf[s.mstart:s.mstart+o])
+						fmt.Fprintln(s.W)
+					}
 					var l int
 					if o+s.mstart < s.bused {
 						l = o + s.mstart + 40
 						if l > s.bused {
 							l = s.bused
 						}
-						fmt.Fprintf(s.W, "error before:\n%q\n", s.buf[s.mstart+o:l])
+						if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
+							Plog.LogMux(s.W, true, slog.LNOTICE,
+								"error before:\n%q\n", s.buf[s.mstart+o:l])
+						}
 					}
 					// parse error event
 					rep := o
@@ -271,24 +292,35 @@ func (s *SIPStreamData) Process(data []byte) bool {
 				// ERROR! Message too big
 				goto errTooBig
 			}
-			if s.Verbose {
-				fmt.Fprintf(s.W, "Process %p making space: state %s, mstart %d, bused %d, skip %d\n", s, s.state, s.mstart, s.bused, s.skip)
+			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+				Plog.LogMux(s.W, true, slog.LDBG,
+					"Process %p making space: state %s, mstart %d,"+
+						" bused %d, skip %d\n",
+					s, s.state, s.mstart, s.bused, s.skip)
 			}
 			copy(s.buf, s.buf[s.mstart:])
 			s.bused -= s.mstart
 			s.mstart = 0
-			if s.Verbose {
-				fmt.Fprintf(s.W, "Process %p after space: state %s, mstart %d, bused %d, skip %d\n", s, s.state, s.mstart, s.bused, s.skip)
+			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+				Plog.LogMux(s.W, true, slog.LDBG,
+					"Process %p after space: state %s, mstart %d,"+
+						" bused %d, skip %d\n",
+					s, s.state, s.mstart, s.bused, s.skip)
 			}
 		}
 	}
-	if s.Verbose {
-		fmt.Fprintf(s.W, "Process %p end: state %s, mstart %d, bused %d, skip %d\n", s, s.state, s.mstart, s.bused, s.skip)
+	if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+		Plog.LogMux(s.W, true, slog.LDBG,
+			"Process %p end: state %s, mstart %d, bused %d, skip %d\n",
+			s, s.state, s.mstart, s.bused, s.skip)
 	}
 	return true
 errTooBig:
-	fmt.Fprintf(s.W, "tcp: error message too big on stream %p: %d used,"+
-		" msg = %q...\n", s, s.bused, s.buf[:30])
+	if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
+		Plog.LogMux(s.W, true, slog.LNOTICE,
+			"tcp: error message too big on stream %p: %d used,"+
+				" msg = %q...\n", s, s.bused, s.buf[:30])
+	}
 	stats.tooBig++
 errParse:
 	return false // error
@@ -331,8 +363,9 @@ func (s *SIPStreamData) SkippedBytes(n int) bool {
 // implement gopacket.tcpassembly Stream
 func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 
-	if s.Verbose {
-		fmt.Fprintf(s.W, "%p %s:%d -> %s:%d Reassembled %d bufs, ignore %v\n",
+	if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+		Plog.LogMux(s.W, true, slog.LDBG,
+			"%p %s:%d -> %s:%d Reassembled %d bufs, ignore %v\n",
 			s, s.srcIP, s.sport, s.dstIP, s.dport, len(bufs), s.ignore)
 	}
 	if s.ignore {
@@ -340,8 +373,10 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		return
 	}
 	for i, seg := range bufs {
-		if s.Verbose /*&& len(seg.Bytes) > 0*/ {
-			fmt.Fprintf(s.W, "%p Reassembled: buf[%d] %q state %d\n", s, i, seg.Bytes, s.state)
+		if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+			Plog.LogMux(s.W, true, slog.LDBG,
+				"%p Reassembled: buf[%d] %q state %d\n",
+				s, i, seg.Bytes, s.state)
 		}
 		s.syn = s.syn || seg.Start
 		s.fin = s.fin || seg.End
@@ -357,15 +392,15 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		stats.tcpRcvd += uint64(len(seg.Bytes))
 		if s.lastRcv.After(seg.Seen) && s.segs > 1 {
 			stats.tcpOutOfOrder++
-			// FIXME DBG:
-			//if s.Verbose {
 			s.oo++ // dbg
-			fmt.Fprintf(s.W, "%p %s:%d -> %s:%d %d OO Reassembled, "+
-				" after %v (%v ago), lastRcvd %v ago, created %v ago\n",
-				s, s.srcIP, s.sport, s.dstIP, s.dport, s.oo,
-				s.lastRcv.Sub(seg.Seen), time.Now().Sub(seg.Seen),
-				time.Now().Sub(s.lastRcv), time.Now().Sub(s.created))
-			//}
+			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+				Plog.LogMux(s.W, true, slog.LDBG,
+					"%p %s:%d -> %s:%d %d OO Reassembled, "+
+						" after %v (%v ago), lastRcvd %v ago, created %v ago\n",
+					s, s.srcIP, s.sport, s.dstIP, s.dport, s.oo,
+					s.lastRcv.Sub(seg.Seen), time.Now().Sub(seg.Seen),
+					time.Now().Sub(s.lastRcv), time.Now().Sub(s.created))
+			}
 		} else {
 			s.lastRcv = seg.Seen
 		}
@@ -382,8 +417,9 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 				s.ignore = true
 				// TODO: free what's possible
 				s.buf = nil
-				if s.Verbose {
-					fmt.Fprintf(s.W, "%p %s:%d -> %s:%d skipped bytes ->DROP CONN %d\n",
+				if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+					Plog.LogMux(s.W, true, slog.LDBG,
+						"%p %s:%d -> %s:%d skipped bytes ->DROP CONN %d\n",
 						s, s.srcIP, s.sport, s.dstIP, s.dport, seg.Skip)
 				}
 				break // error - out of sync - ignore stream
@@ -394,8 +430,9 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 			s.ignore = true
 			// TODO: free what's possible
 			s.buf = nil
-			if s.Verbose {
-				fmt.Fprintf(s.W, "%p %s:%d -> %s:%d Process failed for buf %d\n",
+			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+				Plog.LogMux(s.W, true, slog.LDBG,
+					"%p %s:%d -> %s:%d Process failed for buf %d\n",
 					s, s.srcIP, s.sport, s.dstIP, s.dport, i)
 			}
 			break
@@ -405,10 +442,13 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 
 // implement gopacket.tcpassembly Stream
 func (s *SIPStreamData) ReassemblyComplete() {
-	if s.Verbose {
-		fmt.Fprintf(s.W, "stream %p %s:%d -> %s:%d closing"+
-			" (%d bytes %d tcp segs. state %s mstart %d bused %d skip %d)...\n",
-			s, s.srcIP, s.sport, s.dstIP, s.dport, s.rcvd, s.segs, s.state, s.mstart, s.bused, s.skip)
+	if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+		Plog.LogMux(s.W, true, slog.LDBG,
+			"stream %p %s:%d -> %s:%d closing"+
+				" (%d bytes %d tcp segs. state %s"+
+				" mstart %d bused %d skip %d)...\n",
+			s, s.srcIP, s.sport, s.dstIP, s.dport, s.rcvd,
+			s.segs, s.state, s.mstart, s.bused, s.skip)
 	}
 	// cleanup
 	s.pmsg.Reset()
@@ -439,8 +479,9 @@ func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream
 	buf := make([]byte, bufSize)
 	s := &SIPStreamData{}
 	s.Init(&f.SIPStreamOptions, buf)
-	if f.Verbose {
-		fmt.Fprintf(f.W, "new stream %p, options %+v\n", s, f.SIPStreamOptions)
+	if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+		Plog.LogMux(s.W, true, slog.LDBG,
+			"new stream %p, options %+v\n", s, f.SIPStreamOptions)
 	}
 	// convert from flows to IP:port(s)
 	l := copy(s.srcIP, netFlow.Src().Raw())

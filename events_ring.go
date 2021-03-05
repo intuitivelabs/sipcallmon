@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"os"
 	"regexp"
 	"strconv"
 	"sync"
@@ -126,14 +125,18 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 	for {
 		i = int(er.idx.Get() % EvRingIdx(len(er.events)))
 		if er.state[i].readOnly > 0 {
-			fmt.Printf("DBG: addSafe: read-only %d idx %d start %d\n",
-				i, er.idx.Get(), start)
+			if DBGon() {
+				DBG("addSafe: read-only %d idx %d start %d\n",
+					i, er.idx.Get(), start)
+			}
 			er.idx.inc()
 			er.stats.Inc(cntEvSkipRdOnly)
 			er.stats.Inc(cntEvSkipRdOnlyMax)
 			if er.idx.Get()-start > EvRingIdx(len(er.events)) {
-				fmt.Printf("DBG: addSafe: FAILURE busy %d idx %d start %d\n",
-					i, er.idx.Get(), start)
+				if DBGon() {
+					DBG("addSafe: FAILURE busy %d idx %d start %d\n",
+						i, er.idx.Get(), start)
+				}
 				er.lock.Unlock()
 				er.stats.Inc(cntEvFailAllRdBusy)
 				return false // all busy
@@ -191,14 +194,14 @@ func (er *EvRing) Add(ev *calltr.EventData) bool {
 		select {
 		case er.newEv <- struct{}{}:
 			if s := atomic.SwapInt32(&er.skipped, 0); s > 0 {
-				fmt.Fprintf(os.Stderr, "WARNING: EvRing.Add recovered after"+
+				WARN("EvRing.Add recovered after"+
 					" skipping %d signals, idx %d\n", s, idx)
 			}
 			er.stats.Set(cntEvSigsSkippedMax, 0)
 			er.stats.Inc(cntEvSigs)
 		default:
 			if er.skipped == 0 {
-				fmt.Fprintf(os.Stderr, "WARNING: EvRing.Add: send channel"+
+				WARN("EvRing.Add: send channel"+
 					" full for [%d] %p, skipping signal\n",
 					idx, ev)
 			}
@@ -365,12 +368,12 @@ func (er *EvRing) Iterate(pos EvRingIdx, f IterateCbk, cbkArg interface{}) int {
 				n++
 				continue
 			case ErrOutOfRangeLow:
-				fmt.Printf("Iterate: changed n= %d to %d (e.idx = %d start =%d)\n",
+				DBG("Iterate: changed n= %d to %d (e.idx = %d start =%d)\n",
 					n, nxtidx, er.LastIdx(), start)
 			case ErrInvalid:
 				// do nothing , skip over it
 			case ErrOutOfRangeHigh:
-				fmt.Printf("Iterate: out of range high: n= %d -> %d last %d\n",
+				DBG("Iterate: out of range high: n= %d -> %d last %d\n",
 					n, nxtidx, er.LastIdx())
 				fallthrough
 			case ErrLast:
@@ -411,7 +414,7 @@ func (er *EvRing) Iterate(pos EvRingIdx, f IterateCbk, cbkArg interface{}) int {
 				if (er.idx.Get() - start) > EvRingIdx(len(er.events)) {
 					// wraparround: too much stuff added in the meantime
 					// re-init
-					fmt.Printf("Iterate: changed e.idx = %d start =%d\n",
+					DBG("Iterate: changed e.idx = %d start =%d\n",
 						er.idx.Get(), start)
 					start = er.idx.Get() - EvRingIdx(len(er.events))
 					goto restart
@@ -472,7 +475,7 @@ func (er *EvRing) Init(no int) {
 	}
 	er.stats.Init(fmt.Sprintf("ev_ring%d", ringNo), nil, len(cntDefs))
 	if !er.stats.RegisterDefs(cntDefs[:]) {
-		fmt.Fprintf(os.Stderr, "BUG: PANIC: EvRing.Init after stats1\n")
+		BUG("PANIC: EvRing.Init after stats1\n")
 		panic("failed to register ev ring counters")
 	}
 
@@ -483,7 +486,7 @@ func (er *EvRing) Init(no int) {
 			&counters.Def{&cntEvType[i], 0, nil, nil,
 				calltr.EventType(i).String(), ""})
 		if !ok {
-			fmt.Fprintf(os.Stderr, "BUG: PANIC: EvRing.Init after stats2\n")
+			BUG("PANIC: EvRing.Init after stats2\n")
 			panic(fmt.Sprintf("failed to register counter %d", i))
 		}
 	}

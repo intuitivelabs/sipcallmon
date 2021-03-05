@@ -15,10 +15,15 @@ import (
 	"unicode"
 
 	"github.com/intuitivelabs/calltr"
+	"github.com/intuitivelabs/slog"
 )
 
 type Config struct {
 	Verbose        bool          `config:"verbose"`
+	LogLev         int           `config:"log_level"`
+	LogOpt         uint          `config:"log_opt"`
+	ParseLogLev    int           `config:"parse_log_level"`
+	ParseLogOpt    uint          `config:"parse_log_opt"`
 	PCAPs          string        `config:"pcap"`
 	Replay         bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
@@ -91,6 +96,10 @@ type Config struct {
 }
 
 var defaultConfigVals = Config{
+	LogLev:            int(slog.LINFO),
+	LogOpt:            uint(slog.LlocInfoS),
+	ParseLogLev:       int(slog.LNOTICE),
+	ParseLogOpt:       uint(slog.LOptNone),
 	ReplayMinDelay:    250 * time.Millisecond,
 	ReplayMaxDelay:    0,
 	TCPGcInt:          30 * time.Second,
@@ -177,6 +186,12 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	cfg = *c
 
 	flag.BoolVar(&cfg.Verbose, "verbose", c.Verbose, "turn on verbose mode")
+	flag.IntVar(&cfg.LogLev, "log_level", c.LogLev, "log level")
+	flag.UintVar(&cfg.LogOpt, "log_opt", c.LogOpt, "log format options")
+	flag.IntVar(&cfg.ParseLogLev, "parse_log_level", c.ParseLogLev,
+		"log level for capturing and parsing")
+	flag.UintVar(&cfg.ParseLogOpt, "parse_log_opt", c.ParseLogOpt,
+		"log format options for parsing")
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")

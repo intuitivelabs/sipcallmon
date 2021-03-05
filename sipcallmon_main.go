@@ -260,6 +260,13 @@ func Init(cfg *Config) error {
 
 	// save actual config for global ref.
 	RunningCfg = cfg
+
+	// logging
+	slog.Init(&Log, slog.LogLevel(cfg.LogLev), slog.LogOptions(cfg.LogOpt),
+		slog.LStdErr)
+	slog.Init(&Plog, slog.LogLevel(cfg.ParseLogLev),
+		slog.LogOptions(cfg.ParseLogOpt), slog.LStdErr)
+
 	// forward config options to calltr
 	calltrCfg := *calltr.GetCfg()
 	calltrCfg.RegDelta = uint32(cfg.RegDelta)

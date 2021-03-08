@@ -10,6 +10,8 @@ github.com/intuitivelabs/counters v0.1.2-0.20210223181853-f6621bba8b35 h1:9lapJC
 github.com/intuitivelabs/counters v0.1.2-0.20210223181853-f6621bba8b35/go.mod h1:gg2mPscHiatkLfDWF7bSuUeHcmsiTazGQx1pW62uJ0w=
 github.com/intuitivelabs/sipsp v1.0.2-0.20201123190413-cdee4299e270 h1:/xDI2e4acDwU7Fzto31gktlC2qe3BghHwOYxwIMA/9Y=
 github.com/intuitivelabs/sipsp v1.0.2-0.20201123190413-cdee4299e270/go.mod h1:cQ5p5hsd+DeKu1XbCH7f7NN5wH2b8SOwuJBfk6VC0ms=
+github.com/intuitivelabs/slog v0.0.1 h1:r4S29d0wuHFjQmtl2HLQl/g/NgYVQEQ8lGKMn1SeVqc=
+github.com/intuitivelabs/slog v0.0.1/go.mod h1:Ui5r7QQoGGj6/sODBbsz8VJbbylXyx86aVhbdoriIKY=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3 h1:0GoQqolDA55aaLxZyTzK/Y2ePZzZTUrRacwib7cNsYQ=
 golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3/go.mod h1:t9HGtf8HONx5eT2rtn7q6eTqICYqUVnKs3thJo3Qplg=

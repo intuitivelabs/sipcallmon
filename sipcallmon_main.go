@@ -266,6 +266,9 @@ func Init(cfg *Config) error {
 		slog.LStdErr)
 	slog.Init(&Plog, slog.LogLevel(cfg.ParseLogLev),
 		slog.LogOptions(cfg.ParseLogOpt), slog.LStdErr)
+	// init also the default slog log (used directly by sipsp)
+	slog.DefaultLogInit(slog.LogLevel(cfg.LogLev), slog.LogOptions(cfg.LogOpt),
+		slog.LStdErr)
 
 	// forward config options to calltr
 	calltrCfg := *calltr.GetCfg()

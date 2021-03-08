@@ -316,7 +316,7 @@ func (er *EvRing) Put(pos EvRingIdx) {
 	}
 	er.lock.Unlock()
 	if er.state[i].readOnly < 0 {
-		panic("Put: below 0")
+		Log.PANIC("Put: below 0\n")
 	}
 }
 
@@ -475,8 +475,7 @@ func (er *EvRing) Init(no int) {
 	}
 	er.stats.Init(fmt.Sprintf("ev_ring%d", ringNo), nil, len(cntDefs))
 	if !er.stats.RegisterDefs(cntDefs[:]) {
-		BUG("PANIC: EvRing.Init after stats1\n")
-		panic("failed to register ev ring counters")
+		Log.PANIC("EvRing.Init: failed to register ev ring counters\n")
 	}
 
 	s := len(cntEvType)
@@ -486,8 +485,7 @@ func (er *EvRing) Init(no int) {
 			&counters.Def{&cntEvType[i], 0, nil, nil,
 				calltr.EventType(i).String(), ""})
 		if !ok {
-			BUG("PANIC: EvRing.Init after stats2\n")
-			panic(fmt.Sprintf("failed to register counter %d", i))
+			Log.PANIC("EvRing.Init: failed to register counter %d\n", i)
 		}
 	}
 }

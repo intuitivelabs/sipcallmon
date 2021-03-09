@@ -24,6 +24,7 @@ type Config struct {
 	LogOpt         uint          `config:"log_opt"`
 	ParseLogLev    int           `config:"parse_log_level"`
 	ParseLogOpt    uint          `config:"parse_log_opt"`
+	DbgCalltr      uint          `config:"debug_calltr"`
 	PCAPs          string        `config:"pcap"`
 	Replay         bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
@@ -100,6 +101,7 @@ var defaultConfigVals = Config{
 	LogOpt:            uint(slog.LlocInfoS),
 	ParseLogLev:       int(slog.LNOTICE),
 	ParseLogOpt:       uint(slog.LOptNone),
+	DbgCalltr:         uint(calltr.DefaultConfig.Dbg),
 	ReplayMinDelay:    250 * time.Millisecond,
 	ReplayMaxDelay:    0,
 	TCPGcInt:          30 * time.Second,
@@ -192,6 +194,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"log level for capturing and parsing")
 	flag.UintVar(&cfg.ParseLogOpt, "parse_log_opt", c.ParseLogOpt,
 		"log format options for parsing")
+	flag.UintVar(&cfg.DbgCalltr, "debug_calltr", c.DbgCalltr,
+		"debugging flags for call tracking")
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")

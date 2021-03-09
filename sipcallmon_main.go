@@ -278,6 +278,7 @@ func Init(cfg *Config) error {
 	calltrCfg.Mem.MaxCallEntriesMem = cfg.CallStMaxMem
 	calltrCfg.Mem.MaxRegEntries = uint64(cfg.RegsMax)
 	calltrCfg.Mem.MaxRegEntriesMem = cfg.RegsMaxMem
+	calltrCfg.Dbg = calltr.DbgFlags(cfg.DbgCalltr)
 	calltr.SetCfg(&calltrCfg)
 
 	// init evr GC counters

@@ -13,8 +13,10 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/intuitivelabs/calltr"
+	"github.com/intuitivelabs/slog"
 )
 
 var httpHeader string = `
@@ -205,7 +207,6 @@ func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 	fmt.Fprintln(w, httpFooter)
 
 }
-
 func htmlQueryEvRateBlst(w http.ResponseWriter) {
 
 	fmt.Fprintln(w, httpHeader)
@@ -442,4 +443,82 @@ func htmlEvRatePerGCparams(w http.ResponseWriter, cfg *Config) {
 	fmt.Fprintln(w, `</form>`)
 
 	fmt.Fprintln(w, httpFooter)
+}
+
+// print a form input field.
+// Parameters: n - name,
+//             nAlign - allign to this many chars
+//             defVal - default value (pre-filled)
+//             fSize  - field size
+//             comment - optional comment (printed after the input field)
+func htmlInputField(w http.ResponseWriter, n string, nAlign int,
+	defVal string, fSize int, comment string) {
+	align := ""
+	if nAlign != 0 {
+		align = strconv.Itoa(nAlign)
+	}
+	fmt.Fprintf(w, "	<div><pre>%"+align+"s:</pre>\n", n)
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="%d">`,
+		n, defVal, fSize)
+	if comment != "" {
+		fmt.Fprintf(w, "<pre>    %s</pre>\n", comment)
+	}
+	fmt.Fprintf(w, "	</div>\n")
+}
+
+func htmlDbgOptsSetForm(w http.ResponseWriter) {
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
+	fmt.Fprintln(w, `<h2>Logging and debugging options</h2>`)
+	fmt.Fprintln(w, `<hr><div><br></div>`)
+	fmt.Fprintln(w, `<form action="/debug/options" method="get">`)
+
+	logLev := atomic.LoadInt64(&RunningCfg.LogLev)
+	levVals := ""
+	for i := slog.LMIN; i <= slog.LMAX; i++ {
+		levVals += slog.LevelName(i) + ":" + strconv.FormatInt(int64(i), 10)
+		if i != slog.LMAX {
+			levVals += ", "
+		}
+	}
+	htmlInputField(w, "log_level", -22, strconv.FormatInt(logLev, 10), 3,
+		"general log level: "+slog.LevelName(slog.LogLevel(logLev)))
+	fmt.Fprintf(w, "	<div><pre>(possible Values: %s)</pre></div><br>\n",
+		levVals)
+	logOpt := atomic.LoadUint64(&RunningCfg.LogOpt)
+	crtValStr, _ := slog.LogOptString(slog.LogOptions(logOpt))
+	optVals := ""
+	for i := 0; i < int(unsafe.Sizeof(slog.LogOptions(0))*8); i++ {
+		if n, ok := slog.LogOptString(slog.LogOptions(1 << i)); ok {
+			if optVals != "" {
+				optVals += ", "
+			}
+			optVals += n + ":" + strconv.FormatUint(1<<i, 10)
+		} else {
+			break
+		}
+	}
+	htmlInputField(w, "log_opt", -22, strconv.FormatUint(logOpt, 10), 3,
+		"general log flags:"+crtValStr,
+	)
+	fmt.Fprintf(w, "	<div><pre>(possible Values: %s)</pre></div><br>\n",
+		optVals)
+
+	pLogLev := atomic.LoadInt64(&RunningCfg.ParseLogLev)
+	pLevStr := slog.LevelName(slog.LogLevel(pLogLev))
+	htmlInputField(w, "parse_log_level", -22, strconv.FormatInt(pLogLev, 10),
+		3, "parser/capture log level: "+pLevStr+
+			" (same values as for log_level)")
+	pLogOpt := atomic.LoadUint64(&RunningCfg.ParseLogOpt)
+	pOptStr, _ := slog.LogOptString(slog.LogOptions(pLogOpt))
+	htmlInputField(w, "parse_log_opt", -22, strconv.FormatUint(pLogOpt, 10), 3,
+		"parser/caputure options flags:"+pOptStr+
+			" (same values as for log_opt)")
+
+	fmt.Fprintf(w, "	<br>\n")
+	dbgCalltr := atomic.LoadUint64(&RunningCfg.DbgCalltr)
+	htmlInputField(w, "debug_calltr", -22, strconv.FormatUint(dbgCalltr, 10),
+		3, "debug flags for call tracking: alloc: 1")
+
+	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
+	fmt.Fprintln(w, `</form>`)
 }

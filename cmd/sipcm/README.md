@@ -23,6 +23,8 @@ It can either capture live packets or replay pcap files.
     	maximum memory for keeping call state (0 for unlimited)
   -contact_ignore_port
     	ignore port number when comparing contacts (but not AORs)
+  -debug_calltr uint
+    	debugging flags for call tracking (default 1)
   -event_buffer_size int
     	how many events will be buffered (default 10240)
   -event_types_blst string
@@ -51,8 +53,16 @@ It can either capture live packets or replay pcap files.
     	port for the internal http server, 0 == disable
   -iface string
     	interface to capture packets from
+  -log_level int
+    	log level (default 2)
+  -log_opt uint
+    	log format options (default 1)
   -max_blocked_timeout string
     	maximum blocked timeout (default "1s")
+  -parse_log_level int
+    	log level for capturing and parsing (default 1)
+  -parse_log_opt uint
+    	log format options for parsing
   -pcap string
     	read packets from pcap files
   -reg_exp_delta uint
@@ -92,6 +102,7 @@ It can either capture live packets or replay pcap files.
 | /calls/list | list 100 calls (add ?n=NNN to change the number) |
 | /calls/list/query | list only calls matching a query (form) |
 | /counters | list statistics counters (params: group, counter, short, flags) |
+| /debug/options | logging and debugging options |
 | /events | list first 100 events (add ?n=NNN to change the number) |
 | /events/blst | blacklist specific event types |
 | /events/query | list events matching the query (form) |

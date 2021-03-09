@@ -42,6 +42,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/calls/list", "", httpCallList},
 	{"/calls/list/query", "", httpCallListQuery},
 	{"/counters", "", httpPrintCounters},
+	{"/debug/options", "", httpDbgOptions},
 	{"/debug/pprof", "", nil},
 	{"/events", "", httpEventsList},
 	{"/events/blst", "", httpEventsBlst},
@@ -1280,6 +1281,47 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func httpDbgOptions(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, httpHeader)
+
+	logChgs := 0
+
+	if v, ok, _ := getIntFormVal(w, r, "log_level", true); ok {
+		// set the new log_level everywhere
+		atomic.StoreInt64(&RunningCfg.LogLev, v)
+		logChgs++
+	}
+	if v, ok, _ := getUintFormVal(w, r, "log_opt", true); ok {
+		// set the new log_level everywhere
+		atomic.StoreUint64(&RunningCfg.LogOpt, v)
+		logChgs++
+	}
+	if v, ok, _ := getIntFormVal(w, r, "parse_log_level", true); ok {
+		// set the new log_level everywhere
+		atomic.StoreInt64(&RunningCfg.ParseLogLev, v)
+		logChgs++
+	}
+	if v, ok, _ := getUintFormVal(w, r, "parse_log_opt", true); ok {
+		// set the new log_level everywhere
+		atomic.StoreUint64(&RunningCfg.ParseLogOpt, v)
+		logChgs++
+	}
+	if v, ok, _ := getUintFormVal(w, r, "debug_calltr", true); ok {
+		// set the new log_level everywhere
+		atomic.StoreUint64(&RunningCfg.DbgCalltr, v)
+		c := *calltr.GetCfg()
+		c.Dbg = calltr.DbgFlags(v)
+		calltr.SetCfg(&c)
+	}
+	if logChgs > 0 {
+		// re-init the logs
+		initLogs(RunningCfg)
+	}
+
+	htmlDbgOptsSetForm(w)
+	fmt.Fprintln(w, httpFooter)
 }
 
 func httpEventsRates(w http.ResponseWriter, r *http.Request) {

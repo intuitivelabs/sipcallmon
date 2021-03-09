@@ -310,7 +310,7 @@ nextpkt:
 		//  error != UnsupportedLayerType class of errors
 		if err != nil {
 			if _, ok := err.(gopacket.UnsupportedLayerType); !ok || len(decodedLayers) == 0 {
-				PERR("decoding packet %d: %s\n", n, err)
+				Plog.INFO("error decoding packet %d: %s\n", n, err)
 				stats.decodeErrs++
 			}
 		}

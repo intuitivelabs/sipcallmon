@@ -251,6 +251,19 @@ func evRateBlstStartGC(ticker *time.Ticker, done chan struct{}) {
 	go evRateBlstGCRun(ticker, done)
 }
 
+func initLogs(cfg *Config) {
+	slog.Init(&Log, slog.LogLevel(cfg.LogLev), slog.LogOptions(cfg.LogOpt),
+		slog.LStdErr)
+	slog.Init(&Plog, slog.LogLevel(cfg.ParseLogLev),
+		slog.LogOptions(cfg.ParseLogOpt), slog.LStdErr)
+	// calltr log
+	slog.Init(&calltr.Log, slog.LogLevel(cfg.LogLev),
+		slog.LogOptions(cfg.LogOpt), slog.LStdErr)
+	// init also the default slog log (used directly by sipsp)
+	slog.DefaultLogInit(slog.LogLevel(cfg.LogLev), slog.LogOptions(cfg.LogOpt),
+		slog.LStdErr)
+}
+
 // Init pre-initializes sipcallmon.
 func Init(cfg *Config) error {
 
@@ -262,13 +275,7 @@ func Init(cfg *Config) error {
 	RunningCfg = cfg
 
 	// logging
-	slog.Init(&Log, slog.LogLevel(cfg.LogLev), slog.LogOptions(cfg.LogOpt),
-		slog.LStdErr)
-	slog.Init(&Plog, slog.LogLevel(cfg.ParseLogLev),
-		slog.LogOptions(cfg.ParseLogOpt), slog.LStdErr)
-	// init also the default slog log (used directly by sipsp)
-	slog.DefaultLogInit(slog.LogLevel(cfg.LogLev), slog.LogOptions(cfg.LogOpt),
-		slog.LStdErr)
+	initLogs(cfg)
 
 	// forward config options to calltr
 	calltrCfg := *calltr.GetCfg()

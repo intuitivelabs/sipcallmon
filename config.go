@@ -20,11 +20,11 @@ import (
 
 type Config struct {
 	Verbose        bool          `config:"verbose"`
-	LogLev         int           `config:"log_level"`
-	LogOpt         uint          `config:"log_opt"`
-	ParseLogLev    int           `config:"parse_log_level"`
-	ParseLogOpt    uint          `config:"parse_log_opt"`
-	DbgCalltr      uint          `config:"debug_calltr"`
+	LogLev         int64         `config:"log_level"`
+	LogOpt         uint64        `config:"log_opt"`
+	ParseLogLev    int64         `config:"parse_log_level"`
+	ParseLogOpt    uint64        `config:"parse_log_opt"`
+	DbgCalltr      uint64        `config:"debug_calltr"`
 	PCAPs          string        `config:"pcap"`
 	Replay         bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
@@ -97,11 +97,11 @@ type Config struct {
 }
 
 var defaultConfigVals = Config{
-	LogLev:            int(slog.LINFO),
-	LogOpt:            uint(slog.LlocInfoS),
-	ParseLogLev:       int(slog.LNOTICE),
-	ParseLogOpt:       uint(slog.LOptNone),
-	DbgCalltr:         uint(calltr.DefaultConfig.Dbg),
+	LogLev:            int64(slog.LINFO),
+	LogOpt:            uint64(slog.LlocInfoS),
+	ParseLogLev:       int64(slog.LNOTICE),
+	ParseLogOpt:       uint64(slog.LOptNone),
+	DbgCalltr:         uint64(calltr.DefaultConfig.Dbg),
 	ReplayMinDelay:    250 * time.Millisecond,
 	ReplayMaxDelay:    0,
 	TCPGcInt:          30 * time.Second,
@@ -188,13 +188,13 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	cfg = *c
 
 	flag.BoolVar(&cfg.Verbose, "verbose", c.Verbose, "turn on verbose mode")
-	flag.IntVar(&cfg.LogLev, "log_level", c.LogLev, "log level")
-	flag.UintVar(&cfg.LogOpt, "log_opt", c.LogOpt, "log format options")
-	flag.IntVar(&cfg.ParseLogLev, "parse_log_level", c.ParseLogLev,
+	flag.Int64Var(&cfg.LogLev, "log_level", c.LogLev, "log level")
+	flag.Uint64Var(&cfg.LogOpt, "log_opt", c.LogOpt, "log format options")
+	flag.Int64Var(&cfg.ParseLogLev, "parse_log_level", c.ParseLogLev,
 		"log level for capturing and parsing")
-	flag.UintVar(&cfg.ParseLogOpt, "parse_log_opt", c.ParseLogOpt,
+	flag.Uint64Var(&cfg.ParseLogOpt, "parse_log_opt", c.ParseLogOpt,
 		"log format options for parsing")
-	flag.UintVar(&cfg.DbgCalltr, "debug_calltr", c.DbgCalltr,
+	flag.Uint64Var(&cfg.DbgCalltr, "debug_calltr", c.DbgCalltr,
 		"debugging flags for call tracking")
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+

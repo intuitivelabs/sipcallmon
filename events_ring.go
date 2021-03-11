@@ -246,6 +246,57 @@ func (er *EvRing) Add(ev *calltr.EventData) bool {
 	return ret
 }
 
+// adds an event based on a calltr.CallEntry.
+// Returns true on success, false on failure.
+func (er *EvRing) addSafeCallEntry(evt calltr.EventType, ce *calltr.CallEntry,
+	lock bool, rateInfo calltr.EvRateInfo) bool {
+	i := er.acquireEntry()
+	if i < 0 {
+		return false
+	}
+	if lock {
+		lock = calltr.LockCallEntry(ce)
+	}
+	n := er.events[i].Fill(evt, ce)
+	er.events[i].Rate = rateInfo
+	ret := n > 0
+	if lock {
+		if !calltr.UnlockCallEntry(ce) {
+			BUG("unlocking call entry %p failed\n")
+		}
+	}
+	er.releaseEntry(i, ret)
+	return ret
+}
+
+// AddCallEntry adds a new event to the ring, based on the passed
+// event type and calltr.CallEntry, avoiding thus intermediary copies.
+// The parameters are: the event type, the calltr.CallEntry and whether or
+// not the CallEntry should be locked.
+// It also signals a potential registered listener(SetEvSignal(...)).
+// It returns true on success and false on failure.
+func (er *EvRing) AddCallEntry(evt calltr.EventType, ce *calltr.CallEntry,
+	lock bool, rateInfo calltr.EvRateInfo) bool {
+	er.stats.Inc(cntEvMaxParallel)
+	er.evStats.Inc(cntEvType[int(evt)])
+	if er.Blacklisted(evt) {
+		er.stats.Inc(cntEvBlst)
+		er.stats.Dec(cntEvMaxParallel)
+		return true // no failure, we just ignore it
+	}
+	ret := er.addSafeCallEntry(evt, ce, lock, rateInfo)
+	if !ret {
+		er.stats.Inc(cntEvFail)
+		er.stats.Dec(cntEvMaxParallel)
+		return ret
+	}
+
+	er.stats.Inc(cntEvQueued)
+	er.signalNewEv()
+	er.stats.Dec(cntEvMaxParallel)
+	return ret
+}
+
 // AddBasic adds a new "basic" event to the ring, created from
 // the provided source, destination and protocol information + optional
 // call-id and reason.

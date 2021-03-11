@@ -115,9 +115,14 @@ func (er *EvRing) Blacklisted(ev calltr.EventType) bool {
 	return er.evBlst.Test(ev)
 }
 
-func (er *EvRing) addSafe(ev *calltr.EventData) bool {
+// acquire an entry for writing.
+// On success the acquired entry can be overwritten (it's already reset)
+// and the entry _MUST_ be released with releaseEntry() (otherwise it
+// would remain makred "busy" forever).
+// Returns the entry evring index on success (>=0) and < 0 on error.
+func (er *EvRing) acquireEntry() int {
 	if len(er.events) == 0 {
-		return false
+		return -1
 	}
 	var i int
 	er.lock.Lock()
@@ -126,20 +131,20 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 		i = int(er.idx.Get() % EvRingIdx(len(er.events)))
 		if er.state[i].readOnly > 0 {
 			if DBGon() {
-				DBG("addSafe: read-only %d idx %d start %d\n",
+				DBG("read-only %d idx %d start %d\n",
 					i, er.idx.Get(), start)
 			}
 			er.idx.inc()
 			er.stats.Inc(cntEvSkipRdOnly)
 			er.stats.Inc(cntEvSkipRdOnlyMax)
 			if er.idx.Get()-start > EvRingIdx(len(er.events)) {
-				if DBGon() {
-					DBG("addSafe: FAILURE busy %d idx %d start %d\n",
+				if ERRon() {
+					ERR("FAILURE busy %d idx %d start %d\n",
 						i, er.idx.Get(), start)
 				}
 				er.lock.Unlock()
 				er.stats.Inc(cntEvFailAllRdBusy)
-				return false // all busy
+				return -1 // all busy
 			}
 			continue
 		} else {
@@ -157,22 +162,69 @@ func (er *EvRing) addSafe(ev *calltr.EventData) bool {
 		// the ring size is just to small)
 		er.lock.Unlock()
 		er.stats.Inc(cntEvFailAllWrBusy)
-		return false
+		return -1
 	}
 	er.state[i].busy = true
 	er.idx.inc() // claim entry
 	er.lock.Unlock()
 
 	er.events[i].Reset()
-	ret := er.events[i].Copy(ev)
+	return i
+}
+
+// release an entry previously acquired for writing (by acquireEntry()).
+// The parameters are the entry index in the event ring (i) and the
+// new entry "valid" state.
+func (er *EvRing) releaseEntry(i int, valid bool) {
 
 	er.lock.Lock()
-	er.state[i].valid = ret
+	er.state[i].valid = valid
 	er.state[i].busy = false
 	er.lock.Unlock()
+}
+
+// adds an event to the ring (copy).
+// Returns true on success, false on failure.
+func (er *EvRing) addSafe(ev *calltr.EventData) bool {
+	i := er.acquireEntry()
+	if i < 0 {
+		return false
+	}
+	ret := er.events[i].Copy(ev) // MOVE
+	er.releaseEntry(i, ret)
 	return ret
 }
 
+// signalNewEv signals a potential listener that a new event has been added
+// to the ring.
+func (er *EvRing) signalNewEv() {
+	if er.newEv != nil {
+		select {
+		case er.newEv <- struct{}{}:
+			if s := atomic.SwapInt32(&er.skipped, 0); s > 0 {
+				idx := er.idx.Get()
+				WARN("EvRing.Add recovered after"+
+					" skipping %d signals, idx %d\n", s, idx)
+			}
+			er.stats.Set(cntEvSigsSkippedMax, 0)
+			er.stats.Inc(cntEvSigs)
+		default:
+			if er.skipped == 0 {
+				idx := er.idx.Get()
+				WARN("EvRing.Add: send channel"+
+					" full for [%d], skipping signal\n",
+					idx)
+			}
+			atomic.AddInt32(&er.skipped, 1)
+			er.stats.Inc(cntEvSigsSkipped)
+			er.stats.Inc(cntEvSigsSkippedMax)
+		}
+	}
+}
+
+// Add adds a new event to the ring, by copying it at the "top" and
+// signals a potential registered listener(SetEvSignal(...)).
+// It returns true on success and false on failure.
 func (er *EvRing) Add(ev *calltr.EventData) bool {
 	er.stats.Inc(cntEvMaxParallel)
 	er.evStats.Inc(cntEvType[int(ev.Type)])
@@ -189,27 +241,7 @@ func (er *EvRing) Add(ev *calltr.EventData) bool {
 	}
 
 	er.stats.Inc(cntEvQueued)
-	idx := er.idx.Get()
-	if er.newEv != nil {
-		select {
-		case er.newEv <- struct{}{}:
-			if s := atomic.SwapInt32(&er.skipped, 0); s > 0 {
-				WARN("EvRing.Add recovered after"+
-					" skipping %d signals, idx %d\n", s, idx)
-			}
-			er.stats.Set(cntEvSigsSkippedMax, 0)
-			er.stats.Inc(cntEvSigs)
-		default:
-			if er.skipped == 0 {
-				WARN("EvRing.Add: send channel"+
-					" full for [%d] %p, skipping signal\n",
-					idx, ev)
-			}
-			atomic.AddInt32(&er.skipped, 1)
-			er.stats.Inc(cntEvSigsSkipped)
-			er.stats.Inc(cntEvSigsSkippedMax)
-		}
-	}
+	er.signalNewEv()
 	er.stats.Dec(cntEvMaxParallel)
 	return ret
 }

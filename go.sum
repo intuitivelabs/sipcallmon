@@ -2,8 +2,8 @@ github.com/google/gopacket v1.1.18 h1:lum7VRA9kdlvBi7/v2p7/zcbkduHaCH/SVVyurs7Op
 github.com/google/gopacket v1.1.18/go.mod h1:UdDNZ1OO62aGYVnPhxT1U6aI7ukYtA/kB8vaU0diBUM=
 github.com/intuitivelabs/bytescase v1.0.1 h1:As9FoZOyQuaQa4StsNHGlMbweAf3rZ5Ku2U1QsXauhA=
 github.com/intuitivelabs/bytescase v1.0.1/go.mod h1:Gr+B79bV8+mDKvYr4hja6qPVHtYG4Knem0K8gzZKHHU=
-github.com/intuitivelabs/calltr v1.0.2-0.20210312091841-e5a02780120f h1:0ZOau5/Yi8gsaCIdoiEzcOyf0XxIW7C9WxNTPB5B0E8=
-github.com/intuitivelabs/calltr v1.0.2-0.20210312091841-e5a02780120f/go.mod h1:pnvSAwT3KMrPN5mDIQHT8fzJ/GFt3kaSUoKB6A5mzVY=
+github.com/intuitivelabs/calltr v1.0.2-0.20210312182414-d61e145f3883 h1:20rEgQXzmsAmZkmq+Btb38ZZOR4VnWzAFEeOIsji7ZA=
+github.com/intuitivelabs/calltr v1.0.2-0.20210312182414-d61e145f3883/go.mod h1:pnvSAwT3KMrPN5mDIQHT8fzJ/GFt3kaSUoKB6A5mzVY=
 github.com/intuitivelabs/counters v0.1.2-0.20210223181853-f6621bba8b35 h1:9lapJCLXl1SbLP0DLUFRTQCRzyrVutcD1Et+M1M7iwg=
 github.com/intuitivelabs/counters v0.1.2-0.20210223181853-f6621bba8b35/go.mod h1:gg2mPscHiatkLfDWF7bSuUeHcmsiTazGQx1pW62uJ0w=
 github.com/intuitivelabs/sipsp v1.0.2-0.20210308194237-4a75bdf3b7b5 h1:yWh83k8w3+H/t0vDqC6c6Bxw2gMEIjaWb17AyY1GDtM=

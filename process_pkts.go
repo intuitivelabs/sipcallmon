@@ -532,7 +532,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip net.IP, sport int,
 			endPoints[1].Port = uint16(dport)
 			endPoints[1].SetProto(calltr.NProtoUDP)
 
-			ret = CallTrack(&sipmsg, &endPoints)
+			ret = CallTrack(&sipmsg, endPoints)
 			if ret {
 				stats.callTrUDP++
 			} else {
@@ -652,12 +652,12 @@ func evHandler(ed *calltr.EventData) {
 	var src calltr.NetInfo
 	var diff uint64
 
-	src.SetIP(&ed.Src)
+	src.SetIP(ed.Src)
 	src.SetProto(ed.ProtoF)
 
 	evrStats.Inc(evrCnts.no)
 	ok, ridx, rv, info :=
-		EvRateBlst.IncUpdate(ed.Type, &src, time.Now())
+		EvRateBlst.IncUpdate(ed.Type, src, time.Now())
 	if !ok {
 		evrStats.Inc(evrCnts.trackFail)
 		if DBGon() {
@@ -689,7 +689,7 @@ func evHandler(ed *calltr.EventData) {
 		evrStats.Inc(evrCnts.blstRec)
 	}
 	// fill even rate info (always)
-	calltr.FillEvRateInfo(&ed.Rate, &info, rv, rateMax.Max, rateMax.Intvl,
+	calltr.FillEvRateInfo(&ed.Rate, info, rv, rateMax.Max, rateMax.Intvl,
 		diff)
 	if !EventsRing.Add(ed) {
 		ERR("Failed to add event %d: %s\n",
@@ -703,8 +703,7 @@ func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
 	var diff uint64
 
 	evrStats.Inc(evrCnts.no)
-	// TODO: pass src as copy and not as pointer
-	ok, ridx, rv, info := EvRateBlst.IncUpdate(evt, &src, time.Now())
+	ok, ridx, rv, info := EvRateBlst.IncUpdate(evt, src, time.Now())
 	if !ok {
 		evrStats.Inc(evrCnts.trackFail)
 		if DBGon() {
@@ -737,8 +736,7 @@ func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
 	}
 	// fill even rate info (always)
 	var evRate calltr.EvRateInfo
-	// TODO: remove pointers
-	calltr.FillEvRateInfo(&evRate, &info, rv, rateMax.Max, rateMax.Intvl,
+	calltr.FillEvRateInfo(&evRate, info, rv, rateMax.Max, rateMax.Intvl,
 		diff)
 	if !EventsRing.AddCallEntry(evt, ce, true /* lock */, evRate) {
 		ERR("Failed to add event %d: %s\n",
@@ -746,6 +744,6 @@ func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
 	}
 }
 
-func CallTrack(m *sipsp.PSIPMsg, n *[2]calltr.NetInfo) bool {
+func CallTrack(m *sipsp.PSIPMsg, n [2]calltr.NetInfo) bool {
 	return calltr.Track(m, n, nil /*evHandler*/)
 }

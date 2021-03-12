@@ -696,6 +696,55 @@ func evHandler(ed *calltr.EventData) {
 	}
 }
 
+// per call event callback
+func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
+	src, dst calltr.NetInfo) {
+	var diff uint64
+
+	evrStats.Inc(evrCnts.no)
+	// TODO: pass src as copy and not as pointer
+	ok, ridx, rv, info := EvRateBlst.IncUpdate(evt, &src, time.Now())
+	if !ok {
+		evrStats.Inc(evrCnts.trackFail)
+		if DBGon() {
+			DBG("max event blacklist size exceeded: %v / %v\n",
+				EvRateBlst.CrtEntries(), EvRateBlst.MaxEntries())
+		}
+		return
+	}
+	_, rateMax := EvRateBlst.GetRateMax(ridx)
+	if info.Exceeded {
+		evrStats.Inc(evrCnts.blst)
+		if DBGon() {
+			DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
+				" since %v (%v times)\n",
+				evt, src.IP(), rv, rateMax.Max, rateMax.Intvl,
+				time.Now().Sub(info.ExChgT), info.ExConseq)
+		}
+		minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
+		maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
+		// don't report all blacklisted events, only the 1st one and
+		// after some repeat values (depending on configured values)
+		var report bool
+		report, diff = reportBlstEv(info.ExConseq, minr, maxr)
+		if !report {
+			return // ignore, don't report
+		}
+		evrStats.Inc(evrCnts.blstSent)
+	} else if info.ExConseq > 0 && info.OkConseq == 1 {
+		evrStats.Inc(evrCnts.blstRec)
+	}
+	// fill even rate info (always)
+	var evRate calltr.EvRateInfo
+	// TODO: remove pointers
+	calltr.FillEvRateInfo(&evRate, &info, rv, rateMax.Max, rateMax.Intvl,
+		diff)
+	if !EventsRing.AddCallEntry(evt, ce, true /* lock */, evRate) {
+		ERR("Failed to add event %d: %s\n",
+			evrStats.Get(evrCnts.no), evt.String())
+	}
+}
+
 func CallTrack(m *sipsp.PSIPMsg, n *[2]calltr.NetInfo) bool {
-	return calltr.Track(m, n, evHandler)
+	return calltr.Track(m, n, nil /*evHandler*/)
 }

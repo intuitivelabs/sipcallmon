@@ -1012,8 +1012,8 @@ func httpInjectMsg(w http.ResponseWriter, r *http.Request) {
 		stats.injected++
 		stats.seen++
 		ok := udpSIPMsg(w, rawmsg, int(stats.injected)-1,
-			&ipLocalhost, 5060,
-			&ipLocalhost, 5060, verbose)
+			ipLocalhost, 5060,
+			ipLocalhost, 5060, verbose)
 		if !verbose {
 			fmt.Fprintf(w, "%q\n\n", rawmsg)
 		}

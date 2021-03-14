@@ -24,6 +24,7 @@ import (
 	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
+	"github.com/intuitivelabs/timestamp"
 )
 
 const (
@@ -657,7 +658,7 @@ func evHandler(ed *calltr.EventData) {
 
 	evrStats.Inc(evrCnts.no)
 	ok, ridx, rv, info :=
-		EvRateBlst.IncUpdate(ed.Type, src, time.Now())
+		EvRateBlst.IncUpdate(ed.Type, src, timestamp.Now())
 	if !ok {
 		evrStats.Inc(evrCnts.trackFail)
 		if DBGon() {
@@ -673,7 +674,7 @@ func evHandler(ed *calltr.EventData) {
 			DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
 				" since %v (%v times)\n",
 				ed.Type, src.IP(), rv, rateMax.Max, rateMax.Intvl,
-				time.Now().Sub(info.ExChgT), info.ExConseq)
+				timestamp.Now().Sub(info.ExChgT), info.ExConseq)
 		}
 		minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
 		maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
@@ -703,7 +704,7 @@ func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
 	var diff uint64
 
 	evrStats.Inc(evrCnts.no)
-	ok, ridx, rv, info := EvRateBlst.IncUpdate(evt, src, time.Now())
+	ok, ridx, rv, info := EvRateBlst.IncUpdate(evt, src, timestamp.Now())
 	if !ok {
 		evrStats.Inc(evrCnts.trackFail)
 		if DBGon() {
@@ -719,7 +720,7 @@ func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
 			DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
 				" since %v (%v times)\n",
 				evt, src.IP(), rv, rateMax.Max, rateMax.Intvl,
-				time.Now().Sub(info.ExChgT), info.ExConseq)
+				timestamp.Now().Sub(info.ExChgT), info.ExConseq)
 		}
 		minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
 		maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)

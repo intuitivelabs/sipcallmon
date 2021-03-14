@@ -27,6 +27,7 @@ import (
 	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/timestamp"
 )
 
 type httpHandler struct {
@@ -702,7 +703,7 @@ func httpEvRateBlstListQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
-	now := time.Now()
+	now := timestamp.Now()
 	n := 1
 
 	paramN := r.URL.Query()["n"] // target max entries in the hash

@@ -87,7 +87,7 @@ func processLive(iface, bpf string, cfg *Config) {
 	processPackets(h, cfg, false)
 }
 
-func printPacket(w io.Writer, cfg *Config, n int, sip, dip *net.IP, sport, dport int, name string, l int) {
+func printPacket(w io.Writer, cfg *Config, n int, sip, dip net.IP, sport, dport int, name string, l int) {
 	if cfg.Verbose && PDBGon() {
 		PDBG("%d. %s:%d -> %s:%d %s	payload len: %d\n",
 			n, sip, sport, dip, dport, name, l)
@@ -105,7 +105,7 @@ func printTLPacket(w io.Writer, cfg *Config, n int, ipl gopacket.NetworkLayer,
 }
 
 // return true if buf content is for sure not a SIP packet
-func nonSIP(buf []byte, sip *net.IP, sport int, dip *net.IP, dport int) bool {
+func nonSIP(buf []byte, sip net.IP, sport int, dip net.IP, dport int) bool {
 	if len(buf) <= 12 ||
 		(!(buf[0] >= 'A' && buf[0] <= 'Z') &&
 			!(buf[0] >= 'a' && buf[0] <= 'z')) {
@@ -377,9 +377,9 @@ nextpkt:
 				*/
 				stats.seen++
 				var payload []byte = tl.LayerPayload()
-				if !nonSIP(payload, &sip, sport, &dip, dport) {
-					udpSIPMsg(ioutil.Discard, payload, n, &sip, sport,
-						&dip, dport, cfg.Verbose)
+				if !nonSIP(payload, sip, sport, dip, dport) {
+					udpSIPMsg(ioutil.Discard, payload, n, sip, sport,
+						dip, dport, cfg.Verbose)
 				} else {
 					// not sip -> probe
 					EventsRing.AddBasic(calltr.EvNonSIPprobe,
@@ -464,7 +464,8 @@ nextpkt:
 // parse & process (calltrack) an udp message
 // If verbose is set, extra information will be logged to w (otherwise only
 // to the log)
-func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.IP, dport int, verbose bool) bool {
+func udpSIPMsg(w io.Writer, buf []byte, n int, sip net.IP, sport int,
+	dip net.IP, dport int, verbose bool) bool {
 	ret := true
 	if verbose && (Plog.DBGon() || w != ioutil.Discard) {
 		Plog.LogMux(w, verbose, slog.LDBG, "udp pkt: %q\n", buf)
@@ -508,7 +509,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 				rep = 60
 			}
 			EventsRing.AddBasic(calltr.EvParseErr,
-				*sip, uint16(sport), *dip, uint16(dport),
+				sip, uint16(sport), dip, uint16(dport),
 				calltr.NProtoUDP,
 				sipmsg.PV.GetCallID().CallID.Get(buf),
 				buf[:rep])
@@ -531,7 +532,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n int, sip *net.IP, sport int, dip *net.
 			endPoints[1].Port = uint16(dport)
 			endPoints[1].SetProto(calltr.NProtoUDP)
 
-			ret = CallTrack(&sipmsg, &endPoints)
+			ret = CallTrack(&sipmsg, endPoints)
 			if ret {
 				stats.callTrUDP++
 			} else {
@@ -651,12 +652,12 @@ func evHandler(ed *calltr.EventData) {
 	var src calltr.NetInfo
 	var diff uint64
 
-	src.SetIP(&ed.Src)
+	src.SetIP(ed.Src)
 	src.SetProto(ed.ProtoF)
 
 	evrStats.Inc(evrCnts.no)
 	ok, ridx, rv, info :=
-		EvRateBlst.IncUpdate(ed.Type, &src, time.Now())
+		EvRateBlst.IncUpdate(ed.Type, src, time.Now())
 	if !ok {
 		evrStats.Inc(evrCnts.trackFail)
 		if DBGon() {
@@ -688,7 +689,7 @@ func evHandler(ed *calltr.EventData) {
 		evrStats.Inc(evrCnts.blstRec)
 	}
 	// fill even rate info (always)
-	calltr.FillEvRateInfo(&ed.Rate, &info, rv, rateMax.Max, rateMax.Intvl,
+	calltr.FillEvRateInfo(&ed.Rate, info, rv, rateMax.Max, rateMax.Intvl,
 		diff)
 	if !EventsRing.Add(ed) {
 		ERR("Failed to add event %d: %s\n",
@@ -696,6 +697,53 @@ func evHandler(ed *calltr.EventData) {
 	}
 }
 
-func CallTrack(m *sipsp.PSIPMsg, n *[2]calltr.NetInfo) bool {
-	return calltr.Track(m, n, evHandler)
+// per call event callback
+func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
+	src, dst calltr.NetInfo) {
+	var diff uint64
+
+	evrStats.Inc(evrCnts.no)
+	ok, ridx, rv, info := EvRateBlst.IncUpdate(evt, src, time.Now())
+	if !ok {
+		evrStats.Inc(evrCnts.trackFail)
+		if DBGon() {
+			DBG("max event blacklist size exceeded: %v / %v\n",
+				EvRateBlst.CrtEntries(), EvRateBlst.MaxEntries())
+		}
+		return
+	}
+	_, rateMax := EvRateBlst.GetRateMax(ridx)
+	if info.Exceeded {
+		evrStats.Inc(evrCnts.blst)
+		if DBGon() {
+			DBG("event %s src %s blacklisted: rate %f/%f per %v,"+
+				" since %v (%v times)\n",
+				evt, src.IP(), rv, rateMax.Max, rateMax.Intvl,
+				time.Now().Sub(info.ExChgT), info.ExConseq)
+		}
+		minr := atomic.LoadUint64(&RunningCfg.EvRConseqRmin)
+		maxr := atomic.LoadUint64(&RunningCfg.EvRConseqRmax)
+		// don't report all blacklisted events, only the 1st one and
+		// after some repeat values (depending on configured values)
+		var report bool
+		report, diff = reportBlstEv(info.ExConseq, minr, maxr)
+		if !report {
+			return // ignore, don't report
+		}
+		evrStats.Inc(evrCnts.blstSent)
+	} else if info.ExConseq > 0 && info.OkConseq == 1 {
+		evrStats.Inc(evrCnts.blstRec)
+	}
+	// fill even rate info (always)
+	var evRate calltr.EvRateInfo
+	calltr.FillEvRateInfo(&evRate, info, rv, rateMax.Max, rateMax.Intvl,
+		diff)
+	if !EventsRing.AddCallEntry(evt, ce, true /* lock */, evRate) {
+		ERR("Failed to add event %d: %s\n",
+			evrStats.Get(evrCnts.no), evt.String())
+	}
+}
+
+func CallTrack(m *sipsp.PSIPMsg, n [2]calltr.NetInfo) bool {
+	return calltr.Track(m, n, nil /*evHandler*/)
 }

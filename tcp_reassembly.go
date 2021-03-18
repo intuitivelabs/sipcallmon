@@ -161,14 +161,14 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					}
 
 					var endPoints [2]calltr.NetInfo
-					endPoints[0].SetIP(&s.srcIP)
+					endPoints[0].SetIP(s.srcIP)
 					endPoints[0].Port = s.sport
 					endPoints[0].SetProto(calltr.NProtoTCP)
-					endPoints[1].SetIP(&s.dstIP)
+					endPoints[1].SetIP(s.dstIP)
 					endPoints[1].Port = s.dport
 					endPoints[1].SetProto(calltr.NProtoTCP)
 
-					ok := CallTrack(&s.pmsg, &endPoints)
+					ok := CallTrack(&s.pmsg, endPoints)
 					if ok {
 						stats.callTrTCP++
 					} else {

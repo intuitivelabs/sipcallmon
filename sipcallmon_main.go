@@ -334,6 +334,9 @@ func Init(cfg *Config) error {
 		EvRateBlst.Destroy()
 	}
 	var maxRates calltr.EvRateMaxes
+	// register per call event callback
+	calltr.RegisterCEvHandler(callEvHandler)
+
 	calltr.InitEvRateMaxes(&maxRates, &cfg.EvRblstMaxVals, &cfg.EvRblstIntvls)
 
 	// init the event rate blacklist: hash table buckets, max entries.

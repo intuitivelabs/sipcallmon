@@ -21,6 +21,7 @@ import (
 	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/slog"
+	"github.com/intuitivelabs/timestamp"
 )
 
 const Version = "0.7.0"
@@ -157,7 +158,7 @@ mainloop:
 			maxRunT := time.Duration(
 				atomic.LoadInt64((*int64)(&RunningCfg.EvRgcMaxRunT)))
 			target := atomic.LoadUint64(&RunningCfg.EvRgcTarget)
-			now := time.Now()
+			now := timestamp.Now()
 			m.OkLastT = now.Add(-lifetime)
 			runLim := now.Add(maxRunT)
 			// run GC
@@ -190,7 +191,7 @@ mainloop:
 				// GC takes more then 1 tick
 				evrGCstats.Add(evrGCcnts.gcMticks, counters.Val(missed))
 				if DBGon() {
-					DBG("GC run missed ticks: %v\n", time.Now().Sub(now))
+					DBG("GC run missed ticks: %v\n", timestamp.Now().Sub(now))
 				}
 			}
 		}

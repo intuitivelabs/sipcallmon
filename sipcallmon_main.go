@@ -412,7 +412,39 @@ func Run(cfg *Config) error {
 	}
 	StopTS = time.Now()
 	// print stats
-	fmt.Fprintf(os.Stdout, "run time: %s\n\n", StopTS.Sub(StartTS))
+	rTime := StopTS.Sub(StartTS)
+	fmt.Fprintf(os.Stdout, "run  time: %s\n", rTime)
+	if rTime != 0 {
+		pktRate :=
+			float64(stats.n) / float64(uint64(rTime/time.Millisecond)) * 1000
+		speedMB :=
+			((float64(stats.tsize) / float64(uint64(rTime/time.Millisecond))) *
+				1000) / (1024 * 1024)
+		fmt.Fprintf(os.Stdout, "     pkts/s: %.1f\n", pktRate)
+		fmt.Fprintf(os.Stdout, "       MB/s: %.3f (%.3f Gbits/s)\n",
+			speedMB, speedMB*8/1024)
+	}
+	if len(cfg.PCAPs) > 0 && !LastPCAPts.IsZero() {
+		pTime := LastPCAPts.Sub(StartPCAPts)
+		fmt.Fprintf(os.Stdout, "pcap time: %s\n", pTime)
+		speedup := float64(uint64(pTime)) / float64(uint64(rTime))
+		fmt.Fprintf(os.Stdout, "pcap replay speed: %3.03f\n", speedup)
+		if speedup < 1.01 && speedup > 0.8 {
+			fmt.Fprintf(os.Stdout, "pcap replay slower: %s\n",
+				pTime-rTime)
+		}
+		if pTime != 0 {
+			pktRate :=
+				float64(stats.n) / float64(uint64(pTime/time.Millisecond)) *
+					1000
+			speedMB := ((float64(stats.tsize) /
+				float64(uint64(pTime/time.Millisecond))) *
+				1000) / (1024 * 1024)
+			fmt.Fprintf(os.Stdout, "pcap pkts/s: %.1f\n", pktRate)
+			fmt.Fprintf(os.Stdout, "pcap    MB/s: %.3f (%.3f Gbits/s)\n",
+				speedMB, speedMB*8/1024)
+		}
+	}
 	printStats(os.Stdout, &stats)
 	// print the counters
 	flags := counters.PrFullName | counters.PrVal | counters.PrRec

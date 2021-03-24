@@ -18,10 +18,13 @@ import (
 )
 
 var StartTS time.Time
-var StopTS time.Time // when set it's the stop time (pcap mode & end of input)
+var StopTS time.Time      // when set it's the stop time (pcap mode & end of input)
+var StartPCAPts time.Time // start pcap timestamp, set in pcap replay mode
+var LastPCAPts time.Time  // last processed pcap packet timestamp
 
 type pstats struct {
 	n              uint64 // total packet count
+	tsize          uint64 // total size of all the packets (on the wire)
 	ip4            uint64
 	ip6            uint64
 	ip4frags       uint64

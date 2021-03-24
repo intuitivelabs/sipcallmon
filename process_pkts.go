@@ -200,7 +200,6 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	statsUpd := time.Now().Add(5 * time.Second)
 	tcpStartupOver := time.Now().Add(TCPstartupInt)
 	tcpReorderTo := TCPstartupReorderTimeout // initial
-	var lastPCAPts time.Time                 // previous pcap packet timestamp (pcap time)
 	var replayTS time.Time                   // sys time when a packet should be replied
 	var sleep *time.Timer
 nextpkt:
@@ -250,10 +249,13 @@ nextpkt:
 			}
 			continue nextpkt
 		}
+		if n == 0 {
+			StartPCAPts = ci.Timestamp
+		}
 		if replay {
 			ts := ci.Timestamp
-			if !lastPCAPts.IsZero() {
-				wait := ts.Sub(lastPCAPts)
+			if !LastPCAPts.IsZero() {
+				wait := ts.Sub(LastPCAPts)
 				//	PDBG("replay: wait %s\n", wait)
 				if cfg.ReplayScale > 0 {
 					wait = time.Duration(uint64(float64(wait) * cfg.ReplayScale))
@@ -302,10 +304,11 @@ nextpkt:
 				// initial, 0 ts => intialize replayTS
 				replayTS = time.Now()
 			}
-			lastPCAPts = ts
 		}
+		LastPCAPts = ci.Timestamp // pcap timestamp of the last packet
 		n++
 		stats.n++
+		stats.tsize += uint64(ci.Length) // size of packet on the wire
 		err = parser.DecodeLayers(buf, &decodedLayers)
 		// if error and no layers decoded or
 		//  error != UnsupportedLayerType class of errors

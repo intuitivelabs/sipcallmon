@@ -398,6 +398,10 @@ func Run(cfg *Config) error {
 	}
 	stopLock.Unlock()
 
+	var runTime time.Duration
+	var pcapTime time.Duration
+	var pktsNo uint64
+
 	if len(cfg.PCAPs) > 0 {
 		/*
 			for i := 0; i < flag.NArg(); i++ {
@@ -406,45 +410,56 @@ func Run(cfg *Config) error {
 		*/
 		for _, fn := range strings.Split(cfg.PCAPs, " ") {
 			var lastErr error
-			_, _, _, lastErr = processPCAP(fn, cfg)
+			var runT, pcapT time.Duration
+			var n uint64
+
+			if len(fn) == 0 {
+				continue
+			}
+			n, runT, pcapT, lastErr = processPCAP(fn, cfg)
 			if err == nil {
 				// remember 1st error
 				err = lastErr
 			}
+			pktsNo += n
+			runTime += runT
+			pcapTime += pcapT
 		}
 	} else {
 		//processLive(cfg.Iface, strings.Join(flag.Args(), " "), &cfg)
-		_, _, _, err = processLive(cfg.Iface, cfg.BPF, cfg)
+		pktsNo, runTime, pcapTime, err = processLive(cfg.Iface, cfg.BPF, cfg)
 	}
 	StopTS = time.Now()
 	// print stats
-	rTime := StopTS.Sub(StartTS)
-	fmt.Fprintf(os.Stdout, "run  time: %s\n", rTime)
-	if rTime != 0 {
+	//totalTime := StopTS.Sub(StartTS)
+	fmt.Fprintf(os.Stdout, "run  time: %s\n", runTime)
+	if runTime != 0 {
 		pktRate :=
-			float64(stats.n) / float64(uint64(rTime/time.Millisecond)) * 1000
+			float64(pktsNo) / float64(uint64(runTime/time.Millisecond)) * 1000
 		speedMB :=
-			((float64(stats.tsize) / float64(uint64(rTime/time.Millisecond))) *
+			((float64(stats.tsize) /
+				float64(uint64(runTime/time.Millisecond))) *
 				1000) / (1024 * 1024)
 		fmt.Fprintf(os.Stdout, "     pkts/s: %.1f\n", pktRate)
 		fmt.Fprintf(os.Stdout, "       MB/s: %.3f (%.3f Gbits/s)\n",
 			speedMB, speedMB*8/1024)
 	}
-	if len(cfg.PCAPs) > 0 && !LastPCAPts.IsZero() {
-		pTime := LastPCAPts.Sub(StartPCAPts)
-		fmt.Fprintf(os.Stdout, "pcap time: %s\n", pTime)
-		speedup := float64(uint64(pTime)) / float64(uint64(rTime))
-		fmt.Fprintf(os.Stdout, "pcap replay speed: %3.03f\n", speedup)
-		if speedup < 1.01 && speedup > 0.8 {
-			fmt.Fprintf(os.Stdout, "pcap replay slower: %s\n",
-				pTime-rTime)
+	if len(cfg.PCAPs) > 0 && pcapTime != 0 {
+		fmt.Fprintf(os.Stdout, "pcap time: %s\n", pcapTime)
+		if runTime != 0 {
+			speedup := float64(uint64(pcapTime)) / float64(uint64(runTime))
+			fmt.Fprintf(os.Stdout, "pcap replay speed: %3.03f\n", speedup)
+			if speedup < 1.01 && speedup > 0.8 {
+				fmt.Fprintf(os.Stdout, "pcap replay slower: %s\n",
+					pcapTime-runTime)
+			}
 		}
-		if pTime != 0 {
+		if pcapTime != 0 {
 			pktRate :=
-				float64(stats.n) / float64(uint64(pTime/time.Millisecond)) *
+				float64(pktsNo) / float64(uint64(pcapTime/time.Millisecond)) *
 					1000
 			speedMB := ((float64(stats.tsize) /
-				float64(uint64(pTime/time.Millisecond))) *
+				float64(uint64(pcapTime/time.Millisecond))) *
 				1000) / (1024 * 1024)
 			fmt.Fprintf(os.Stdout, "pcap pkts/s: %.1f\n", pktRate)
 			fmt.Fprintf(os.Stdout, "pcap    MB/s: %.3f (%.3f Gbits/s)\n",

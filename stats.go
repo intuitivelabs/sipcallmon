@@ -18,9 +18,7 @@ import (
 )
 
 var StartTS time.Time
-var StopTS time.Time      // when set it's the stop time (pcap mode & end of input)
-var StartPCAPts time.Time // start pcap timestamp, set in pcap replay mode
-var LastPCAPts time.Time  // last processed pcap packet timestamp
+var StopTS time.Time // when set it's the stop time (pcap mode & end of input)
 
 type pstats struct {
 	n              uint64 // total packet count

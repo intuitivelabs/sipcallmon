@@ -1012,7 +1012,7 @@ func httpInjectMsg(w http.ResponseWriter, r *http.Request) {
 		//fmt.Fprintln(w, "<textarea rows=\"10\" cols=\"120\" readonly>")
 		stats.injected++
 		stats.seen++
-		ok := udpSIPMsg(w, rawmsg, int(stats.injected)-1,
+		ok := udpSIPMsg(w, rawmsg, stats.injected-1,
 			ipLocalhost, 5060,
 			ipLocalhost, 5060, verbose)
 		if !verbose {

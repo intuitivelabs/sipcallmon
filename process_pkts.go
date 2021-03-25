@@ -7,6 +7,7 @@
 package sipcallmon
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -40,29 +41,48 @@ var EventsRing EvRing
 // and to mark/blacklist pairs that exceeded the configured maximum rates.
 var EvRateBlst calltr.EvRateHash
 
-func processPCAP(fname string, cfg *Config) {
+// processPCAP  reads pcap packets from the given file and process them
+// in the same way as they would have been if received from the wire.
+// It returns the number of packet seen and the time it took to process
+// the packets, the duration of the pcap file according to the pcap
+// timestamps and an error (nil on success).
+func processPCAP(fname string, cfg *Config) (uint64,
+	time.Duration, time.Duration, error) {
 	if fname == "" {
 		ERR("processPCAP: empty filename\n")
-		return
+		return 0, 0, 0, errors.New("processPcap: empty filename")
 	}
 	var h *pcap.Handle
 	var err error
 
 	if h, err = pcap.OpenOffline(fname); err != nil {
 		ERR("processPCAP: %s\n", err)
-		return
+		err = fmt.Errorf("processPCAP: open file %q: %w", fname, err)
+		return 0, 0, 0, err
 	}
 	defer h.Close()
 	if err = h.SetBPFFilter(cfg.BPF); err != nil {
 		ERR("processLive: bpf %q: %s\n", cfg.BPF, err)
-		return
+		err = fmt.Errorf("processPCAP: set bpf %q: %w", cfg.BPF, err)
+		return 0, 0, 0, err
 	}
 	//packetSrc := gopacket.NewPacketSource(h, h.LinkType())
 	//processPacketsSlow(packetSrc, cfg, true)
-	processPackets(h, cfg, cfg.Replay)
+	return processPackets(h, cfg, cfg.Replay)
 }
 
-func processLive(iface, bpf string, cfg *Config) {
+// processLive  received packets from the wire.
+// It opens the given interface and applies the given berkley packet
+// filter.
+// Normally this function does not return on its own. It stops only if
+// signaled that it should stop running or some error happens while
+// trying to receive packets.
+// It returns the number of packet seen, the total time it took to
+// process the packets, the timestamp difference between the first
+// and the last received packet, according to the packet receive timestamp
+// and an error (nil on success).
+func processLive(iface, bpf string, cfg *Config) (uint64,
+	time.Duration, time.Duration, error) {
 
 	var h *pcap.Handle
 	var err error
@@ -78,14 +98,16 @@ func processLive(iface, bpf string, cfg *Config) {
 
 	if h, err = pcap.OpenLive(iface, 65535, true, timeout); err != nil {
 		ERR("processLive: failed opening %q: %s\n", iface, err)
-		return
+		err = fmt.Errorf("processLive: failed to open %q: %w", iface, err)
+		return 0, 0, 0, err
 	}
 	if err = h.SetBPFFilter(bpf); err != nil {
 		ERR("processLive: bpf %q: %s\n", bpf, err)
-		return
+		err = fmt.Errorf("processLive: bpf %q set failed: %w", bpf, err)
+		return 0, 0, 0, err
 	}
 	defer h.Close()
-	processPackets(h, cfg, false)
+	return processPackets(h, cfg, false)
 }
 
 func printPacket(w io.Writer, cfg *Config, n int, sip, dip net.IP, sport, dport int, name string, l int) {
@@ -95,8 +117,8 @@ func printPacket(w io.Writer, cfg *Config, n int, sip, dip net.IP, sport, dport 
 	}
 }
 
-func printTLPacket(w io.Writer, cfg *Config, n int, ipl gopacket.NetworkLayer,
-	trl gopacket.TransportLayer) {
+func printTLPacket(w io.Writer, cfg *Config, n uint64,
+	ipl gopacket.NetworkLayer, trl gopacket.TransportLayer) {
 	if cfg.Verbose && PDBGon() {
 		PDBG("%d. %s:%s -> %s:%s %s	payload len: %d\n",
 			n, ipl.NetworkFlow().Src(), trl.TransportFlow().Src(),
@@ -115,8 +137,15 @@ func nonSIP(buf []byte, sip net.IP, sport int, dip net.IP, dport int) bool {
 	return false
 }
 
-func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
-	n := 0
+// process packets from a pcap handle using the provided config.
+// If replay is true, it will delay processing a packet with the
+// difference in pcap timestamps from the previous one.
+// It returns the number of packets seen, the total time spent,
+// the total time according to the pcap timestamps and an error.
+func processPackets(h *pcap.Handle, cfg *Config, replay bool) (uint64,
+	time.Duration, time.Duration, error) {
+	var n uint64
+	var err error
 	/* needed layers */
 	// link layers
 	var sll layers.LinuxSLL // e.g.: pcap files captured on any interface
@@ -195,12 +224,15 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) {
 	tcpAssembler.MaxBufferedPagesTotal = 1024 * 25
 	tcpAssembler.MaxBufferedPagesPerConnection = 256
 
+	startTS := time.Now()
 	tcpGCInt := TCPstartupGCInt
 	tcpGCRun := time.Now().Add(tcpGCInt)
 	statsUpd := time.Now().Add(5 * time.Second)
 	tcpStartupOver := time.Now().Add(TCPstartupInt)
 	tcpReorderTo := TCPstartupReorderTimeout // initial
-	var replayTS time.Time                   // sys time when a packet should be replied
+	var startPCAPts time.Time
+	var lastPCAPts time.Time
+	var replayTS time.Time // sys time when a packet should be replied
 	var sleep *time.Timer
 nextpkt:
 	for atomic.LoadUint32(&stopProcessing) == 0 {
@@ -243,6 +275,7 @@ nextpkt:
 				}
 			case pcap.NextErrorNotActivated:
 				Plog.BUG("capture: filter not activated %d: %s\n", n, err)
+				err = fmt.Errorf("processPackets: caputre BUG: %w", err)
 				break nextpkt
 			default:
 				PERR("Error: capture: packet %d: %s\n", n, err)
@@ -250,12 +283,12 @@ nextpkt:
 			continue nextpkt
 		}
 		if n == 0 {
-			StartPCAPts = ci.Timestamp
+			startPCAPts = ci.Timestamp
 		}
 		if replay {
 			ts := ci.Timestamp
-			if !LastPCAPts.IsZero() {
-				wait := ts.Sub(LastPCAPts)
+			if !lastPCAPts.IsZero() {
+				wait := ts.Sub(lastPCAPts)
 				//	PDBG("replay: wait %s\n", wait)
 				if cfg.ReplayScale > 0 {
 					wait = time.Duration(uint64(float64(wait) * cfg.ReplayScale))
@@ -305,7 +338,7 @@ nextpkt:
 				replayTS = time.Now()
 			}
 		}
-		LastPCAPts = ci.Timestamp // pcap timestamp of the last packet
+		lastPCAPts = ci.Timestamp // pcap timestamp of the last packet
 		n++
 		stats.n++
 		stats.tsize += uint64(ci.Length) // size of packet on the wire
@@ -456,6 +489,7 @@ nextpkt:
 		}
 
 	}
+	endTS := time.Now()
 	// close all tcp connections, needed especially for file-mode, when
 	// the pcap contains on-going tcp connections (w/o the initial SYNs).
 	// Without this the tcpAssembler will wait for the missing data
@@ -463,12 +497,13 @@ nextpkt:
 	// interval, no tcp data for on-going connections will be processed in
 	// the loop above, everything will be buffered...
 	tcpAssembler.FlushAll()
+	return n, endTS.Sub(startTS), lastPCAPts.Sub(startPCAPts), err
 }
 
 // parse & process (calltrack) an udp message
 // If verbose is set, extra information will be logged to w (otherwise only
 // to the log)
-func udpSIPMsg(w io.Writer, buf []byte, n int, sip net.IP, sport int,
+func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 	dip net.IP, dport int, verbose bool) bool {
 	ret := true
 	if verbose && (Plog.DBGon() || w != ioutil.Discard) {

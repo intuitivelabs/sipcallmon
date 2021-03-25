@@ -364,8 +364,9 @@ func Init(cfg *Config) error {
 // packet processing ended (pcap reply, EOF and run_forever == false).
 func Run(cfg *Config) error {
 
+	var err error
 	if RunningCfg == nil || cfg != RunningCfg {
-		if err := Init(cfg); err != nil {
+		if err = Init(cfg); err != nil {
 			return err
 		}
 	}
@@ -387,12 +388,12 @@ func Run(cfg *Config) error {
 
 	// start web sever
 	if cfg.HTTPport != 0 {
-		if err := HTTPServerRun(cfg.HTTPaddr, cfg.HTTPport, waitgrp); err != nil {
+		if err = HTTPServerRun(cfg.HTTPaddr, cfg.HTTPport, waitgrp); err != nil {
 			stopLock.Unlock()
 			DBG("starting web server error: %s\n", err)
 			waitgrp.Done()
 			Stop()
-			return fmt.Errorf("starting web server error: %s", err)
+			return fmt.Errorf("Run: starting web server error: %w", err)
 		}
 	}
 	stopLock.Unlock()
@@ -404,11 +405,16 @@ func Run(cfg *Config) error {
 			}
 		*/
 		for _, fn := range strings.Split(cfg.PCAPs, " ") {
-			processPCAP(fn, cfg)
+			var lastErr error
+			_, _, _, lastErr = processPCAP(fn, cfg)
+			if err == nil {
+				// remember 1st error
+				err = lastErr
+			}
 		}
 	} else {
 		//processLive(cfg.Iface, strings.Join(flag.Args(), " "), &cfg)
-		processLive(cfg.Iface, cfg.BPF, cfg)
+		_, _, _, err = processLive(cfg.Iface, cfg.BPF, cfg)
 	}
 	StopTS = time.Now()
 	// print stats
@@ -453,10 +459,10 @@ func Run(cfg *Config) error {
 	counters.RootGrp.PrintSubGroups(os.Stdout, flags)
 
 	if cfg.RunForever && (atomic.LoadUint32(&stopProcessing) == 0) &&
-		stopCh != nil {
+		stopCh != nil && err == nil {
 		<-stopCh
 	}
 	waitgrp.Done() // must be before Stop() since stop will Wait()
 	Stop()         // block waiting for everything to stop
-	return nil
+	return err
 }

@@ -408,22 +408,28 @@ func Run(cfg *Config) error {
 				processPCAP(flag.Arg(i), &cfg)
 			}
 		*/
-		for _, fn := range strings.Split(cfg.PCAPs, " ") {
-			var lastErr error
-			var runT, pcapT time.Duration
-			var n uint64
+		loops := cfg.PCAPloop
+		if loops == 0 {
+			loops = 1
+		}
+		for i := 0; i < int(loops); i++ {
+			for _, fn := range strings.Split(cfg.PCAPs, " ") {
+				var lastErr error
+				var runT, pcapT time.Duration
+				var n uint64
 
-			if len(fn) == 0 {
-				continue
+				if len(fn) == 0 {
+					continue
+				}
+				n, runT, pcapT, lastErr = processPCAP(fn, cfg)
+				if err == nil {
+					// remember 1st error
+					err = lastErr
+				}
+				pktsNo += n
+				runTime += runT
+				pcapTime += pcapT
 			}
-			n, runT, pcapT, lastErr = processPCAP(fn, cfg)
-			if err == nil {
-				// remember 1st error
-				err = lastErr
-			}
-			pktsNo += n
-			runTime += runT
-			pcapTime += pcapT
 		}
 	} else {
 		//processLive(cfg.Iface, strings.Join(flag.Args(), " "), &cfg)

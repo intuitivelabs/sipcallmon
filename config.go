@@ -26,6 +26,7 @@ type Config struct {
 	ParseLogOpt    uint64        `config:"parse_log_opt"`
 	DbgCalltr      uint64        `config:"debug_calltr"`
 	PCAPs          string        `config:"pcap"`
+	PCAPloop       uint64        `config:"pcap_loop"`
 	Replay         bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
@@ -197,6 +198,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.Uint64Var(&cfg.DbgCalltr, "debug_calltr", c.DbgCalltr,
 		"debugging flags for call tracking")
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
+	flag.Uint64Var(&cfg.PCAPloop, "pcap_loop", c.PCAPloop,
+		"loop through pcap files multiple times")
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")
 	replMinDelayS := flag.String("replay_min_delay", c.ReplayMaxDelay.String(),

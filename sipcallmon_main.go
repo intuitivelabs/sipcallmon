@@ -50,7 +50,8 @@ type evrGCcounters struct {
 
 type evrCounters struct {
 	no        counters.Handle // total evs
-	blst      counters.Handle // blacklist/rate exceeded evs
+	blstType  counters.Handle // blacklist based on type
+	blstRate  counters.Handle // blacklist on rate exceeded evs
 	trackFail counters.Handle // no rate entry could be created (oom)
 	blstSent  counters.Handle // sent blst events
 	blstRec   counters.Handle // recovered (previously blacklisted)
@@ -316,14 +317,16 @@ func Init(cfg *Config) error {
 	evrCntDefs := [...]counters.Def{
 		{&evrCnts.no, 0, nil, nil, "total_events",
 			"total events seen/processed"},
-		{&evrCnts.blst, 0, nil, nil, "total_blst",
-			"total events blacklisted"},
+		{&evrCnts.blstType, 0, nil, nil, "blst_type",
+			"total events blacklisted based on type"},
+		{&evrCnts.blstRate, 0, nil, nil, "blst_rate",
+			"total events blacklisted based on event rate"},
 		{&evrCnts.blstSent, 0, nil, nil, "blst_sent",
-			"sent (generated) blacklisted events"},
+			"sent (generated) rate-blacklisted events"},
 		{&evrCnts.trackFail, 0, nil, nil, "tracking_fail",
 			"event rate tracking creation failed (exceeded max entries)"},
 		{&evrCnts.blstRec, 0, nil, nil, "blst_recovered",
-			"recovered, previosuly blacklisted events"},
+			"recovered, previously rate-blacklisted events"},
 	}
 	err = registerCounters("ev_rate", &evrStats, evrCntDefs[:], 100, 10)
 	if err != nil {

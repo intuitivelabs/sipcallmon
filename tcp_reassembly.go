@@ -203,8 +203,8 @@ func (s *SIPStreamData) Process(data []byte) bool {
 							"tcp: missing Content-Length Header: %s\n", err)
 					}
 					// parse error event
-					EventsRing.AddBasic(calltr.EvParseErr,
-						s.srcIP, uint16(s.sport), s.dstIP, uint16(s.dport),
+					pktErrEvHandler(calltr.EvParseErr,
+						s.srcIP, int(s.sport), s.dstIP, int(s.dport),
 						calltr.NProtoTCP,
 						s.pmsg.PV.GetCallID().CallID.Get(s.buf[s.mstart:s.bused]),
 						[]byte("missing Content-Length"))
@@ -248,8 +248,8 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					if rep > 60 {
 						rep = 60
 					}
-					EventsRing.AddBasic(calltr.EvParseErr,
-						s.srcIP, uint16(s.sport), s.dstIP, uint16(s.dport),
+					pktErrEvHandler(calltr.EvParseErr,
+						s.srcIP, int(s.sport), s.dstIP, int(s.dport),
 						calltr.NProtoTCP,
 						s.pmsg.PV.GetCallID().CallID.Get(s.buf[s.mstart:s.bused]),
 						s.buf[s.mstart:s.mstart+rep])

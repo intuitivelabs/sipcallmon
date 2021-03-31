@@ -690,9 +690,11 @@ func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Event Rate Blacklist (filter: from %d max %d matches,"+
 		" match against %q regexp %v ip %v ridx %d rval %d):\n\n",
 		s, n, tst, isRe, ipnet != nil, rIdx, rVal)
-	fmt.Fprintf(w, "Total:  events: %d, blst %d, failed blst %d\n\n",
+	fmt.Fprintf(w, "Total:  events: %d, blst type %d ,blst rate %d,"+
+		" failed blst %d\n\n",
 		uint64(evrStats.Get(evrCnts.no)),
-		uint64(evrStats.Get(evrCnts.blst)),
+		uint64(evrStats.Get(evrCnts.blstType)),
+		uint64(evrStats.Get(evrCnts.blstRate)),
 		uint64(evrStats.Get(evrCnts.trackFail)))
 
 	EvRateBlst.PrintFilter(w, s, n, mVal, rIdx, rVal, ipnet, re)

@@ -304,8 +304,7 @@ func (er *EvRing) AddBasic(evt calltr.EventType,
 	srcIP net.IP, srcPort uint16,
 	dstIP net.IP, dstPort uint16,
 	proto calltr.NAddrFlags,
-	callid []byte, reason []byte,
-) bool {
+	callid []byte, reason []byte, rateInfo calltr.EvRateInfo) bool {
 	if er.Blacklisted(evt) {
 		er.evStats.Inc(cntEvType[int(evt)])
 		er.stats.Inc(cntEvBlst)
@@ -314,6 +313,7 @@ func (er *EvRing) AddBasic(evt calltr.EventType,
 	var evd calltr.EventData
 	evd.Init(make([]byte, calltr.EventDataMaxBuf()))
 	evd.FillBasic(evt, srcIP, srcPort, dstIP, dstPort, proto, callid, reason)
+	evd.Rate = rateInfo
 	// TODO: split Add() into AquireEntry() => i; Fill(); ReleaseEntry(i)
 	return er.Add(&evd)
 

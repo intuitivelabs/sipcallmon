@@ -419,9 +419,8 @@ nextpkt:
 						dip, dport, cfg.Verbose)
 				} else {
 					// not sip -> probe
-					EventsRing.AddBasic(calltr.EvNonSIPprobe,
-						sip, uint16(sport), dip, uint16(dport),
-						calltr.NProtoUDP,
+					pktErrEvHandler(calltr.EvNonSIPprobe,
+						sip, sport, dip, dport, calltr.NProtoUDP,
 						nil, nil)
 				}
 				break nextlayer // exit the loop
@@ -547,9 +546,8 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 			if rep > 60 {
 				rep = 60
 			}
-			EventsRing.AddBasic(calltr.EvParseErr,
-				sip, uint16(sport), dip, uint16(dport),
-				calltr.NProtoUDP,
+			pktErrEvHandler(calltr.EvParseErr,
+				sip, sport, dip, dport, calltr.NProtoUDP,
 				sipmsg.PV.GetCallID().CallID.Get(buf),
 				buf[:rep])
 			ret = false
@@ -687,6 +685,7 @@ func reportBlstEv(count uint64, minr uint64, maxr uint64) (bool, uint64) {
 }
 
 // per event callback
+// NOTE: this handler is obsolete, see callEvHandler for the prefered version
 func evHandler(ed *calltr.EventData) {
 	var src calltr.NetInfo
 	var diff uint64
@@ -781,6 +780,16 @@ func callEvHandler(evt calltr.EventType, ce *calltr.CallEntry,
 		ERR("Failed to add event %d: %s\n",
 			evrStats.Get(evrCnts.no), evt.String())
 	}
+}
+
+// process pkt / parse error event generation handler
+func pktErrEvHandler(evt calltr.EventType,
+	sip net.IP, sport int, dip net.IP, dport int, proto calltr.NAddrFlags,
+	callid []byte, reason []byte) {
+	EventsRing.AddBasic(evt,
+		sip, uint16(sport), dip, uint16(dport),
+		proto,
+		callid, reason)
 }
 
 func CallTrack(m *sipsp.PSIPMsg, n [2]calltr.NetInfo) bool {

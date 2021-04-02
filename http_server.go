@@ -45,6 +45,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/counters", "", httpPrintCounters},
 	{"/debug/options", "", httpDbgOptions},
 	{"/debug/pprof", "", nil},
+	{"/debug/forcetimeout", "", httpForceAllTimeout},
 	{"/events", "", httpEventsList},
 	{"/events/blst", "", httpEventsBlst},
 	{"/events/query", "", httpEventsQuery},
@@ -1325,6 +1326,34 @@ func httpDbgOptions(w http.ResponseWriter, r *http.Request) {
 
 	htmlDbgOptsSetForm(w)
 	fmt.Fprintln(w, httpFooter)
+}
+
+func httpForceAllTimeout(w http.ResponseWriter, r *http.Request) {
+	var stats calltr.HStats
+	timeout := calltr.MinTimeout()
+
+	t := r.FormValue("timeout")
+	if len(t) > 0 {
+		if v, err := time.ParseDuration(t); err == nil {
+			timeout = v
+		} else {
+			fmt.Fprintf(w, "ERROR: bad timeout value (%q) : %s\n",
+				t, err)
+		}
+	}
+
+	calltr.CallEntriesStatsHash(&stats)
+	fmt.Fprintf(w, "Before: CallTracking Hash Stats: %+v\n", stats)
+
+	start := time.Now()
+	forced, loops, n := calltr.ForceAllTimeout(timeout)
+	end := time.Now()
+
+	calltr.CallEntriesStatsHash(&stats)
+	fmt.Fprintf(w, "After: CallTracking Hash Stats: %+v\n", stats)
+	fmt.Fprintf(w, "forced timeout %s for %d entries, loops %d,"+
+		" walked %d entries, duration %s\n",
+		timeout, forced, loops, n, end.Sub(start))
 }
 
 func httpEventsRates(w http.ResponseWriter, r *http.Request) {

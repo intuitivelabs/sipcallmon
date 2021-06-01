@@ -81,6 +81,9 @@ type Config struct {
 	// contact matching options
 	ContactIgnorePort bool `config:"contact_ignore_port"`
 
+	// periodic statistic events (sipcmbeat only)
+	StatsInterval time.Duration `config:"stats_interval"`
+
 	// anonymization/encryption options
 	// are the IPs encrypted?
 	EncryptIPs bool `config:"encrypt_ip_addresses"`
@@ -119,6 +122,7 @@ var defaultConfigVals = Config{
 	EvRgcTarget:       10, // 10? entries
 	RegDelta:          30, // seconds
 	ContactIgnorePort: false,
+	StatsInterval:     5 * time.Minute,
 	EncryptIPs:        false,
 	EncryptURIs:       false,
 	EncryptCallIDs:    false,

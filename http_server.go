@@ -192,7 +192,7 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 	*/
 	//fmt.Fprintf(w, "[%s]\n", html.EscapeString(r.URL.Path))
 	if r.URL.Path == "/stats/raw" {
-		printStatsRaw(w, &stats)
+		printStatsRaw(w, stats)
 	} else {
 		fmt.Fprintf(w, "uptime: %s", time.Now().Sub(StartTS))
 		if !StopTS.IsZero() {
@@ -200,7 +200,7 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 				time.Now().Sub(StopTS), StopTS.Sub(StartTS))
 		}
 		fmt.Fprintln(w)
-		printStats(w, &stats)
+		printStats(w, stats, &sCnts)
 	}
 	/*
 		fmt.Fprintf(w, "</body>\n")
@@ -208,6 +208,7 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
+	/* FIXME
 	var s *pstats
 	var update time.Duration
 	delta := time.Second
@@ -255,9 +256,11 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 	if s != nil {
 		printStats(w, s)
 	}
+	*/
 }
 
 func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
+	/* FIXME
 	delta := time.Second
 
 	paramDelta := r.URL.Query()["d"]
@@ -294,6 +297,7 @@ func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
 			" start: %s, stop: %s\n",
 			StartTS, now)
 	}
+	*/
 }
 
 // print entries limits and percent used.
@@ -1013,9 +1017,9 @@ func httpInjectMsg(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, httpHeader)
 		fmt.Fprintln(w, "<xmp>")
 		//fmt.Fprintln(w, "<textarea rows=\"10\" cols=\"120\" readonly>")
-		stats.injected++
-		stats.seen++
-		ok := udpSIPMsg(w, rawmsg, stats.injected-1,
+		stats.Inc(sCnts.injected)
+		stats.Inc(sCnts.seen)
+		ok := udpSIPMsg(w, rawmsg, uint64(stats.Get(sCnts.injected))-1,
 			ipLocalhost, 5060,
 			ipLocalhost, 5060, verbose)
 		if !verbose {

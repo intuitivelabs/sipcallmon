@@ -9,83 +9,86 @@ package sipcallmon
 import (
 	"fmt"
 	"io"
-	"reflect"
-	"strings"
+	//"reflect"
+	//"strings"
+	"strconv"
 	"time"
 	"unsafe"
 
+	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
 )
 
 var StartTS time.Time
 var StopTS time.Time // when set it's the stop time (pcap mode & end of input)
 
-type pstats struct {
-	n              uint64 // total packet count
-	tsize          uint64 // total size of all the packets (on the wire)
-	ip4            uint64
-	ip6            uint64
-	ip4frags       uint64
-	ip6frags       uint64
-	ip4defrag      uint64
-	udpN           uint64
-	udp4           uint64
-	udp6           uint64
-	tcpN           uint64
-	tcp4           uint64
-	tcp6           uint64
-	sctpN          uint64
-	sctp4          uint64
-	sctp6          uint64
-	tlsN           uint64
-	dtlsN          uint64
-	otherN         uint64
-	decodeErrs     uint64
-	injected       uint64
-	seen           uint64 // actual packet seen (not filtered)
-	sipUDP         uint64
-	sipTCP         uint64
-	callTrUDP      uint64
-	callTrTCP      uint64
-	callTrErrUDP   uint64
-	callTrErrTCP   uint64
-	tcpSyn         uint64
-	tcpFin         uint64
-	tcpClosed      uint64
-	tcpIgn         uint64
-	tcpStreamIgn   uint64
-	tcpStreams     uint64
-	tcpSegs        uint64
-	tcpRcvd        uint64
-	tcpOutOfOrder  uint64
-	tcpMissed      uint64
-	tcpMissedBytes uint64
-	tcpRecovered   uint64
-	tcpStreamTo    uint64 // streams closed due to timeout
-	tcpExpReorder  uint64 // streams flushed of expired re-ordered data
-	tooSmall       uint64
-	tooBig         uint64
-	errs           uint64
-	errsUDP        uint64
-	errsTCP        uint64
-	offsetErr      uint64
-	bodyErr        uint64
-	ok             uint64
-	reqsN          uint64
-	replsN         uint64
-	errType        [sipsp.ErrConvBug + 1]uint64
-	method         [sipsp.MOther + 1]uint64
-	repl           [9]uint64
+type statsCounters struct {
+	n              counters.Handle // total packet count
+	tsize          counters.Handle // total size of all the packets (on the wire)
+	ip4            counters.Handle
+	ip6            counters.Handle
+	ip4frags       counters.Handle
+	ip6frags       counters.Handle
+	ip4defrag      counters.Handle
+	udpN           counters.Handle
+	udp4           counters.Handle
+	udp6           counters.Handle
+	tcpN           counters.Handle
+	tcp4           counters.Handle
+	tcp6           counters.Handle
+	sctpN          counters.Handle
+	sctp4          counters.Handle
+	sctp6          counters.Handle
+	tlsN           counters.Handle
+	dtlsN          counters.Handle
+	otherN         counters.Handle
+	decodeErrs     counters.Handle
+	injected       counters.Handle
+	seen           counters.Handle // actual packet seen (not filtered)
+	sipUDP         counters.Handle
+	sipTCP         counters.Handle
+	callTrUDP      counters.Handle
+	callTrTCP      counters.Handle
+	callTrErrUDP   counters.Handle
+	callTrErrTCP   counters.Handle
+	tcpSyn         counters.Handle
+	tcpFin         counters.Handle
+	tcpClosed      counters.Handle
+	tcpIgn         counters.Handle
+	tcpStreamIgn   counters.Handle
+	tcpStreams     counters.Handle
+	tcpSegs        counters.Handle
+	tcpRcvd        counters.Handle
+	tcpOutOfOrder  counters.Handle
+	tcpMissed      counters.Handle
+	tcpMissedBytes counters.Handle
+	tcpRecovered   counters.Handle
+	tcpStreamTo    counters.Handle // streams closed due to timeout
+	tcpExpReorder  counters.Handle // streams flushed of expired re-ordered data
+	tooSmall       counters.Handle
+	tooBig         counters.Handle
+	errs           counters.Handle
+	errsUDP        counters.Handle
+	errsTCP        counters.Handle
+	offsetErr      counters.Handle
+	bodyErr        counters.Handle
+	ok             counters.Handle
+	reqsN          counters.Handle
+	replsN         counters.Handle
+	errType        [sipsp.ErrConvBug + 1]counters.Handle
+	method         [sipsp.MOther + 1]counters.Handle
+	repl           [10]counters.Handle
 }
 
-var stats pstats
+var stats *counters.Group
+var sCnts statsCounters
 
 type recStats struct {
 	Delta   time.Duration
 	t0      time.Time
 	updated time.Time
-	s0      pstats
-	rate    pstats
+	s0      counters.Group
+	rate    counters.Group
 }
 
 var statsRate = [...]recStats{
@@ -95,7 +98,149 @@ var statsRate = [...]recStats{
 	{Delta: 1 * time.Hour},
 }
 
-func statsRecRate(ts time.Time, crt *pstats, sr []recStats) {
+func statsInit() error {
+
+	cntDefs := [...]counters.Def{
+		{&sCnts.n, 0, nil, nil, "total_packets", "total packet count"},
+		{&sCnts.tsize, 0, nil, nil, "total_size",
+			"total size of all the packets (on the wire)"},
+		{&sCnts.ip4, 0, nil, nil, "ip4", "ipv4 packets"},
+		{&sCnts.ip6, 0, nil, nil, "ip6", "ipv6 packets"},
+		{&sCnts.ip4frags, 0, nil, nil, "ip4_frags", "ipv4 fragments"},
+		{&sCnts.ip6frags, 0, nil, nil, "ip6_frags", "ipv6 fragments"},
+		{&sCnts.ip4defrag, 0, nil, nil, "ip4_defrag",
+			"number of defragemented ipv4 packets"},
+		{&sCnts.udpN, 0, nil, nil, "udp", "udp total packets"},
+		{&sCnts.udp4, 0, nil, nil, "udp4", "udp ipv4 packets"},
+		{&sCnts.udp6, 0, nil, nil, "udp6", "udp ipv6 packets"},
+		{&sCnts.tcpN, 0, nil, nil, "tcp", "tcp total packets"},
+		{&sCnts.tcp4, 0, nil, nil, "tcp4", "tcp ipv4 packets"},
+		{&sCnts.tcp6, 0, nil, nil, "tcp6", "tcp ipv6 packets"},
+		{&sCnts.sctpN, 0, nil, nil, "sctp", "sctp total packets"},
+		{&sCnts.sctp4, 0, nil, nil, "sctp4", "sctp ipv4 packets"},
+		{&sCnts.sctp6, 0, nil, nil, "sctp6", "sctp ipv6 packets"},
+		{&sCnts.tlsN, 0, nil, nil, "tls", "tls packets"},
+		{&sCnts.dtlsN, 0, nil, nil, "dtls", "dtls packets"},
+		{&sCnts.otherN, 0, nil, nil, "other", "other packets"},
+		{&sCnts.decodeErrs, 0, nil, nil, "decode_errs",
+			"packet network layer decode errors"},
+		{&sCnts.injected, 0, nil, nil, "injected",
+			"injected packets (local web interface)"},
+		{&sCnts.seen, 0, nil, nil, "parse_attempts",
+			"packets attempted to be parsed"},
+		{&sCnts.sipUDP, 0, nil, nil, "sip_udp",
+			"sip over udp packets, parsed ok"},
+		{&sCnts.sipTCP, 0, nil, nil, "sip_tcp",
+			"sip over tcp packets, parsed ok"},
+		{&sCnts.callTrUDP, 0, nil, nil, "tracked_ok_udp",
+			"successfully call tracked udp packets"},
+		{&sCnts.callTrTCP, 0, nil, nil, "tracked_ok_tcp",
+			"successfully call tracked tcp packets"},
+		{&sCnts.callTrErrUDP, 0, nil, nil, "tracked_err_udp",
+			"call tracking errors for udp packets"},
+		{&sCnts.callTrErrTCP, 0, nil, nil, "tracked_err_tcp",
+			"call tracking errors for tcp packets"},
+		{&sCnts.tcpSyn, 0, nil, nil, "tcp_syn", "tcp SYNs seen"},
+		{&sCnts.tcpFin, 0, nil, nil, "tcp_fin", "tcp FINs seen"},
+		{&sCnts.tcpClosed, 0, nil, nil, "tcp_closed",
+			"tcp connections closed (FIN, RST, timeout...)"},
+		{&sCnts.tcpIgn, 0, nil, nil, "tcp_ign",
+			"ignored tcp segments during reassembly"},
+		{&sCnts.tcpStreamIgn, 0, nil, nil, "tcp_stream_ign",
+			"ignored tcp streams on close/complete reassembly"},
+		{&sCnts.tcpStreams, 0, nil, nil, "tcp_streams",
+			"number of tcp streams (uni-directional)"},
+		{&sCnts.tcpSegs, 0, nil, nil, "tcp_segs",
+			"reassembled tcp segments"},
+		{&sCnts.tcpRcvd, 0, nil, nil, "tcp_total_rcvd",
+			"total bytes received over tcp"},
+		{&sCnts.tcpOutOfOrder, 0, nil, nil, "tcp_out_of_order",
+			"tcp out of order packets"},
+		{&sCnts.tcpMissed, 0, nil, nil, "tcp_miss",
+			"tcp missed segments detected"},
+		{&sCnts.tcpMissedBytes, 0, nil, nil, "tcp_missed_bytes",
+			"tcp total missed bytes"},
+		{&sCnts.tcpRecovered, 0, nil, nil, "tcp_recovered",
+			"tcp stream recovered after loss"},
+		{&sCnts.tcpStreamTo, 0, nil, nil, "tcp_stream_timeouts",
+			"tcp streams that did timeout"},
+		{&sCnts.tcpExpReorder, 0, nil, nil, "tcp_reorder_timeouts",
+			"tcp stop waiting for out-of-order data due to timeout"},
+		{&sCnts.tooSmall, 0, nil, nil, "tiny_packets",
+			"packets too small to be SIP (e.g. probes)"},
+		{&sCnts.tooBig, 0, nil, nil, "huge_packets",
+			"packets too big (on tcp)"},
+		{&sCnts.errs, 0, nil, nil, "parse_errs",
+			"total sip parse errors"},
+		{&sCnts.errsUDP, 0, nil, nil, "parse_errs_udp",
+			"sip parse errors for udp packets"},
+		{&sCnts.errsTCP, 0, nil, nil, "parse_errs_tcp",
+			"sip parse errors for tcp packets"},
+		{&sCnts.offsetErr, 0, nil, nil, "offset_errs",
+			"sip parse offset mismatch (possible incomplete packet)"},
+		{&sCnts.bodyErr, 0, nil, nil, "body_errs",
+			"sip message body end mismatch (possible incomplete body)"},
+		{&sCnts.ok, 0, nil, nil, "parse_ok",
+			"total sip messages parsed successfully "},
+		{&sCnts.reqsN, 0, nil, nil, "sip_reqs", "number of sip requests"},
+		{&sCnts.replsN, 0, nil, nil, "sip_repls", "number of sip replies"},
+	}
+
+	entries := int(unsafe.Sizeof(sCnts) / unsafe.Sizeof(sCnts.n))
+	err := registerCounters("pkt_stats", &stats, cntDefs[:], entries, 10)
+	if err != nil {
+		return err
+	}
+
+	// register the counters for header parse errors
+	for i := 0; i < len(sCnts.errType); i++ {
+		_, ok := stats.RegisterDef(
+			&counters.Def{&sCnts.errType[i], 0, nil, nil,
+				"parse_error_" + strconv.Itoa(i), sipsp.ErrorHdr(i).Error()})
+		if !ok {
+			return fmt.Errorf("failed to register parse_error_%d counter", i)
+		}
+	}
+
+	// register the counters for sip requests methods
+	for i := 0; i < len(sCnts.method); i++ {
+		var method, desc string
+		switch sipsp.SIPMethod(i) {
+		case sipsp.MUndef:
+			method = "UNDEF"
+			desc = "undefined sip method"
+		case sipsp.MOther:
+			method = sipsp.SIPMethod(i).String()
+			desc = "total number of unknown sip methods"
+		default:
+			method = sipsp.SIPMethod(i).String()
+			desc = "total number of sip " + sipsp.SIPMethod(i).String() + "s"
+		}
+		_, ok := stats.RegisterDef(
+			&counters.Def{&sCnts.method[i], 0, nil, nil,
+				"sip_" + method, desc})
+		if !ok {
+			return fmt.Errorf("failed to register sip_%s counter",
+				sipsp.SIPMethod(i).String())
+		}
+	}
+
+	// register the counters for replies statuses
+	for i := 0; i < len(sCnts.repl); i++ {
+		_, ok := stats.RegisterDef(
+			&counters.Def{&sCnts.repl[i], 0, nil, nil,
+				"sip_" + strconv.Itoa(i) + "XX",
+				"total number of sip " + strconv.Itoa(i) + "XX replies"})
+		if !ok {
+			return fmt.Errorf("failed to register %s counter",
+				"sip_"+strconv.Itoa(i)+"XX")
+		}
+	}
+	return nil
+}
+
+func statsRecRate(ts time.Time, crt *counters.Group, sr []recStats) {
+	/* FIXME:
 	for i := 0; i < len(sr); i++ {
 		if !sr[i].t0.IsZero() { // if init
 			if ts.Add(-sr[i].Delta).After(sr[i].t0) {
@@ -112,11 +257,13 @@ func statsRecRate(ts time.Time, crt *pstats, sr []recStats) {
 			sr[i].s0 = *crt
 		}
 	}
+	*/
 }
 
 // dst, crt and old must have the same size
 func chgRate(dst, crt, old []uint64, delta, interval time.Duration) {
 
+	/* FIXME:
 	if len(dst) != len(crt) || len(crt) != len(old) {
 		return
 	}
@@ -130,10 +277,13 @@ func chgRate(dst, crt, old []uint64, delta, interval time.Duration) {
 		}
 		dst[i] = v
 	}
+	*/
 }
 
-func statsComputeRate(dst, crt, old *pstats, delta, interval time.Duration) {
+func statsComputeRate(dst, crt, old *counters.Group,
+	delta, interval time.Duration) {
 	// hack
+	/* FIXME:
 	var d, c, o []uint64
 
 	dh := (*reflect.SliceHeader)(unsafe.Pointer(&d))
@@ -149,58 +299,68 @@ func statsComputeRate(dst, crt, old *pstats, delta, interval time.Duration) {
 	oh.Len = int(unsafe.Sizeof(*old) / unsafe.Sizeof(old.n))
 	oh.Cap = oh.Len
 	chgRate(d, c, o, delta, interval)
+	*/
 }
 
-func printStats(w io.Writer, stats *pstats) {
+func printStats(w io.Writer, stats *counters.Group, sCnts *statsCounters) {
 	fmt.Fprintf(w, "\n\nStatistics:\n")
 	fmt.Fprintf(w, "%9d packets %9d ipv4 %9d ipv6 %9d other %9d inj.\n",
-		stats.n, stats.ip4, stats.ip6, stats.otherN, stats.injected)
+		stats.Get(sCnts.n), stats.Get(sCnts.ip4), stats.Get(sCnts.ip6),
+		stats.Get(sCnts.otherN), stats.Get(sCnts.injected))
 	fmt.Fprintf(w, "%9d ip4frags %9d defrag\n",
-		stats.ip4frags, stats.ip4defrag)
+		stats.Get(sCnts.ip4frags), stats.Get(sCnts.ip4defrag))
 	fmt.Fprintf(w, "%9d udp: %9d udp4 %9d upd6\n"+
 		"%9d tcp: %9d tcp4 %9d tcp6\n",
-		stats.udpN, stats.udp4, stats.udp6,
-		stats.tcpN, stats.tcp4, stats.tcp6)
+		stats.Get(sCnts.udpN), stats.Get(sCnts.udp4), stats.Get(sCnts.udp6),
+		stats.Get(sCnts.tcpN), stats.Get(sCnts.tcp4), stats.Get(sCnts.tcp6))
 	fmt.Fprintf(w, "%9d tls %9d dtls %9d sctp \n",
-		stats.tlsN, stats.dtlsN, stats.sctpN)
+		stats.Get(sCnts.tlsN), stats.Get(sCnts.dtlsN), stats.Get(sCnts.sctpN))
 
 	fmt.Fprintf(w, "tcp: %9d streams %9d reassembled segs"+
 		" %9d total bytes \n",
-		stats.tcpStreams, stats.tcpSegs, stats.tcpRcvd)
+		stats.Get(sCnts.tcpStreams), stats.Get(sCnts.tcpSegs),
+		stats.Get(sCnts.tcpRcvd))
 	fmt.Fprintf(w, "tcp: %9d SYNs %9d FINs %9d closed \n",
-		stats.tcpSyn, stats.tcpFin, stats.tcpClosed)
+		stats.Get(sCnts.tcpSyn), stats.Get(sCnts.tcpFin),
+		stats.Get(sCnts.tcpClosed))
 	fmt.Fprintf(w, "tcp: %9d ignored %9d ignored streams\n",
-		stats.tcpIgn, stats.tcpStreamIgn)
+		stats.Get(sCnts.tcpIgn), stats.Get(sCnts.tcpStreamIgn))
 	fmt.Fprintf(w, "tcp: %9d out-of-order %9d missed %9d too big\n",
-		stats.tcpOutOfOrder, stats.tcpMissed, stats.tooBig)
+		stats.Get(sCnts.tcpOutOfOrder), stats.Get(sCnts.tcpMissed),
+		stats.Get(sCnts.tooBig))
 	fmt.Fprintf(w, "tcp: %9d missed bytes\n",
-		stats.tcpMissedBytes)
+		stats.Get(sCnts.tcpMissedBytes))
 	fmt.Fprintf(w, "tcp: %9d stream timeouts %9d reassembly timeouts\n",
-		stats.tcpStreamTo, stats.tcpExpReorder)
+		stats.Get(sCnts.tcpStreamTo), stats.Get(sCnts.tcpExpReorder))
 	fmt.Fprintf(w, "Parsed: %9d total  %9d ok   %9d errors %9d probes\n",
-		stats.seen, stats.ok, stats.errs, stats.tooSmall)
+		stats.Get(sCnts.seen), stats.Get(sCnts.ok),
+		stats.Get(sCnts.errs), stats.Get(sCnts.tooSmall))
 	fmt.Fprintf(w, "Parsed: %9d udp ok %9d errs %9d tcp ok %9d errs\n",
-		stats.sipUDP, stats.errsUDP, stats.sipTCP, stats.errsTCP)
+		stats.Get(sCnts.sipUDP), stats.Get(sCnts.errsUDP),
+		stats.Get(sCnts.sipTCP), stats.Get(sCnts.errsTCP))
 	fmt.Fprintf(w, "Errors: %9d parse  %9d offset mismatch %9d body\n",
-		stats.errs, stats.offsetErr, stats.bodyErr)
+		stats.Get(sCnts.errs), stats.Get(sCnts.offsetErr),
+		stats.Get(sCnts.bodyErr))
 	fmt.Fprintf(w, "Tracked: %9d udp %9d tcp %9d err udp %9d err tcp\n",
-		stats.callTrUDP, stats.callTrTCP,
-		stats.callTrErrUDP, stats.callTrErrTCP)
+		stats.Get(sCnts.callTrUDP), stats.Get(sCnts.callTrTCP),
+		stats.Get(sCnts.callTrErrUDP), stats.Get(sCnts.callTrErrTCP))
 
-	for e := 1; e < len(stats.errType); e++ {
-		if stats.errType[e] != 0 {
+	for e := 1; e < len(sCnts.errType); e++ {
+		if stats.Get(sCnts.errType[e]) != 0 {
 			fmt.Fprintf(w, "	%-30q = %9d\n",
-				sipsp.ErrorHdr(e), stats.errType[e])
+				sipsp.ErrorHdr(e), stats.Get(sCnts.errType[e]))
 		}
 	}
-	fmt.Fprintf(w, "Requests: %d \n", stats.reqsN)
-	for r := 1; r < len(stats.method); r++ {
-		if stats.method[r] != 0 {
-			fmt.Fprintf(w, "	%-10s = %9d\n", sipsp.SIPMethod(r), stats.method[r])
+	fmt.Fprintf(w, "Requests: %d \n", stats.Get(sCnts.reqsN))
+	for r := 1; r < len(sCnts.method); r++ {
+		if stats.Get(sCnts.method[r]) != 0 {
+			fmt.Fprintf(w, "	%-10s = %9d\n", sipsp.SIPMethod(r),
+				stats.Get(sCnts.method[r]))
 		}
 	}
-	fmt.Fprintf(w, "Replies: %d \n", stats.replsN)
-	for i, v := range stats.repl {
+	fmt.Fprintf(w, "Replies: %d \n", stats.Get(sCnts.replsN))
+	for i := 0; i < len(sCnts.repl); i++ {
+		v := stats.Get(sCnts.repl[i])
 		if v != 0 {
 			fmt.Fprintf(w, "	%1dXX = %9d\n", i, v)
 		}
@@ -208,7 +368,9 @@ func printStats(w io.Writer, stats *pstats) {
 	fmt.Fprintln(w)
 }
 
-func printStatsRaw(w io.Writer, stats *pstats) {
-	fmt.Fprintf(w, "%s\n",
-		strings.Replace(fmt.Sprintf("%+v", *stats), " ", "\n", -1))
+func printStatsRaw(w io.Writer, stats *counters.Group) {
+	for i := counters.Handle(0); i < counters.Handle(stats.CntNo()); i++ {
+		fmt.Fprintf(w, "%s: %d\n",
+			stats.GetName(i), stats.Get(i))
+	}
 }

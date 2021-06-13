@@ -23,6 +23,7 @@ import (
 	"github.com/google/gopacket/tcpassembly"
 
 	"github.com/intuitivelabs/calltr"
+	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
 	"github.com/intuitivelabs/timestamp"
@@ -248,19 +249,19 @@ nextpkt:
 					T:        now.Add(-cfg.TCPConnTo),
 					CloseAll: true,
 				})
-			stats.tcpExpReorder += uint64(flushed)
-			stats.tcpStreamTo += uint64(closed)
+			stats.Add(sCnts.tcpExpReorder, counters.Val(flushed))
+			stats.Add(sCnts.tcpStreamTo, counters.Val(closed))
 			flushed, closed = tcpAssembler.FlushWithOptions(
 				tcpassembly.FlushOptions{
 					T:        now.Add(-tcpReorderTo),
 					CloseAll: false,
 				})
-			stats.tcpExpReorder += uint64(flushed)
-			stats.tcpStreamTo += uint64(closed)
+			stats.Add(sCnts.tcpExpReorder, counters.Val(flushed))
+			stats.Add(sCnts.tcpStreamTo, counters.Val(closed))
 		}
 		if now.After(statsUpd) {
 			statsUpd = now.Add(5 * time.Second)
-			statsRecRate(now, &stats, statsRate[:])
+			statsRecRate(now, stats, statsRate[:])
 		}
 		buf, ci, err := h.ZeroCopyReadPacketData()
 		if err != nil {
@@ -340,15 +341,16 @@ nextpkt:
 		}
 		lastPCAPts = ci.Timestamp // pcap timestamp of the last packet
 		n++
-		stats.n++
-		stats.tsize += uint64(ci.Length) // size of packet on the wire
+		stats.Inc(sCnts.n)
+		// size of packet on the wire
+		stats.Add(sCnts.tsize, counters.Val(ci.Length))
 		err = parser.DecodeLayers(buf, &decodedLayers)
 		// if error and no layers decoded or
 		//  error != UnsupportedLayerType class of errors
 		if err != nil {
 			if _, ok := err.(gopacket.UnsupportedLayerType); !ok || len(decodedLayers) == 0 {
 				Plog.INFO("error decoding packet %d: %s\n", n, err)
-				stats.decodeErrs++
+				stats.Inc(sCnts.decodeErrs)
 			}
 		}
 		if cfg.Verbose && PDBGon() {
@@ -367,34 +369,34 @@ nextpkt:
 				ipl = &ip4
 				sip = ip4.SrcIP
 				dip = ip4.DstIP
-				stats.ip4++
+				stats.Inc(sCnts.ip4)
 				if ip4.FragOffset != 0 ||
 					(ip4.Flags&layers.IPv4MoreFragments != 0) {
-					stats.ip4frags++
+					stats.Inc(sCnts.ip4frags)
 					// TODO: ipv4 defrag
 				}
 			case layers.LayerTypeIPv6:
 				ipl = &ip6
 				sip = ip6.SrcIP
 				dip = ip6.DstIP
-				stats.ip6++
+				stats.Inc(sCnts.ip6)
 			case layers.LayerTypeIPv6Fragment:
-				stats.ip6frags++
+				stats.Inc(sCnts.ip6frags)
 			case layers.LayerTypeUDP:
 				tl = &udp
 				sport = int(udp.SrcPort)
 				dport = int(udp.DstPort)
-				stats.udpN++
+				stats.Inc(sCnts.udpN)
 				if ipl == &ip4 {
-					stats.udp4++
+					stats.Inc(sCnts.udp4)
 				} else if ipl == &ip6 {
-					stats.udp6++
+					stats.Inc(sCnts.udp6)
 				} else {
 					if PDBGon() {
 						PDBG("strange packet %d  udp but no network layer"+
 							": %s \n", n, udp.TransportFlow())
 					}
-					stats.decodeErrs++
+					stats.Inc(sCnts.decodeErrs)
 					continue nextpkt
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
@@ -412,7 +414,7 @@ nextpkt:
 						fmt.Printf("udp packet %d truncated\n", n)
 					}
 				*/
-				stats.seen++
+				stats.Inc(sCnts.seen)
 				var payload []byte = tl.LayerPayload()
 				if !nonSIP(payload, sip, sport, dip, dport) {
 					udpSIPMsg(ioutil.Discard, payload, n, sip, sport,
@@ -429,17 +431,17 @@ nextpkt:
 				tl = &tcp
 				sport = int(tcp.SrcPort)
 				dport = int(tcp.DstPort)
-				stats.tcpN++
+				stats.Inc(sCnts.tcpN)
 				if ipl == &ip4 {
-					stats.tcp4++
+					stats.Inc(sCnts.tcp4)
 				} else if ipl == &ip6 {
-					stats.tcp6++
+					stats.Inc(sCnts.tcp6)
 				} else {
 					if PDBGon() {
 						PDBG("strange packet %d  tcp but no network layer"+
 							": %s \n", n, tcp.TransportFlow())
 					}
-					stats.decodeErrs++
+					stats.Inc(sCnts.decodeErrs)
 					continue nextpkt
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
@@ -455,17 +457,17 @@ nextpkt:
 				tl = &sctp
 				sport = int(sctp.SrcPort)
 				dport = int(sctp.DstPort)
-				stats.sctpN++
+				stats.Inc(sCnts.sctpN)
 				if ipl == &ip4 {
-					stats.sctp4++
+					stats.Inc(sCnts.sctp4)
 				} else if ipl == &ip6 {
-					stats.sctp6++
+					stats.Inc(sCnts.sctp6)
 				} else {
 					if PDBGon() {
 						PDBG("strange packet %d  tcp but no network layer"+
 							": %s \n", n, tcp.TransportFlow())
 					}
-					stats.decodeErrs++
+					stats.Inc(sCnts.decodeErrs)
 					continue nextpkt
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
@@ -474,9 +476,9 @@ nextpkt:
 				}
 			case layers.LayerTypeTLS:
 				if tl == &tcp {
-					stats.tlsN++
+					stats.Inc(sCnts.tlsN)
 				} else {
-					stats.dtlsN++
+					stats.Inc(sCnts.dtlsN)
 				}
 				if cfg.Verbose && PDBGon() {
 					PDBG("ignoring TLS for now...\n\n")
@@ -484,7 +486,7 @@ nextpkt:
 			}
 		}
 		if tl == nil {
-			stats.otherN++
+			stats.Inc(sCnts.otherN)
 		}
 
 	}
@@ -521,9 +523,9 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 			Plog.LogMux(w, true, slog.LNOTICE, "%q\n", buf)
 		}
 		if err != 0 {
-			stats.errs++
-			stats.errsUDP++
-			stats.errType[err]++
+			stats.Inc(sCnts.errs)
+			stats.Inc(sCnts.errsUDP)
+			stats.Inc(sCnts.errType[err])
 			if Plog.L(slog.LNOTICE) || w != ioutil.Discard {
 				Plog.LogMux(w, true, slog.LNOTICE,
 					"unexpected error after parsing => %s\n", err)
@@ -552,14 +554,16 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 				buf[:rep])
 			ret = false
 		} else {
-			stats.ok++
-			stats.sipUDP++
+			stats.Inc(sCnts.ok)
+			stats.Inc(sCnts.sipUDP)
 			if sipmsg.FL.Request() {
-				stats.reqsN++
-				stats.method[sipmsg.FL.MethodNo]++
+				stats.Inc(sCnts.reqsN)
+				stats.Inc(sCnts.method[sipmsg.FL.MethodNo])
 			} else {
-				stats.replsN++
-				stats.repl[sipmsg.FL.Status/100]++
+				stats.Inc(sCnts.replsN)
+				if sipmsg.FL.Status < 1000 {
+					stats.Inc(sCnts.repl[sipmsg.FL.Status/100])
+				}
 			}
 			var endPoints [2]calltr.NetInfo
 			endPoints[0].SetIP(sip)
@@ -571,15 +575,15 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 
 			ret = CallTrack(&sipmsg, endPoints)
 			if ret {
-				stats.callTrUDP++
+				stats.Inc(sCnts.callTrUDP)
 			} else {
-				stats.callTrErrUDP++
+				stats.Inc(sCnts.callTrErrUDP)
 			}
 
 		}
 		if o != len(buf) {
 			if err == 0 {
-				stats.offsetErr++
+				stats.Inc(sCnts.offsetErr)
 			}
 			if Plog.L(slog.LNOTICE) || w != ioutil.Discard {
 				Plog.LogMux(w, true, slog.LNOTICE,
@@ -587,7 +591,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 					o, len(buf))
 			}
 			if err == 0 && int(sipmsg.Body.Len+sipmsg.Body.Offs) != len(buf) {
-				stats.bodyErr++
+				stats.Inc(sCnts.bodyErr)
 				if Plog.L(slog.LNOTICE) || w != ioutil.Discard {
 					Plog.LogMux(w, true, slog.LNOTICE,
 						"clen: %d, actual body len %d, body end %d\n",
@@ -604,7 +608,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 		}
 	} else {
 		if len(buf) <= 12 {
-			stats.tooSmall++
+			stats.Inc(sCnts.tooSmall)
 		}
 		if verbose {
 			fmt.Fprintln(w)

@@ -84,11 +84,13 @@ var stats *counters.Group
 var sCnts statsCounters
 
 type recStats struct {
-	Delta   time.Duration
-	t0      time.Time
-	updated time.Time
-	s0      counters.Group
-	rate    counters.Group
+	Delta    time.Duration
+	t0       time.Time
+	updated  time.Time
+	s0       counters.Group
+	rate     counters.Group
+	s0Root   counters.Group
+	rateRoot counters.Group
 }
 
 var statsRate = [...]recStats{
@@ -240,66 +242,36 @@ func statsInit() error {
 }
 
 func statsRecRate(ts time.Time, crt *counters.Group, sr []recStats) {
-	/* FIXME:
 	for i := 0; i < len(sr); i++ {
 		if !sr[i].t0.IsZero() { // if init
 			if ts.Add(-sr[i].Delta).After(sr[i].t0) {
 				// update only if at least Delta passed since last update
-				statsComputeRate(&sr[i].rate, &stats, &sr[i].s0,
+				statsComputeRate(&sr[i].rate, crt, &sr[i].s0,
 					ts.Sub(sr[i].t0), sr[i].Delta)
 				sr[i].updated = ts
-				sr[i].s0 = *crt
+				counters.CopyGrp(&sr[i].s0, crt, true)
 				sr[i].t0 = ts
 			}
 		} else {
 			// set initial values
 			sr[i].t0 = ts
-			sr[i].s0 = *crt
+			s0Name := crt.Name + "_last_" + sr[i].Delta.String()
+			sr[i].s0.Init(s0Name, &sr[i].s0Root, crt.MaxCntNo())
+			counters.CopyGrp(&sr[i].s0, crt, true)
+			rateName := crt.Name + "_rate_" + sr[i].Delta.String()
+			sr[i].rate.Init(rateName, &sr[i].rateRoot, crt.MaxCntNo())
 		}
 	}
-	*/
 }
 
-// dst, crt and old must have the same size
-func chgRate(dst, crt, old []uint64, delta, interval time.Duration) {
-
-	/* FIXME:
-	if len(dst) != len(crt) || len(crt) != len(old) {
-		return
-	}
-	if interval != 0 {
-		delta = delta / interval
-	}
-	for i := 0; i < len(dst); i++ {
-		v := crt[i] - old[i]
-		if delta != 0 {
-			v = v / uint64(delta)
-		}
-		dst[i] = v
-	}
-	*/
-}
-
+// statsComputeRate will compute the rate and return 0 on success.
 func statsComputeRate(dst, crt, old *counters.Group,
-	delta, interval time.Duration) {
-	// hack
-	/* FIXME:
-	var d, c, o []uint64
-
-	dh := (*reflect.SliceHeader)(unsafe.Pointer(&d))
-	dh.Data = uintptr(unsafe.Pointer(dst))
-	dh.Len = int(unsafe.Sizeof(*dst) / unsafe.Sizeof(dst.n))
-	dh.Cap = dh.Len
-	ch := (*reflect.SliceHeader)(unsafe.Pointer(&c))
-	ch.Data = uintptr(unsafe.Pointer(crt))
-	ch.Len = int(unsafe.Sizeof(*crt) / unsafe.Sizeof(crt.n))
-	ch.Cap = ch.Len
-	oh := (*reflect.SliceHeader)(unsafe.Pointer(&o))
-	oh.Data = uintptr(unsafe.Pointer(old))
-	oh.Len = int(unsafe.Sizeof(*old) / unsafe.Sizeof(old.n))
-	oh.Cap = oh.Len
-	chgRate(d, c, o, delta, interval)
-	*/
+	interval, unit time.Duration) int {
+	delta := float64(interval)
+	if unit != 0 {
+		delta = delta / float64(unit)
+	}
+	return counters.FillRate(dst, crt, old, delta, true)
 }
 
 func printStats(w io.Writer, stats *counters.Group, sCnts *statsCounters) {

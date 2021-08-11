@@ -163,11 +163,13 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) (uint64,
 	var tcp layers.TCP
 	var sctp layers.SCTP
 	var tls layers.TLS
+	var vxlan layers.VXLAN
 	//var appl gopacket.Payload
-	// space for decoded layers: eth|sll, ip4|ip6, ?ip6ext?, tcp|udp|sctp, tls
+	// space for decoded layers:
+	// eth|sll, ip4|ip6, ?ip6ext?, tcp|udp|sctp,
+	// [vxlan, eth, ip4|6, ?ip6ext?, tcp|udp|sctp] tls
 	// (will be truncated and appended by parser.DecodeLayers(...) )
-	decodedLayers := make([]gopacket.LayerType, 0, 5)
-	//decodedLayers := []gopacket.LayerType{}
+	decodedLayers := make([]gopacket.LayerType, 0, 10)
 	var layerType gopacket.LayerType
 	// h.LinkType.LayerType() always return Unknown (BUG)
 	// workaround: choose layerType by hand for handled layers
@@ -208,7 +210,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) (uint64,
 		&lo, &eth, &ethllc, &dot1q,
 		&sll,
 		&ip4, &ip6, &ip6ext,
-		&udp, &tcp, &sctp, &tls,
+		&udp, &vxlan, &tcp, &sctp, &tls,
 		//&appl,
 	)
 	parser.IgnoreUnsupported = true // no error on unsupported layers
@@ -348,7 +350,8 @@ nextpkt:
 		// if error and no layers decoded or
 		//  error != UnsupportedLayerType class of errors
 		if err != nil {
-			if _, ok := err.(gopacket.UnsupportedLayerType); !ok || len(decodedLayers) == 0 {
+			if _, ok := err.(gopacket.UnsupportedLayerType); !ok ||
+				len(decodedLayers) == 0 {
 				Plog.INFO("error decoding packet %d: %s\n", n, err)
 				stats.Inc(sCnts.decodeErrs)
 			}
@@ -386,6 +389,13 @@ nextpkt:
 				tl = &udp
 				sport = int(udp.SrcPort)
 				dport = int(udp.DstPort)
+				// FIXME: make vxlan port/ports configurable
+				// (e.g.:gopacket.RegisterUDPPortLayerType(vxlanPort, gopacket.LayerTypeVXLAN))
+				if dport == 4789 {
+					// FIXME: some vxlan stats here
+					// vxlan: more encapsulated layers, continue decoding
+					break
+				}
 				stats.Inc(sCnts.udpN)
 				if ipl == &ip4 {
 					stats.Inc(sCnts.udp4)

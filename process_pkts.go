@@ -166,10 +166,11 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) (uint64,
 	var vxlan layers.VXLAN
 	//var appl gopacket.Payload
 	// space for decoded layers:
-	// eth|sll, ip4|ip6, ?ip6ext?, tcp|udp|sctp,
-	// [vxlan, eth, ip4|6, ?ip6ext?, tcp|udp|sctp] tls
+	// eth|sll, ip4|ip6, ?ip6ext?, tcp|udp|sctp, tls.
+	// reused for parsing vxlan encapsulated:
+	//  vxlan, eth, ip4|ip6, ip6ext, tcp|udp|sctp, tls.
 	// (will be truncated and appended by parser.DecodeLayers(...) )
-	decodedLayers := make([]gopacket.LayerType, 0, 10)
+	decodedLayers := make([]gopacket.LayerType, 0, 6)
 	var layerType gopacket.LayerType
 	// h.LinkType.LayerType() always return Unknown (BUG)
 	// workaround: choose layerType by hand for handled layers
@@ -210,11 +211,18 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) (uint64,
 		&lo, &eth, &ethllc, &dot1q,
 		&sll,
 		&ip4, &ip6, &ip6ext,
-		&udp, &vxlan, &tcp, &sctp, &tls,
-		//&appl,
+		&udp, &tcp, &sctp, &tls,
 	)
 	parser.IgnoreUnsupported = true // no error on unsupported layers
 	parser.IgnorePanic = true       // TODO: it might be faster to handle panics
+	parseVXLAN := gopacket.NewDecodingLayerParser(layers.LayerTypeVXLAN,
+		&vxlan, &eth, &ethllc, &dot1q,
+		&ip4, &ip6, &ip6ext,
+		&udp, &tcp, &sctp, &tls,
+	)
+	parseVXLAN.IgnoreUnsupported = true // no error on unsupported layers
+	parseVXLAN.IgnorePanic = true
+
 	// setup tcp reassembly
 	tcpStreamFactory := SIPStreamFactory{
 		bufSize: 4096,
@@ -346,9 +354,11 @@ nextpkt:
 		stats.Inc(sCnts.n)
 		// size of packet on the wire
 		stats.Add(sCnts.tsize, counters.Val(ci.Length))
+		crtLayerType := layerType
 		err = parser.DecodeLayers(buf, &decodedLayers)
 		// if error and no layers decoded or
 		//  error != UnsupportedLayerType class of errors
+	decapsulate:
 		if err != nil {
 			if _, ok := err.(gopacket.UnsupportedLayerType); !ok ||
 				len(decodedLayers) == 0 {
@@ -359,7 +369,7 @@ nextpkt:
 		if cfg.Verbose && PDBGon() {
 			PDBG("link type %s: layer type: %s: packet %d size %d"+
 				"- decoded layers %v\n",
-				h.LinkType(), layerType, n, len(buf), decodedLayers)
+				h.LinkType(), crtLayerType, n, len(buf), decodedLayers)
 		}
 		var sport, dport int
 		var sip, dip net.IP
@@ -389,12 +399,43 @@ nextpkt:
 				tl = &udp
 				sport = int(udp.SrcPort)
 				dport = int(udp.DstPort)
-				// FIXME: make vxlan port/ports configurable
-				// (e.g.:gopacket.RegisterUDPPortLayerType(vxlanPort, gopacket.LayerTypeVXLAN))
-				if dport == 4789 {
-					// FIXME: some vxlan stats here
-					// vxlan: more encapsulated layers, continue decoding
-					break
+				// vxlan port/ports are configurable:
+				if len(cfg.VXLANports) != 0 {
+					for _, v := range cfg.VXLANports {
+						if v != 0 && dport == int(v) {
+							// vxlan: more encapsulated layers,
+							//   => continue decoding
+							stats.Inc(sCnts.vxlanN)
+							if ipl == &ip4 {
+								// count it as vxlan over ipv4 and dec. ipv4
+								// counter
+								// (we will record only the encapsulated packet
+								// ip  version)
+								stats.Dec(sCnts.ip4)
+								stats.Inc(sCnts.vxlan4)
+							} else if ipl == &ip6 {
+								// count it as vxlan over ipv6 and dec. ipv6
+								// counter (we will record only the
+								// encapsulated packet ip version)
+								stats.Dec(sCnts.ip6)
+								stats.Inc(sCnts.vxlan6)
+							} else {
+								if PDBGon() {
+									PDBG("strange vxlan packet %d  udp but no"+
+										" network layer: %s \n",
+										n, udp.TransportFlow())
+								}
+								stats.Inc(sCnts.decodeErrs)
+								continue nextpkt
+							}
+							// parse encapsulated vxlan layer
+							crtLayerType = layers.LayerTypeVXLAN // for dbg msg
+							err = parseVXLAN.DecodeLayers(tl.LayerPayload(),
+								&decodedLayers)
+							// reuse parse error check & layers parsing
+							goto decapsulate
+						}
+					}
 				}
 				stats.Inc(sCnts.udpN)
 				if ipl == &ip4 {
@@ -493,10 +534,13 @@ nextpkt:
 				if cfg.Verbose && PDBGon() {
 					PDBG("ignoring TLS for now...\n\n")
 				}
+			case layers.LayerTypeVXLAN:
+				// do nothing, stats recorded above on udp port == vxlan
+				// before trying to parse the vxlan layer
 			}
 		}
 		if tl == nil {
-			stats.Inc(sCnts.otherN)
+			stats.Inc(sCnts.otherN) // unknown transport or network layer
 		}
 
 	}

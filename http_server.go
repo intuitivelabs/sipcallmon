@@ -43,6 +43,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/calls/list", "", httpCallList},
 	{"/calls/list/query", "", httpCallListQuery},
 	{"/counters", "", httpPrintCounters},
+	{"/counters/avg", "", httpPrintCountersAvg},
 	{"/debug/options", "", httpDbgOptions},
 	{"/debug/pprof", "", nil},
 	{"/debug/forcetimeout", "", httpForceAllTimeout},
@@ -192,7 +193,7 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 	*/
 	//fmt.Fprintf(w, "[%s]\n", html.EscapeString(r.URL.Path))
 	if r.URL.Path == "/stats/raw" {
-		printStatsRaw(w, &stats)
+		printStatsRaw(w, stats)
 	} else {
 		fmt.Fprintf(w, "uptime: %s", time.Now().Sub(StartTS))
 		if !StopTS.IsZero() {
@@ -200,7 +201,7 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 				time.Now().Sub(StopTS), StopTS.Sub(StartTS))
 		}
 		fmt.Fprintln(w)
-		printStats(w, &stats)
+		printStats(w, stats, &sCnts)
 	}
 	/*
 		fmt.Fprintf(w, "</body>\n")
@@ -208,7 +209,7 @@ func httpPrintStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
-	var s *pstats
+	var s *counters.Group
 	var update time.Duration
 	delta := time.Second
 
@@ -223,7 +224,7 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := time.Now()
-	var tmp pstats
+	var tmp, tmpRoot counters.Group
 	for _, v := range statsRate[:] {
 		if v.Delta == delta {
 			if !v.updated.IsZero() {
@@ -234,13 +235,23 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 					s = &v.rate
 					update = now.Sub(v.updated)
 				} else {
+					name := stats.Name
+					if len(name) != 0 {
+						name += "_rate_" + v.Delta.String()
+					} else {
+						name += "rate_" + v.Delta.String()
+					}
+					tmp.Init(name, &tmpRoot, stats.MaxCntNo())
 					// else re-compute rate now
-					statsComputeRate(&tmp, &stats, &v.s0,
-						now.Sub(v.t0), v.Delta)
+					if err := statsComputeRate(&tmp, stats, &v.s0,
+						now.Sub(v.t0), v.Delta); err != 0 {
+						fmt.Fprintf(w, "ERROR: statsComputeRate: %d\n",
+							err)
+					}
 					s = &tmp
 				}
 			} else {
-				s = &stats
+				s = stats
 			}
 			break
 		}
@@ -253,17 +264,17 @@ func httpPrintStatsRate(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintln(w)
 	if s != nil {
-		printStats(w, s)
+		printStats(w, s, &sCnts)
 	}
 }
 
 func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
-	delta := time.Second
+	unit := time.Second
 
 	paramDelta := r.URL.Query()["d"]
 	if len(paramDelta) > 0 && len(paramDelta[0]) > 0 {
 		if d, err := time.ParseDuration(paramDelta[0]); err == nil {
-			delta = d
+			unit = d
 		} else {
 			fmt.Fprintf(w, "ERROR: invalid delta/interval d=%q (%s)\n",
 				paramDelta, err)
@@ -278,17 +289,88 @@ func httpPrintStatsAvg(w http.ResponseWriter, r *http.Request) {
 		now = time.Now()
 	}
 	tdiff := now.Sub(StartTS)
-	var dst, zero pstats
 	if tdiff != 0 {
-		statsComputeRate(&dst, &stats, &zero, tdiff, delta)
-		fmt.Fprintf(w, "Avg: per %v	Uptime: %s", delta,
+		var dst, zero, tmpRoot counters.Group
+		name := stats.Name
+		if len(name) != 0 {
+			name += "_avg_" + unit.String()
+		} else {
+			name += "avg_" + unit.String()
+		}
+		dst.Init(name, &tmpRoot, stats.MaxCntNo())
+		zero.Init(stats.Name+"_zero", &tmpRoot, stats.MaxCntNo())
+		counters.CopyGrp(&zero, stats, true)
+		counters.ResetGrp(&zero, 0, true)
+
+		if err := statsComputeRate(&dst, stats, &zero, tdiff, unit); err != 0 {
+			fmt.Fprintf(w, "ERROR: statsComputeRate: %d\n", err)
+		}
+		fmt.Fprintf(w, "Avg: per %v	Uptime: %s", unit,
 			time.Now().Sub(StartTS))
 		if !StopTS.IsZero() {
 			fmt.Fprintf(w, " Stopped since: %s Runtime: %s",
 				time.Now().Sub(StopTS), StopTS.Sub(StartTS))
 		}
 		fmt.Fprintln(w)
-		printStats(w, &dst)
+		printStats(w, &dst, &sCnts)
+	} else {
+		fmt.Fprintf(w, "Error: timer elapsed is too short -"+
+			" start: %s, stop: %s\n",
+			StartTS, now)
+	}
+}
+
+func httpPrintCountersAvg(w http.ResponseWriter, r *http.Request) {
+	unit := time.Second
+
+	paramDelta := r.URL.Query()["d"]
+	if len(paramDelta) > 0 && len(paramDelta[0]) > 0 {
+		if d, err := time.ParseDuration(paramDelta[0]); err == nil {
+			unit = d
+		} else {
+			fmt.Fprintf(w, "ERROR: invalid delta/interval d=%q (%s)\n",
+				paramDelta, err)
+			return
+		}
+	}
+
+	var now time.Time
+	if !StopTS.IsZero() {
+		now = StopTS
+	} else {
+		now = time.Now()
+	}
+	tdiff := now.Sub(StartTS)
+	if tdiff != 0 {
+		var dst, zero, tmpRoot counters.Group
+		cnts := &counters.RootGrp
+		name := cnts.Name
+		if len(name) != 0 {
+			name += "_avg_" + unit.String()
+		} else {
+			name += "avg_" + unit.String()
+		}
+		dst.Init(name, &tmpRoot, cnts.MaxCntNo())
+		zero.Init(cnts.Name+"_zero", &tmpRoot, cnts.MaxCntNo())
+		counters.CopyGrp(&zero, cnts, true)
+		counters.ResetGrp(&zero, 0, true)
+
+		if err := statsComputeRate(&dst, cnts, &zero, tdiff, unit); err != 0 {
+			fmt.Fprintf(w, "ERROR: statsComputeRate: %d\n", err)
+		}
+		fmt.Fprintf(w, "Avg: per %v	Uptime: %s", unit,
+			time.Now().Sub(StartTS))
+		if !StopTS.IsZero() {
+			fmt.Fprintf(w, " Stopped since: %s Runtime: %s",
+				time.Now().Sub(StopTS), StopTS.Sub(StartTS))
+		}
+		fmt.Fprintln(w)
+
+		flags := counters.PrFullName | counters.PrVal | counters.PrRec
+		flags |= counters.PrDesc
+		fmt.Fprintln(w)
+		dst.Print(w, "", flags)
+		dst.PrintSubGroups(w, flags)
 	} else {
 		fmt.Fprintf(w, "Error: timer elapsed is too short -"+
 			" start: %s, stop: %s\n",
@@ -1013,9 +1095,9 @@ func httpInjectMsg(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, httpHeader)
 		fmt.Fprintln(w, "<xmp>")
 		//fmt.Fprintln(w, "<textarea rows=\"10\" cols=\"120\" readonly>")
-		stats.injected++
-		stats.seen++
-		ok := udpSIPMsg(w, rawmsg, stats.injected-1,
+		stats.Inc(sCnts.injected)
+		stats.Inc(sCnts.seen)
+		ok := udpSIPMsg(w, rawmsg, uint64(stats.Get(sCnts.injected))-1,
 			ipLocalhost, 5060,
 			ipLocalhost, 5060, verbose)
 		if !verbose {

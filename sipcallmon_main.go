@@ -269,6 +269,10 @@ func initLogs(cfg *Config) {
 // Init pre-initializes sipcallmon.
 func Init(cfg *Config) error {
 
+	if err := statsInit(); err != nil {
+		return err
+	}
+
 	if cfg == nil {
 		return fmt.Errorf("invalid nil config in Init\n")
 	}
@@ -445,8 +449,9 @@ func Run(cfg *Config) error {
 	if runTime != 0 {
 		pktRate :=
 			float64(pktsNo) / float64(uint64(runTime/time.Millisecond)) * 1000
+		tsize := stats.Get(sCnts.tsize)
 		speedMB :=
-			((float64(stats.tsize) /
+			((float64(tsize) /
 				float64(uint64(runTime/time.Millisecond))) *
 				1000) / (1024 * 1024)
 		fmt.Fprintf(os.Stdout, "     pkts/s: %.1f\n", pktRate)
@@ -467,7 +472,8 @@ func Run(cfg *Config) error {
 			pktRate :=
 				float64(pktsNo) / float64(uint64(pcapTime/time.Millisecond)) *
 					1000
-			speedMB := ((float64(stats.tsize) /
+			tsize := stats.Get(sCnts.tsize)
+			speedMB := ((float64(tsize) /
 				float64(uint64(pcapTime/time.Millisecond))) *
 				1000) / (1024 * 1024)
 			fmt.Fprintf(os.Stdout, "pcap pkts/s: %.1f\n", pktRate)
@@ -475,7 +481,7 @@ func Run(cfg *Config) error {
 				speedMB, speedMB*8/1024)
 		}
 	}
-	printStats(os.Stdout, &stats)
+	printStats(os.Stdout, stats, &sCnts)
 	// print the counters
 	flags := counters.PrFullName | counters.PrVal | counters.PrRec
 	//flags |= counters.PrDesc

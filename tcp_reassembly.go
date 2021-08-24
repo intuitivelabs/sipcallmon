@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/intuitivelabs/calltr"
+	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
 )
@@ -147,14 +148,16 @@ func (s *SIPStreamData) Process(data []byte) bool {
 				switch err {
 				case 0:
 					// stats & dbg
-					stats.ok++
-					stats.sipTCP++
+					stats.Inc(sCnts.ok)
+					stats.Inc(sCnts.sipTCP)
 					if s.pmsg.FL.Request() {
-						stats.reqsN++
-						stats.method[s.pmsg.FL.MethodNo]++
+						stats.Inc(sCnts.reqsN)
+						stats.Inc(sCnts.method[s.pmsg.FL.MethodNo])
 					} else {
-						stats.replsN++
-						stats.repl[s.pmsg.FL.Status/100]++
+						stats.Inc(sCnts.replsN)
+						if s.pmsg.FL.Status < 1000 {
+							stats.Inc(sCnts.repl[s.pmsg.FL.Status/100])
+						}
 					}
 					if s.Verbose {
 						fmt.Fprintln(s.W)
@@ -170,14 +173,14 @@ func (s *SIPStreamData) Process(data []byte) bool {
 
 					ok := CallTrack(&s.pmsg, endPoints)
 					if ok {
-						stats.callTrTCP++
+						stats.Inc(sCnts.callTrTCP)
 					} else {
 						if s.Verbose &&
 							(Plog.L(slog.LERR) || s.W != ioutil.Discard) {
 							Plog.LogMux(s.W, true, slog.LERR,
 								"ERROR: tcp CallTrack failed\n")
 						}
-						stats.callTrErrTCP++
+						stats.Inc(sCnts.callTrErrTCP)
 					}
 					// prepare for new message
 					s.mstart += o
@@ -194,10 +197,10 @@ func (s *SIPStreamData) Process(data []byte) bool {
 
 					//... stats ?
 				case sipsp.ErrHdrNoCLen:
-					stats.errs++
-					stats.errsTCP++
-					stats.errType[err]++
-					stats.bodyErr++
+					stats.Inc(sCnts.errs)
+					stats.Inc(sCnts.errsTCP)
+					stats.Inc(sCnts.errType[err])
+					stats.Inc(sCnts.bodyErr)
 					if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
 						Plog.LogMux(s.W, true, slog.LNOTICE,
 							"tcp: missing Content-Length Header: %s\n", err)
@@ -216,9 +219,9 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					goto errParse
 				default:
 					// stats + dbg
-					stats.errs++
-					stats.errsTCP++
-					stats.errType[err]++
+					stats.Inc(sCnts.errs)
+					stats.Inc(sCnts.errsTCP)
+					stats.Inc(sCnts.errType[err])
 					if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
 						Plog.LogMux(s.W, true, slog.LNOTICE,
 							"tcp: unexpected error after parsing "+
@@ -321,7 +324,7 @@ errTooBig:
 			"tcp: error message too big on stream %p: %d used,"+
 				" msg = %q...\n", s, s.bused, s.buf[:30])
 	}
-	stats.tooBig++
+	stats.Inc(sCnts.tooBig)
 errParse:
 	return false // error
 }
@@ -369,7 +372,7 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 			s, s.srcIP, s.sport, s.dstIP, s.dport, len(bufs), s.ignore)
 	}
 	if s.ignore {
-		stats.tcpIgn++
+		stats.Inc(sCnts.tcpIgn)
 		return
 	}
 	for i, seg := range bufs {
@@ -381,17 +384,17 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		s.syn = s.syn || seg.Start
 		s.fin = s.fin || seg.End
 		if seg.Start {
-			stats.tcpSyn++
+			stats.Inc(sCnts.tcpSyn)
 		}
 		if seg.End {
-			stats.tcpFin++
+			stats.Inc(sCnts.tcpFin)
 		}
 		s.segs++
 		s.rcvd += uint64(len(seg.Bytes))
-		stats.tcpSegs++
-		stats.tcpRcvd += uint64(len(seg.Bytes))
+		stats.Inc(sCnts.tcpSegs)
+		stats.Add(sCnts.tcpRcvd, counters.Val(len(seg.Bytes)))
 		if s.lastRcv.After(seg.Seen) && s.segs > 1 {
-			stats.tcpOutOfOrder++
+			stats.Inc(sCnts.tcpOutOfOrder)
 			s.oo++ // dbg
 			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
 				Plog.LogMux(s.W, true, slog.LDBG,
@@ -406,9 +409,9 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		}
 		// TODO: if !s.sin => start not seen => ignore ?
 		if seg.Skip != 0 {
-			stats.tcpMissed++
+			stats.Inc(sCnts.tcpMissed)
 			if s.segs > 1 {
-				stats.tcpMissedBytes += uint64(seg.Skip)
+				stats.Add(sCnts.tcpMissedBytes, counters.Val(seg.Skip))
 			}
 			// else first pkt seen is not syn, it's a prev. estab. conn.
 			//   or lessl likely re-ordering at the start
@@ -424,7 +427,7 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 				}
 				break // error - out of sync - ignore stream
 			}
-			stats.tcpRecovered++
+			stats.Inc(sCnts.tcpRecovered)
 		}
 		if !s.Process(seg.Bytes) {
 			s.ignore = true
@@ -454,9 +457,9 @@ func (s *SIPStreamData) ReassemblyComplete() {
 	s.pmsg.Reset()
 	s.state = SIPStreamFIN
 	if s.ignore {
-		stats.tcpStreamIgn++
+		stats.Inc(sCnts.tcpStreamIgn)
 	}
-	stats.tcpClosed++
+	stats.Inc(sCnts.tcpClosed)
 	// free data
 	s.ignore = true
 	s.buf = nil
@@ -494,6 +497,6 @@ func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream
 	s.dport = uint16(port[0])<<8 + uint16(port[1])
 	s.created = time.Now()
 	s.lastRcv = s.created
-	stats.tcpStreams++
+	stats.Inc(sCnts.tcpStreams)
 	return s
 }

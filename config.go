@@ -84,6 +84,9 @@ type Config struct {
 	// periodic statistic events (sipcmbeat only)
 	StatsInterval time.Duration `config:"stats_interval"`
 
+	// vxlan udp ports (udp packets to this ports are treated as vxlan)
+	VXLANports []uint16 `config:"vxlan_ports"`
+
 	// anonymization/encryption options
 	// are the IPs encrypted?
 	EncryptIPs bool `config:"encrypt_ip_addresses"`
@@ -170,6 +173,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	var evTblst string
 	var evRmaxVals string
 	var evRIntvls string
+	var vxlanPorts string
 
 	// fill default value strings (for the help msg)
 	defaultEvRmaxVals := ""
@@ -185,6 +189,14 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			defaultEvRIntvls += ","
 		}
 		defaultEvRIntvls += v.String()
+	}
+
+	defaultVXLANPorts := "" // format "port1[,port2]*", e.g.: "4789,4790"
+	for i, v := range c.VXLANports {
+		if i != 0 {
+			defaultVXLANPorts += ","
+		}
+		defaultVXLANPorts += strconv.FormatUint(uint64(v), 10)
 	}
 
 	// initialize cfg with the default config, just in case there is
@@ -277,6 +289,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.BoolVar(&cfg.ContactIgnorePort, "contact_ignore_port",
 		c.ContactIgnorePort,
 		"ignore port number when comparing contacts (but not AORs)")
+	flag.StringVar(&vxlanPorts, "vxlan_ports", defaultVXLANPorts,
+		"vxlan ports list, comma or space separated")
 
 	flag.Parse()
 	// fix cmd line params
@@ -418,6 +432,28 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 				*evRgcMaxRunS, perr)
 			errs++
 			return cfg, e
+		}
+
+		cfg.VXLANports = c.VXLANports
+		portsStr := strings.FieldsFunc(vxlanPorts, checkSep)
+		k = 0
+		portsNum := make([]uint16, 0, 10)
+		for _, s := range portsStr {
+			if len(s) == 0 {
+				continue
+			}
+			if v, perr := strconv.ParseUint(s, 10, 16); perr == nil {
+				portsNum = append(portsNum, uint16(v))
+			} else {
+				e := fmt.Errorf("invalid vxlan port %q in %q (pos %d)",
+					s, vxlanPorts, k)
+				errs++
+				return cfg, e
+			}
+			k++
+		}
+		if len(portsNum) > 0 {
+			cfg.VXLANports = portsNum
 		}
 	}
 	return cfg, nil

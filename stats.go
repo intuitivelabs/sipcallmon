@@ -41,6 +41,9 @@ type statsCounters struct {
 	sctp6          counters.Handle
 	tlsN           counters.Handle
 	dtlsN          counters.Handle
+	vxlanN         counters.Handle
+	vxlan4         counters.Handle
+	vxlan6         counters.Handle
 	otherN         counters.Handle
 	decodeErrs     counters.Handle
 	injected       counters.Handle
@@ -123,7 +126,11 @@ func statsInit() error {
 		{&sCnts.sctp6, 0, nil, nil, "sctp6", "sctp ipv6 packets"},
 		{&sCnts.tlsN, 0, nil, nil, "tls", "tls packets"},
 		{&sCnts.dtlsN, 0, nil, nil, "dtls", "dtls packets"},
-		{&sCnts.otherN, 0, nil, nil, "other", "other packets"},
+		{&sCnts.vxlanN, 0, nil, nil, "vxlan", "vxlan total packets"},
+		{&sCnts.vxlan4, 0, nil, nil, "vxlan4", "ipv4 vxlan packets"},
+		{&sCnts.vxlan6, 0, nil, nil, "vxlan6", "ipv6 vxlan packets"},
+		{&sCnts.otherN, 0, nil, nil, "other",
+			"other unknown transport or network layer packets"},
 		{&sCnts.decodeErrs, 0, nil, nil, "decode_errs",
 			"packet network layer decode errors"},
 		{&sCnts.injected, 0, nil, nil, "injected",
@@ -276,17 +283,21 @@ func statsComputeRate(dst, crt, old *counters.Group,
 
 func printStats(w io.Writer, stats *counters.Group, sCnts *statsCounters) {
 	fmt.Fprintf(w, "\n\nStatistics:\n")
-	fmt.Fprintf(w, "%9d packets %9d ipv4 %9d ipv6 %9d other %9d inj.\n",
+	fmt.Fprintf(w, "%9d packets %9d ipv4 %9d ipv6 %9d inj.\n",
 		stats.Get(sCnts.n), stats.Get(sCnts.ip4), stats.Get(sCnts.ip6),
-		stats.Get(sCnts.otherN), stats.Get(sCnts.injected))
-	fmt.Fprintf(w, "%9d ip4frags %9d defrag\n",
+		stats.Get(sCnts.injected))
+	fmt.Fprintf(w, "%9d ip4frags %8d defrag\n",
 		stats.Get(sCnts.ip4frags), stats.Get(sCnts.ip4defrag))
-	fmt.Fprintf(w, "%9d udp: %9d udp4 %9d upd6\n"+
+	fmt.Fprintf(w, "%9d udp: %9d udp4 %9d udp6\n"+
 		"%9d tcp: %9d tcp4 %9d tcp6\n",
 		stats.Get(sCnts.udpN), stats.Get(sCnts.udp4), stats.Get(sCnts.udp6),
 		stats.Get(sCnts.tcpN), stats.Get(sCnts.tcp4), stats.Get(sCnts.tcp6))
-	fmt.Fprintf(w, "%9d tls %9d dtls %9d sctp \n",
-		stats.Get(sCnts.tlsN), stats.Get(sCnts.dtlsN), stats.Get(sCnts.sctpN))
+	fmt.Fprintf(w, "%9d tls  %9d dtls %9d sctp %9d other\n",
+		stats.Get(sCnts.tlsN), stats.Get(sCnts.dtlsN), stats.Get(sCnts.sctpN),
+		stats.Get(sCnts.otherN))
+	fmt.Fprintf(w, "%9d vxlan: %7d vxlan4 %7d vxlan6\n",
+		stats.Get(sCnts.vxlanN),
+		stats.Get(sCnts.vxlan4), stats.Get(sCnts.vxlan6))
 
 	fmt.Fprintf(w, "tcp: %9d streams %9d reassembled segs"+
 		" %9d total bytes \n",

@@ -488,10 +488,46 @@ func Run(cfg *Config) error {
 	counters.RootGrp.Print(os.Stdout, "", flags)
 	counters.RootGrp.PrintSubGroups(os.Stdout, flags)
 
-	if cfg.RunForever && (atomic.LoadUint32(&stopProcessing) == 0) &&
-		stopCh != nil && err == nil {
-		<-stopCh
+	endWaitTo := cfg.EndWait
+	sCallsGrp, sCallsActive, _ := counters.RootGrp.GetCounterDot("calls.active")
+	if sCallsGrp != nil && sCallsActive != counters.Invalid {
+		fmt.Fprintf(os.Stdout, "end active entries %d"+
+			", end_force_timeout %s, end_wait %s\n",
+			sCallsGrp.Get(sCallsActive), cfg.EndForceTimeout,
+			cfg.EndWait)
 	}
+
+	if cfg.EndForceTimeout != 0 {
+		calltr.ForceAllTimeout(cfg.EndForceTimeout)
+		if !cfg.RunForever && endWaitTo == 0 {
+			// set wait timeout if not set
+			endWaitTo = cfg.EndForceTimeout + 250*time.Millisecond
+			fmt.Fprintf(os.Stdout, "end_force_timeout set => adjusting"+
+				" end_wait to: %s\n", endWaitTo)
+		}
+	}
+	if err == nil && (atomic.LoadUint32(&stopProcessing) == 0) &&
+		stopCh != nil {
+		if cfg.RunForever {
+			<-stopCh
+		} else if endWaitTo != 0 {
+			waitTicker := time.NewTicker(endWaitTo)
+			select {
+			case <-stopCh:
+				break
+			case <-waitTicker.C:
+				break
+			}
+			waitTicker.Stop()
+		}
+	}
+	if sCallsGrp != nil && sCallsActive != counters.Invalid {
+		fmt.Fprintf(os.Stdout, "final wait active entries %d"+
+			", end_force_timeout %s, end_wait %s\n",
+			sCallsGrp.Get(sCallsActive), cfg.EndForceTimeout,
+			cfg.EndWait)
+	}
+
 	waitgrp.Done() // must be before Stop() since stop will Wait()
 	Stop()         // block waiting for everything to stop
 	return err

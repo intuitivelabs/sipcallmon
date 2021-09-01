@@ -87,6 +87,12 @@ type Config struct {
 	// vxlan udp ports (udp packets to this ports are treated as vxlan)
 	VXLANports []uint16 `config:"vxlan_ports"`
 
+	// exit options
+	// force call-state max. timeout on end to this value
+	EndForceTimeout time.Duration `config:"end_force_timeout"`
+	// wait the configured value before exiting (no run_forever mode)
+	EndWait time.Duration `config:"end_wait"`
+
 	// anonymization/encryption options
 	// are the IPs encrypted?
 	EncryptIPs bool `config:"encrypt_ip_addresses"`
@@ -291,6 +297,12 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"ignore port number when comparing contacts (but not AORs)")
 	flag.StringVar(&vxlanPorts, "vxlan_ports", defaultVXLANPorts,
 		"vxlan ports list, comma or space separated")
+	endForceToS := flag.String("end_force_timeout",
+		c.EndForceTimeout.String(),
+		"force call state timeout to this value on exit/end")
+	endWaitS := flag.String("end_wait",
+		c.EndWait.String(),
+		"wait this interval before exiting (valid in no run_forever mode)")
 
 	flag.Parse()
 	// fix cmd line params
@@ -454,6 +466,20 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		}
 		if len(portsNum) > 0 {
 			cfg.VXLANports = portsNum
+		}
+		cfg.EndForceTimeout, perr = time.ParseDuration(*endForceToS)
+		if perr != nil {
+			e := fmt.Errorf("invalid end_force_timeout value: %s: %v",
+				*endForceToS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.EndWait, perr = time.ParseDuration(*endWaitS)
+		if perr != nil {
+			e := fmt.Errorf("invalid end_wait timeout value: %s: %v",
+				*endWaitS, perr)
+			errs++
+			return cfg, e
 		}
 	}
 	return cfg, nil

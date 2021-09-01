@@ -25,6 +25,10 @@ It can either capture live packets or replay pcap files.
     	ignore port number when comparing contacts (but not AORs)
   -debug_calltr uint
     	debugging flags for call tracking (default 1)
+  -end_force_timeout string
+    	force call state timeout to this value on exit/end (default "0s")
+  -end_wait string
+    	wait this interval before exiting (valid in no run_forever mode) (default "0s")
   -event_buffer_size int
     	how many events will be buffered (default 10240)
   -event_types_blst string
@@ -65,6 +69,8 @@ It can either capture live packets or replay pcap files.
     	log format options for parsing
   -pcap string
     	read packets from pcap files
+  -pcap_loop uint
+    	loop through pcap files multiple times
   -reg_exp_delta uint
     	extra REGISTER expiration delta for absorbing delayed re-REGISTERs (default 30)
   -regs_max_entries uint
@@ -89,6 +95,8 @@ It can either capture live packets or replay pcap files.
     	tcp reorder timeout (default "1m0s")
   -verbose
     	turn on verbose mode
+  -vxlan_ports string
+    	vxlan ports list, comma or space separated
 ```
 
 

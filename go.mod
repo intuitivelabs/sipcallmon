@@ -10,6 +10,7 @@ require (
 	github.com/intuitivelabs/sipsp v1.1.1
 	github.com/intuitivelabs/slog v0.0.2
 	github.com/intuitivelabs/timestamp v0.0.3
+	github.com/intuitivelabs/wtimer v0.0.2
 	golang.org/x/sys v0.0.0-20200217220822-9197077df867 // indirect
 )
 

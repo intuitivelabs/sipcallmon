@@ -22,6 +22,7 @@ import (
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/slog"
 	"github.com/intuitivelabs/timestamp"
+	"github.com/intuitivelabs/wtimer"
 )
 
 const Version = "0.7.0"
@@ -260,6 +261,8 @@ func initLogs(cfg *Config) {
 		slog.LogOptions(cfg.ParseLogOpt), slog.LStdErr)
 	// calltr log
 	slog.Init(&calltr.Log, slog.LogLevel(cfg.LogLev),
+		slog.LogOptions(cfg.LogOpt), slog.LStdErr)
+	slog.Init(&wtimer.Log, slog.LogLevel(cfg.LogLev),
 		slog.LogOptions(cfg.LogOpt), slog.LStdErr)
 	// init also the default slog log (used directly by sipsp)
 	slog.DefaultLogInit(slog.LogLevel(cfg.LogLev), slog.LogOptions(cfg.LogOpt),

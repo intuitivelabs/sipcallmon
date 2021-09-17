@@ -107,6 +107,11 @@ type Config struct {
 	EncryptionKey string `config:"encryption_key"`
 	// encryption key validation salt
 	EncryptionValSalt string `config:"encryption_salt"`
+
+	// config options ignored if not known/supported
+	// (no error if found in config, backward compatibility option
+	//  -- running a new config with new options on an older binary)
+	CfgIgnUnknown []string `config:"cfg_ignore_unknown"`
 }
 
 var defaultConfigVals = Config{

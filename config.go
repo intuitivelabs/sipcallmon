@@ -81,9 +81,6 @@ type Config struct {
 	// contact matching options
 	ContactIgnorePort bool `config:"contact_ignore_port"`
 
-	// periodic statistic events (sipcmbeat only)
-	StatsInterval time.Duration `config:"stats_interval"`
-
 	// vxlan udp ports (udp packets to this ports are treated as vxlan)
 	VXLANports []uint16 `config:"vxlan_ports"`
 
@@ -92,6 +89,15 @@ type Config struct {
 	EndForceTimeout time.Duration `config:"end_force_timeout"`
 	// wait the configured value before exiting (no run_forever mode)
 	EndWait time.Duration `config:"end_wait"`
+
+	//
+	// All the below options belong to sipcmbeat (ignored by sipcallmon)
+	//
+
+	// periodic statistic events (sipcmbeat only)
+	StatsInterval time.Duration `config:"stats_interval"`
+	// counter groups reported by statistics events
+	StatsGrps []string `config:"stats_groups"`
 
 	// anonymization/encryption options
 	// are the IPs encrypted?
@@ -137,6 +143,7 @@ var defaultConfigVals = Config{
 	RegDelta:          30, // seconds
 	ContactIgnorePort: false,
 	StatsInterval:     5 * time.Minute,
+	StatsGrps:         []string{"all"},
 	EncryptIPs:        false,
 	EncryptURIs:       false,
 	EncryptCallIDs:    false,
@@ -185,6 +192,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	var evRmaxVals string
 	var evRIntvls string
 	var vxlanPorts string
+	var statsGrps string
 
 	// fill default value strings (for the help msg)
 	defaultEvRmaxVals := ""
@@ -209,6 +217,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		}
 		defaultVXLANPorts += strconv.FormatUint(uint64(v), 10)
 	}
+
+	defaultStatsGrps := strings.Join(c.StatsGrps, ",")
 
 	// initialize cfg with the default config, just in case there is
 	// some option that is not configurable via the command line
@@ -308,6 +318,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	endWaitS := flag.String("end_wait",
 		c.EndWait.String(),
 		"wait this interval before exiting (valid in no run_forever mode)")
+
+	flag.StringVar(&statsGrps, "stats_groups", defaultStatsGrps,
+		"counter groups reported on exit, comma or space separated")
 
 	flag.Parse()
 	// fix cmd line params
@@ -485,6 +498,20 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 				*endWaitS, perr)
 			errs++
 			return cfg, e
+		}
+
+		cfg.StatsGrps = c.StatsGrps
+		grps := strings.FieldsFunc(statsGrps, checkSep)
+		grpVals := make([]string, 0, 10)
+		for _, t := range grps {
+			if len(t) == 0 {
+				continue
+			}
+			// TODO: group name check(?)
+			grpVals = append(grpVals, t)
+		}
+		if len(grpVals) > 0 {
+			cfg.StatsGrps = grpVals
 		}
 	}
 	return cfg, nil

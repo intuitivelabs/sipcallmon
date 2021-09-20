@@ -488,8 +488,7 @@ func Run(cfg *Config) error {
 	// print the counters
 	flags := counters.PrFullName | counters.PrVal | counters.PrRec
 	//flags |= counters.PrDesc
-	counters.RootGrp.Print(os.Stdout, "", flags)
-	counters.RootGrp.PrintSubGroups(os.Stdout, flags)
+	printCounters(cfg, flags)
 
 	endWaitTo := cfg.EndWait
 	sCallsGrp, sCallsActive, _ := counters.RootGrp.GetCounterDot("calls.active")
@@ -534,4 +533,25 @@ func Run(cfg *Config) error {
 	waitgrp.Done() // must be before Stop() since stop will Wait()
 	Stop()         // block waiting for everything to stop
 	return err
+}
+
+func printCounters(cfg *Config, flags int) {
+
+	for _, gname := range cfg.StatsGrps {
+		if gname == "all" || gname == "*" {
+			printCountersGrp(&counters.RootGrp, flags)
+			break
+		} else if gname == "none" || gname == "-" {
+			continue
+		}
+		grp, _ := counters.RootGrp.GetSubGroupDot(gname)
+		if grp != nil {
+			printCountersGrp(grp, flags)
+		}
+	}
+}
+
+func printCountersGrp(grp *counters.Group, flags int) {
+	grp.Print(os.Stdout, "", flags)
+	grp.PrintSubGroups(os.Stdout, flags)
 }

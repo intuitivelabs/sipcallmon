@@ -4,8 +4,8 @@ github.com/intuitivelabs/bytescase v1.0.2 h1:Yz2aO9cw3Erdnyb9k7/SS/ckFkOG8KWr4Uc
 github.com/intuitivelabs/bytescase v1.0.2/go.mod h1:Gr+B79bV8+mDKvYr4hja6qPVHtYG4Knem0K8gzZKHHU=
 github.com/intuitivelabs/bytespool v0.0.2 h1:rR7scHWuZBrqpRQvSOaHCfldo4QmQhlu7N4S779ETxc=
 github.com/intuitivelabs/bytespool v0.0.2/go.mod h1:LoAZMZ/ztsXMI5dZx5Qy3tLAh6kte54BBOJN931GRew=
-github.com/intuitivelabs/calltr v1.1.1 h1:yb4JSxRiA8JhCo+4ZBUB5SQ46CFnP1KiLKZ4ccmJB2Q=
-github.com/intuitivelabs/calltr v1.1.1/go.mod h1:kUk/DqPHKEsLRUAEHSzsBWIgsZzO9VAF4cCE3cvhXBc=
+github.com/intuitivelabs/calltr v1.1.2 h1:qIIDwBtxKbov3Z1dt4CaqOyTIHBeAzZrDGWiDauEZug=
+github.com/intuitivelabs/calltr v1.1.2/go.mod h1:kUk/DqPHKEsLRUAEHSzsBWIgsZzO9VAF4cCE3cvhXBc=
 github.com/intuitivelabs/mallocs/qmalloc v0.0.3 h1:t1yPsjaykyayZn4TYbhIZQZwMl91VJhXUY65hQQa630=
 github.com/intuitivelabs/mallocs/qmalloc v0.0.3/go.mod h1:VwS4Dzl2y9m+W/tkEy82Cy2g+EwM3vgBldnRbt18zgQ=
 github.com/intuitivelabs/sipsp v1.1.1 h1:l9sqYzlzjQfIOvvWjBYE7OPYNPHrHbIuSCsXYzu1SNU=

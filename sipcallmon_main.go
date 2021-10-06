@@ -140,7 +140,7 @@ func evRateBlstGCRun(ticker *time.Ticker, done chan struct{}) {
 	m := calltr.MatchEvRTS{
 		OpEx:      calltr.MOpEQ,
 		Ex:        false,        // match non exceeded value only
-		OpOkLastT: calltr.MOpLT, // match last (time) OK older then ...
+		OpOkLastT: calltr.MOpGT, // match last (time) OK older then ...
 		// OkLastT filled each time
 	}
 

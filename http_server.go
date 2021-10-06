@@ -810,7 +810,7 @@ func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
 	// more then 2s in the past (from the current time)
 	m := calltr.MatchEvRTS{
 		OpEx: calltr.MOpEQ, Ex: false,
-		OpT0: calltr.MOpLT, T0: eLim, // T0 < eLim
+		OpT0: calltr.MOpGT, T0: eLim, // now-elim > rate.T0
 	}
 	ok, entries, to := EvRateBlst.ForceEvict(uint64(n), m, now, runLim)
 	fmt.Fprintf(w, "GC run: target %d met: %v (crt %d entries),"+

@@ -812,11 +812,11 @@ func httpEvRateBlstForceGC(w http.ResponseWriter, r *http.Request) {
 		OpEx: calltr.MOpEQ, Ex: false,
 		OpT0: calltr.MOpGT, T0: eLim, // now-elim > rate.T0
 	}
-	ok, entries, to := EvRateBlst.ForceEvict(uint64(n), m, now, runLim)
+	ok, entries, rmvd, to := EvRateBlst.ForceEvict(uint64(n), m, now, runLim)
 	fmt.Fprintf(w, "GC run: target %d met: %v (crt %d entries),"+
-		" run timeout %v, entries walked: %v\n",
+		" run timeout %v, entries walked: %v, removed: %v\n",
 		n, ok, EvRateBlst.CrtEntries(),
-		to, entries)
+		to, entries, rmvd)
 }
 
 // runtime config for event rate blacklist hard & light GC

@@ -45,6 +45,7 @@ type evrGCcounters struct {
 	runs     counters.Handle
 	tgtMet   counters.Handle
 	n        counters.Handle
+	rmvd     counters.Handle
 	to       counters.Handle
 	gcMticks counters.Handle // missed gc ticks
 }
@@ -165,10 +166,11 @@ mainloop:
 			runLim := now.Add(maxRunT)
 			// run GC
 			//e0 := EvRateBlst.CrtEntries()
-			tgt, n, to := EvRateBlst.ForceEvict(target, m, now, runLim)
+			tgt, n, rmvd, to := EvRateBlst.ForceEvict(target, m, now, runLim)
 			//e1 := EvRateBlst.CrtEntries()
 			// DBG("GC run => target met: %v (%v / %v) n: %v / %v timeout: %v\n", tgt, e1, e0, n, e0, to)
 			evrGCstats.Set(evrGCcnts.n, counters.Val(n))
+			evrGCstats.Set(evrGCcnts.rmvd, counters.Val(rmvd))
 			if tgt {
 				evrGCstats.Inc(evrGCcnts.tgtMet)
 			}
@@ -306,6 +308,9 @@ func Init(cfg *Config) error {
 		{&evrGCcnts.n, counters.CntMaxF | counters.CntMinF, nil, nil,
 			"gc_walked",
 			"how many entries did the last GC run walk"},
+		{&evrGCcnts.rmvd, counters.CntMaxF | counters.CntMinF, nil, nil,
+			"gc_removed",
+			"how many entries did the last GC run remove"},
 		{&evrGCcnts.to, 0, nil, nil, "gc_timeout",
 			"how many periodic GC exited due to timeout"},
 		{&evrGCcnts.gcMticks, 0, nil, nil, "gc_missed_ticks",

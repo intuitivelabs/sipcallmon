@@ -13,5 +13,3 @@ require (
 	github.com/intuitivelabs/wtimer v0.0.2
 	golang.org/x/sys v0.0.0-20200217220822-9197077df867 // indirect
 )
-
-replace github.com/intuitivelabs/counters => /home/andrei/devel/go/src/andrei/counters

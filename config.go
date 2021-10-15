@@ -18,6 +18,11 @@ import (
 	"github.com/intuitivelabs/slog"
 )
 
+type NameIntvl struct {
+	Name  string
+	Intvl time.Duration
+}
+
 type Config struct {
 	Verbose        bool          `config:"verbose"`
 	LogLev         int64         `config:"log_level"`
@@ -97,6 +102,7 @@ type Config struct {
 	// periodic statistic events (sipcmbeat only)
 	StatsInterval time.Duration `config:"stats_interval"`
 	// counter groups reported by statistics events
+	// foramt: grp_name[:inteval] , ... (e.g. regs:10s,events)
 	StatsGrps []string `config:"stats_groups"`
 
 	// anonymization/encryption options
@@ -515,6 +521,46 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// parseNameIntvlLst parses a string containing a name:interval list
+// (separated by ',', '|' or space).
+// It returns a filled NameIntvl array or an error.
+func parseNameIntvlLst(lst string) ([]NameIntvl, error) {
+	// parse the ev rate blacklist max and intervals lists
+	// function to check for valid separators
+	checkSep := func(r rune) bool {
+		if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
+			r == rune('[') || r == rune(']') {
+			return true
+		}
+		return false
+	}
+
+	grpInt := strings.FieldsFunc(lst, checkSep)
+	nameIntvls := make([]NameIntvl, 0, 10)
+	for _, t := range grpInt {
+		if len(t) == 0 {
+			continue
+		}
+		vals := strings.Split(t, ":")
+		intvl := time.Duration(-1)
+		gname := vals[0]
+		if len(vals) > 2 {
+			return nil, fmt.Errorf("invalid group:interval for"+
+				" %q: too many ':' (%d)", t, len(vals))
+		} else if len(vals) > 1 {
+			v, perr := time.ParseDuration(vals[1])
+			if perr != nil {
+				return nil, fmt.Errorf("invalid interval value for"+
+					" \"%s:%s\": %v", gname, vals[1], perr)
+			}
+			intvl = v
+		}
+		// -1 == use default
+		nameIntvls = append(nameIntvls, NameIntvl{Name: gname, Intvl: intvl})
+	}
+	return nameIntvls, nil
 }
 
 func parseEvType(t string) (calltr.EventType, error) {

@@ -118,6 +118,9 @@ type Config struct {
 	// (no error if found in config, backward compatibility option
 	//  -- running a new config with new options on an older binary)
 	CfgIgnUnknown []string `config:"cfg_ignore_unknown"`
+
+	GeoIPdb     string `config:"geo_ip_db"`
+	GeoIPLookup bool   `config:"geo_ip_on"`
 }
 
 var defaultConfigVals = Config{

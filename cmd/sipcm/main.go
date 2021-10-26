@@ -35,6 +35,10 @@ func main() {
 		fmt.Printf("command line arguments error %s\n", err)
 		os.Exit(-1)
 	}
+	if err = sipcallmon.CfgFix(&cfg); err != nil {
+		fmt.Printf("config fixing error %s\n", err)
+		os.Exit(-1)
+	}
 	if err = sipcallmon.CfgCheck(&cfg); err != nil {
 		fmt.Printf("config  error %s\n", err)
 		os.Exit(-1)

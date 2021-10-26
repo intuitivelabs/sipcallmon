@@ -15,8 +15,14 @@ import (
 	"unicode"
 
 	"github.com/intuitivelabs/calltr"
+	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/slog"
 )
+
+type NameIntvl struct {
+	Name  string
+	Intvl time.Duration
+}
 
 type Config struct {
 	Verbose        bool          `config:"verbose"`
@@ -97,7 +103,10 @@ type Config struct {
 	// periodic statistic events (sipcmbeat only)
 	StatsInterval time.Duration `config:"stats_interval"`
 	// counter groups reported by statistics events
-	StatsGrps []string `config:"stats_groups"`
+	// format: grp_name[:inteval] , ... (e.g. regs:10s,events)
+	StatsGrpsRaw []string `config:"stats_groups"`
+	// "fixed" StatsGrpRaw -> filled by CfgFix(), hidden.
+	StatsGrps []NameIntvl
 
 	// anonymization/encryption options
 	// are the IPs encrypted?
@@ -146,7 +155,7 @@ var defaultConfigVals = Config{
 	RegDelta:          30, // seconds
 	ContactIgnorePort: false,
 	StatsInterval:     5 * time.Minute,
-	StatsGrps:         []string{"all"},
+	StatsGrpsRaw:      []string{"all"},
 	EncryptIPs:        false,
 	EncryptURIs:       false,
 	EncryptCallIDs:    false,
@@ -221,7 +230,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		defaultVXLANPorts += strconv.FormatUint(uint64(v), 10)
 	}
 
-	defaultStatsGrps := strings.Join(c.StatsGrps, ",")
+	defaultStatsGrps := strings.Join(c.StatsGrpsRaw, ",")
 
 	// initialize cfg with the default config, just in case there is
 	// some option that is not configurable via the command line
@@ -503,21 +512,72 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			return cfg, e
 		}
 
-		cfg.StatsGrps = c.StatsGrps
+		cfg.StatsGrpsRaw = c.StatsGrpsRaw
 		grps := strings.FieldsFunc(statsGrps, checkSep)
 		grpVals := make([]string, 0, 10)
 		for _, t := range grps {
 			if len(t) == 0 {
 				continue
 			}
-			// TODO: group name check(?)
 			grpVals = append(grpVals, t)
 		}
 		if len(grpVals) > 0 {
-			cfg.StatsGrps = grpVals
+			cfg.StatsGrpsRaw = grpVals
 		}
 	}
 	return cfg, nil
+}
+
+// parseNameIntvlLst parses a string containing a name:interval list
+// (separated by ',', '|' or space).
+// It returns a filled NameIntvl array or an error.
+func parseNameIntvlLst(lst string) ([]NameIntvl, error) {
+	// parse the ev rate blacklist max and intervals lists
+	// function to check for valid separators
+	checkSep := func(r rune) bool {
+		if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
+			r == rune('[') || r == rune(']') {
+			return true
+		}
+		return false
+	}
+
+	grpInt := strings.FieldsFunc(lst, checkSep)
+	nameIntvls := make([]NameIntvl, 0, 10)
+	for _, t := range grpInt {
+		if len(t) == 0 {
+			continue
+		}
+		gname, intvl, err := parseIdIntvl(t)
+		if err != nil {
+			return nil, err
+		}
+		// -1 == use default
+		nameIntvls = append(nameIntvls, NameIntvl{Name: gname, Intvl: intvl})
+	}
+	return nameIntvls, nil
+}
+
+// parseIdIntvl parses a string of the form id[:interval]
+// (the interval part is optional).
+// It returns the string id, the interval (-1 if missing) and an error
+// (nil on success).
+func parseIdIntvl(t string) (string, time.Duration, error) {
+	vals := strings.Split(t, ":")
+	intvl := time.Duration(-1)
+	gname := vals[0]
+	if len(vals) > 2 {
+		return "", 0, fmt.Errorf("invalid id:interval for"+
+			" %q: too many ':' (%d)", t, len(vals))
+	} else if len(vals) > 1 {
+		v, perr := time.ParseDuration(vals[1])
+		if perr != nil {
+			return "", 0, fmt.Errorf("invalid interval value for"+
+				" \"%s:%s\": %v", gname, vals[1], perr)
+		}
+		intvl = v
+	}
+	return gname, intvl, nil
 }
 
 func parseEvType(t string) (calltr.EventType, error) {
@@ -529,6 +589,33 @@ func parseEvType(t string) (calltr.EventType, error) {
 	return calltr.EvBad, fmt.Errorf("invalid event %q", t)
 }
 
+// CfgFix will resolve and/or fill hidden config values.
+// It should be called before CfgCheck() and before using the config.
+func CfgFix(cfg *Config) error {
+	cfg.StatsGrps = nil
+	nameIntvls := make([]NameIntvl, 0, 10)
+	for _, t := range cfg.StatsGrpsRaw {
+		if len(t) == 0 {
+			continue
+		}
+		gname, intvl, err := parseIdIntvl(t)
+		if err != nil {
+			return err
+		}
+		// -1 == use default
+		if intvl == -1 {
+			intvl = cfg.StatsInterval
+		}
+		nameIntvls = append(nameIntvls, NameIntvl{Name: gname, Intvl: intvl})
+	}
+	if len(nameIntvls) > 0 {
+		cfg.StatsGrps = nameIntvls
+	}
+	return nil
+}
+
+// CfgCheck does some sanity checks on the config.
+// It should be called before using the config, but after CfgFix().
 func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
@@ -549,6 +636,16 @@ func CfgCheck(cfg *Config) error {
 				return fmt.Errorf("invalid event type in even_type_blst: %q",
 					t)
 			}
+		}
+	}
+	for _, g := range cfg.StatsGrps {
+		n := g.Name
+		if len(n) == 0 || n == "all" || n == "*" || n == "none" || n == "-" {
+			continue
+		}
+		grp, _ := counters.RootGrp.GetSubGroupDot(n)
+		if grp == nil {
+			return fmt.Errorf("invalid statistics group name %q", n)
 		}
 	}
 	return nil

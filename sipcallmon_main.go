@@ -542,7 +542,8 @@ func Run(cfg *Config) error {
 
 func printCounters(cfg *Config, flags int) {
 
-	for _, gname := range cfg.StatsGrps {
+	for _, g := range cfg.StatsGrps {
+		gname := g.Name
 		if gname == "all" || gname == "*" {
 			printCountersGrp(&counters.RootGrp, flags)
 			break
@@ -552,6 +553,7 @@ func printCounters(cfg *Config, flags int) {
 		grp, _ := counters.RootGrp.GetSubGroupDot(gname)
 		if grp != nil {
 			printCountersGrp(grp, flags)
+			fmt.Println()
 		}
 	}
 }

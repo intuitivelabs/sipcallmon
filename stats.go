@@ -44,12 +44,16 @@ type statsCounters struct {
 	vxlanN         counters.Handle
 	vxlan4         counters.Handle
 	vxlan6         counters.Handle
+	wsN            counters.Handle
+	ws4            counters.Handle
+	ws6            counters.Handle
 	otherN         counters.Handle
 	decodeErrs     counters.Handle
 	injected       counters.Handle
 	seen           counters.Handle // actual packet seen (not filtered)
 	sipUDP         counters.Handle
 	sipTCP         counters.Handle
+	sipWS          counters.Handle
 	callTrUDP      counters.Handle
 	callTrTCP      counters.Handle
 	callTrErrUDP   counters.Handle
@@ -73,6 +77,7 @@ type statsCounters struct {
 	errs           counters.Handle
 	errsUDP        counters.Handle
 	errsTCP        counters.Handle
+	errsWS         counters.Handle
 	offsetErr      counters.Handle
 	bodyErr        counters.Handle
 	ok             counters.Handle
@@ -129,6 +134,12 @@ func statsInit() error {
 		{&sCnts.vxlanN, 0, nil, nil, "vxlan", "vxlan total packets"},
 		{&sCnts.vxlan4, 0, nil, nil, "vxlan4", "ipv4 vxlan packets"},
 		{&sCnts.vxlan6, 0, nil, nil, "vxlan6", "ipv6 vxlan packets"},
+		{&sCnts.wsN, 0, nil, nil, "ws",
+			"sip websocket candidate total packets"},
+		{&sCnts.ws4, 0, nil, nil, "ws4",
+			"ipv4 sip websocket candidate packets"},
+		{&sCnts.ws6, 0, nil, nil, "ws6",
+			"ipv6 sip websocket candidate packets"},
 		{&sCnts.otherN, 0, nil, nil, "other",
 			"other unknown transport or network layer packets"},
 		{&sCnts.decodeErrs, 0, nil, nil, "decode_errs",
@@ -141,6 +152,8 @@ func statsInit() error {
 			"sip over udp packets, parsed ok"},
 		{&sCnts.sipTCP, 0, nil, nil, "sip_tcp",
 			"sip over tcp packets, parsed ok"},
+		{&sCnts.sipWS, 0, nil, nil, "sip_ws",
+			"sip over web socket packets, parsed ok"},
 		{&sCnts.callTrUDP, 0, nil, nil, "tracked_ok_udp",
 			"successfully call tracked udp packets"},
 		{&sCnts.callTrTCP, 0, nil, nil, "tracked_ok_tcp",
@@ -185,6 +198,8 @@ func statsInit() error {
 			"sip parse errors for udp packets"},
 		{&sCnts.errsTCP, 0, nil, nil, "parse_errs_tcp",
 			"sip parse errors for tcp packets"},
+		{&sCnts.errsWS, 0, nil, nil, "parse_errs_ws",
+			"sip parse errors for websocket packets"},
 		{&sCnts.offsetErr, 0, nil, nil, "offset_errs",
 			"sip parse offset mismatch (possible incomplete packet)"},
 		{&sCnts.bodyErr, 0, nil, nil, "body_errs",
@@ -295,6 +310,9 @@ func printStats(w io.Writer, stats *counters.Group, sCnts *statsCounters) {
 	fmt.Fprintf(w, "%9d tls  %9d dtls %9d sctp %9d other\n",
 		stats.Get(sCnts.tlsN), stats.Get(sCnts.dtlsN), stats.Get(sCnts.sctpN),
 		stats.Get(sCnts.otherN))
+	fmt.Fprintf(w, "%9d wsock: %7d wsock4 %7d wsock6\n",
+		stats.Get(sCnts.wsN),
+		stats.Get(sCnts.ws4), stats.Get(sCnts.ws6))
 	fmt.Fprintf(w, "%9d vxlan: %7d vxlan4 %7d vxlan6\n",
 		stats.Get(sCnts.vxlanN),
 		stats.Get(sCnts.vxlan4), stats.Get(sCnts.vxlan6))

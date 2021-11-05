@@ -94,6 +94,9 @@ type Config struct {
 	// vxlan udp ports (udp packets to this ports are treated as vxlan)
 	VXLANports []uint16 `config:"vxlan_ports"`
 
+	// websocket ports (tcp packets to this ports are treated as http/websock)
+	WSports []uint16 `config:"websocket_ports"`
+
 	// exit options
 	// force call-state max. timeout on end to this value
 	EndForceTimeout time.Duration `config:"end_force_timeout"`
@@ -225,6 +228,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	var evRmaxVals string
 	var evRIntvls string
 	var vxlanPorts string
+	var wsPorts string
 	var statsGrps string
 	var callsTo string
 
@@ -250,6 +254,14 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			defaultVXLANPorts += ","
 		}
 		defaultVXLANPorts += strconv.FormatUint(uint64(v), 10)
+	}
+
+	defaultWSPorts := "" // format "port1[,port2]*", e.g.: "8080,80"
+	for i, v := range c.WSports {
+		if i != 0 {
+			defaultWSPorts += ","
+		}
+		defaultWSPorts += strconv.FormatUint(uint64(v), 10)
 	}
 
 	defaultStatsGrps := strings.Join(c.StatsGrpsRaw, ",")
@@ -358,6 +370,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"ignore port number when comparing contacts (but not AORs)")
 	flag.StringVar(&vxlanPorts, "vxlan_ports", defaultVXLANPorts,
 		"vxlan ports list, comma or space separated")
+	flag.StringVar(&wsPorts, "websocket_ports", defaultWSPorts,
+		"websocket ports list, comma or space separated")
 	endForceToS := flag.String("end_force_timeout",
 		c.EndForceTimeout.String(),
 		"force call state timeout to this value on exit/end")
@@ -543,6 +557,29 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		if len(portsNum) > 0 {
 			cfg.VXLANports = portsNum
 		}
+
+		cfg.WSports = c.WSports
+		portsStr = strings.FieldsFunc(wsPorts, checkSep)
+		k = 0
+		portsNum = make([]uint16, 0, 10)
+		for _, s := range portsStr {
+			if len(s) == 0 {
+				continue
+			}
+			if v, perr := strconv.ParseUint(s, 10, 16); perr == nil {
+				portsNum = append(portsNum, uint16(v))
+			} else {
+				e := fmt.Errorf("invalid websocket port %q in %q (pos %d)",
+					s, wsPorts, k)
+				errs++
+				return cfg, e
+			}
+			k++
+		}
+		if len(portsNum) > 0 {
+			cfg.WSports = portsNum
+		}
+
 		cfg.EndForceTimeout, perr = time.ParseDuration(*endForceToS)
 		if perr != nil {
 			e := fmt.Errorf("invalid end_force_timeout value: %s: %v",

@@ -111,6 +111,8 @@ type Config struct {
 	// anonymization/encryption options
 	// are the IPs encrypted?
 	EncryptIPs bool `config:"encrypt_ip_addresses"`
+	// is ipcipher used for ip address encryption?
+	EncryptIpcipher bool `config:"encrypt_ipcipher"`
 	// are the URIs encrypted?
 	EncryptURIs bool `config:"encrypt_uris"`
 	// are the CallIDs encrypted?
@@ -159,6 +161,7 @@ var defaultConfigVals = Config{
 	StatsInterval:     5 * time.Minute,
 	StatsGrpsRaw:      []string{"all"},
 	EncryptIPs:        false,
+	EncryptIpcipher:   false,
 	EncryptURIs:       false,
 	EncryptCallIDs:    false,
 	EncryptUA:         false,
@@ -185,6 +188,10 @@ func (cfg Config) UseAnonymization() bool {
 		cfg.UseURIAnonymization() ||
 		cfg.UseCallIDAnonymization() ||
 		cfg.UseUAAnonymization()
+}
+
+func (cfg Config) UseIpcipher() bool {
+	return cfg.EncryptIpcipher
 }
 
 var DefaultMaxRates = calltr.EvRateMaxes{

@@ -53,6 +53,7 @@ func (state SIPStreamState) String() string {
 type SIPStreamOptions struct {
 	Verbose bool
 	W       io.Writer // write debug messages here
+	WSports []uint16  // web socket ports list
 }
 
 // sip state per stream (uni-directional connection)

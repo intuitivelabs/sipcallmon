@@ -505,7 +505,8 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 		bufSize: 4096,
 	}
 	tcpStreamFactory.SIPStreamOptions =
-		SIPStreamOptions{Verbose: cfg.Verbose, W: ioutil.Discard}
+		SIPStreamOptions{Verbose: cfg.Verbose, W: ioutil.Discard,
+			WSports: cfg.WSports}
 	tcpStreamPool := tcpassembly.NewStreamPool(tcpStreamFactory)
 	tcpAssembler := tcpassembly.NewAssembler(tcpStreamPool)
 	// TODO: config options

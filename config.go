@@ -115,6 +115,8 @@ type Config struct {
 	EncryptURIs bool `config:"encrypt_uris"`
 	// are the CallIDs encrypted?
 	EncryptCallIDs bool `config:"encrypt_call_ids"`
+	// are the UA and UAS encrypted?
+	EncryptUA bool `config:"encrypt_ua"`
 
 	// encryption key is either generated from a configured passphrase...
 	EncryptionPassphrase string `config:"encryption_passphrase"`
@@ -159,6 +161,7 @@ var defaultConfigVals = Config{
 	EncryptIPs:        false,
 	EncryptURIs:       false,
 	EncryptCallIDs:    false,
+	EncryptUA:         false,
 }
 
 func (cfg Config) UseIPAnonymization() bool {
@@ -173,10 +176,15 @@ func (cfg Config) UseCallIDAnonymization() bool {
 	return cfg.EncryptCallIDs
 }
 
+func (cfg Config) UseUAAnonymization() bool {
+	return cfg.EncryptUA
+}
+
 func (cfg Config) UseAnonymization() bool {
 	return cfg.UseIPAnonymization() ||
 		cfg.UseURIAnonymization() ||
-		cfg.UseCallIDAnonymization()
+		cfg.UseCallIDAnonymization() ||
+		cfg.UseUAAnonymization()
 }
 
 var DefaultMaxRates = calltr.EvRateMaxes{

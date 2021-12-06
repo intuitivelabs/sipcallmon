@@ -25,7 +25,7 @@ import (
 	"github.com/intuitivelabs/wtimer"
 )
 
-const Version = "0.8.4"
+const Version = "0.8.5"
 
 var BuildTags []string
 

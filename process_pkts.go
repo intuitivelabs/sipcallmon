@@ -223,6 +223,12 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool) (uint64,
 	parseVXLAN.IgnoreUnsupported = true // no error on unsupported layers
 	parseVXLAN.IgnorePanic = true
 
+	// force parse UDP only layer
+	parseUDP := gopacket.NewDecodingLayerParser(layers.LayerTypeUDP,
+		&udp)
+	parseUDP.IgnoreUnsupported = true // no error on unsupported layers
+	parseUDP.IgnorePanic = true
+
 	// setup tcp reassembly
 	tcpStreamFactory := SIPStreamFactory{
 		bufSize: 4096,
@@ -359,6 +365,11 @@ nextpkt:
 		// if error and no layers decoded or
 		//  error != UnsupportedLayerType class of errors
 	decapsulate:
+		var sport, dport int
+		var sip, dip net.IP
+		var ipl gopacket.NetworkLayer
+		var tl gopacket.TransportLayer
+	decapsulate_continue:
 		if err != nil {
 			if _, ok := err.(gopacket.UnsupportedLayerType); !ok ||
 				len(decodedLayers) == 0 {
@@ -371,10 +382,6 @@ nextpkt:
 				"- decoded layers %v\n",
 				h.LinkType(), crtLayerType, n, len(buf), decodedLayers)
 		}
-		var sport, dport int
-		var sip, dip net.IP
-		var ipl gopacket.NetworkLayer
-		var tl gopacket.TransportLayer
 	nextlayer:
 		for _, layer := range decodedLayers {
 			switch layer {
@@ -387,6 +394,21 @@ nextpkt:
 					(ip4.Flags&layers.IPv4MoreFragments != 0) {
 					stats.Inc(sCnts.ip4frags)
 					// TODO: ipv4 defrag
+					// fragmented packets stop decoding (no attempt to decode
+					// other layers in a fragment event if there might be
+					// enought information) => if udp and 1st fragment attempt
+					// normal udp decoding (for sip the 1st fragment contains
+					// almost all the time all the headers that we are
+					// interested in).
+					if ip4.Protocol == layers.IPProtocolUDP &&
+						ip4.FragOffset == 0 {
+						// force parsing ip payload as udp
+						crtLayerType = layers.LayerTypeUDP // for dbg msg
+						err = parseUDP.DecodeLayers(ip4.LayerPayload(),
+							&decodedLayers)
+						// reuse parse error check & layers parsing
+						goto decapsulate_continue
+					}
 				}
 			case layers.LayerTypeIPv6:
 				ipl = &ip6

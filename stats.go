@@ -196,7 +196,7 @@ func statsInit() error {
 	}
 
 	entries := int(unsafe.Sizeof(sCnts) / unsafe.Sizeof(sCnts.n))
-	err := registerCounters("pkt_stats", &stats, cntDefs[:], entries, 10)
+	err := registerCounters("pkt_stats", nil, &stats, cntDefs[:], entries, 10)
 	if err != nil {
 		return err
 	}

@@ -216,8 +216,10 @@ func randStr(n int) string {
 // generic function for registering counters, with retries with random
 // sufixes in case the counter group with the given name already exists
 // and is incompatible.
-func registerCounters(name string, grp **counters.Group, defs []counters.Def,
-	minEntries, retries int) error {
+func registerCounters(name string,
+	parent *counters.Group,
+	grp **counters.Group,
+	defs []counters.Def, minEntries, retries int) error {
 
 	grNroot := name
 	grName := grNroot
@@ -227,13 +229,13 @@ func registerCounters(name string, grp **counters.Group, defs []counters.Def,
 		entries = len(defs)
 	}
 	if g == nil {
-		g = counters.NewGroup(grName, nil, entries)
+		g = counters.NewGroup(grName, parent, entries)
 	}
 	if g == nil {
 		// try to register with another name
 		for i := 0; i < retries; i++ {
 			grName := grNroot + "_" + randStr(4)
-			g = counters.NewGroup(grName, nil, entries)
+			g = counters.NewGroup(grName, parent, entries)
 			if g != nil {
 				break
 			}
@@ -319,8 +321,8 @@ func Init(cfg *Config) error {
 	// create or reuse counter group "ev_rate_gc" with minimum 100 entries
 	// (to leave space for adding more counters, e.g. from other packages
 	// like calltr)
-	err := registerCounters("ev_rate_gc", &evrGCstats, evrGCcntDefs[:], 100,
-		10)
+	err := registerCounters("ev_rate_gc", nil, &evrGCstats,
+		evrGCcntDefs[:], 100, 10)
 	if err != nil {
 		return err
 	}
@@ -340,7 +342,7 @@ func Init(cfg *Config) error {
 		{&evrCnts.blstRec, 0, nil, nil, "blst_recovered",
 			"recovered, previously rate-blacklisted events"},
 	}
-	err = registerCounters("ev_rate", &evrStats, evrCntDefs[:], 100, 10)
+	err = registerCounters("ev_rate", nil, &evrStats, evrCntDefs[:], 100, 10)
 	if err != nil {
 		return err
 	}

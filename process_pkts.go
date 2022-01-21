@@ -14,6 +14,8 @@ import (
 	"math/bits"
 	"net"
 	"os"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -42,6 +44,130 @@ var EventsRing EvRing
 // and to mark/blacklist pairs that exceeded the configured maximum rates.
 var EvRateBlst calltr.EvRateHash
 
+type pcapCounters struct {
+	recv counters.Handle // total packets received
+	drop counters.Handle // packets dropped
+
+	delayed     counters.Handle // delayed packets total
+	delayed1    counters.Handle // delayed    1 ms ..   10ms
+	delayed10   counters.Handle // delayed   10 ms ..  100ms
+	delayed100  counters.Handle // delayed  100 ms .. 1000ms
+	delayed1000 counters.Handle // delayed 1000 ms ..
+}
+
+type pcapStatsParam struct {
+	lock   sync.Mutex
+	opened bool // handle is open / valid
+	pcaph  *pcap.Handle
+}
+
+// counters.CbkF callback for overriding a counter return value
+func pcapStatsRecvd(g *counters.Group, h counters.Handle,
+	v counters.Val, p interface{}) counters.Val {
+	const InvalidVal = ^counters.Val(0)
+	statsParam, ok := p.(*pcapStatsParam)
+	if !ok {
+		BUG("failed to get pcapStatsParam\n")
+		return InvalidVal
+	}
+	statsParam.lock.Lock() // make sure the handle is not closed under us
+	defer statsParam.lock.Unlock()
+
+	if !statsParam.opened {
+		return v
+	}
+	stats, err := statsParam.pcaph.Stats()
+	if err == nil {
+		return g.Set(h, counters.Val(stats.PacketsReceived))
+	}
+	WARN("failed to read stats: %s\n", err)
+	return InvalidVal // error
+}
+
+// counters.CbkF callback for overriding a counter return value
+func pcapStatsDropped(g *counters.Group, h counters.Handle,
+	v counters.Val, p interface{}) counters.Val {
+	const InvalidVal = ^counters.Val(0)
+	statsParam, ok := p.(*pcapStatsParam)
+	if !ok {
+		BUG("failed to get pcapStatsParam\n")
+		return InvalidVal
+	}
+	statsParam.lock.Lock() // make sure the handle is not closed under us
+	defer statsParam.lock.Unlock()
+
+	if !statsParam.opened {
+		return v
+	}
+	stats, err := statsParam.pcaph.Stats()
+	if err == nil {
+		return g.Set(h, counters.Val(stats.PacketsDropped))
+	}
+	WARN("failed to read stats: %s\n", err)
+	return InvalidVal // error
+}
+
+var pcapCntRootGrp *counters.Group
+
+func pcapInit() bool {
+	g := counters.NewGroup("pcap", nil, 10)
+	if g == nil {
+		return false
+	}
+	pcapCntRootGrp = g
+	return true
+}
+
+const (
+	//  pcap file mode flag (hide live counters)
+	pcapRegCountersFileF      = 1 << iota
+	pcapRegCountersHideDelayF // hide delayed counters
+)
+
+// register a pcap counter subgroup.
+// returns nil on success or error
+func pcapRegIfCounters(name string,
+	parent *counters.Group,
+	grp **counters.Group,
+	cnts *pcapCounters,
+	cbkRecvd counters.CbkF,
+	cbkDrop counters.CbkF,
+	cbkParam interface{},
+	flags uint,
+) error {
+
+	var pktF, delayedF int
+	if flags&pcapRegCountersHideDelayF != 0 {
+		delayedF = counters.CntHideAllF
+	}
+	if flags&pcapRegCountersFileF != 0 {
+		pktF = counters.CntHideAllF
+	}
+	pcapCntDefs := [...]counters.Def{
+		{&cnts.recv, pktF, cbkRecvd, cbkParam, "recvd",
+			"number of packets received"},
+		{&cnts.drop, pktF, cbkDrop, cbkParam, "drop",
+			"number of packets dropped (processing too slow)"},
+
+		{&cnts.delayed, delayedF, nil, nil, "t_delayed",
+			"total delayed packets (more then 1ms), file input only"},
+		{&cnts.delayed1, delayedF, nil, nil, "delayed1",
+			"delayed packets    1 .. 10ms, file input only"},
+		{&cnts.delayed10, delayedF, nil, nil, "delayed10",
+			"delayed packets   10 .. 100ms, file input only"},
+		{&cnts.delayed100, delayedF, nil, nil, "delayed100",
+			"delayed packets  100 ..1000ms, file input only"},
+		{&cnts.delayed1000, delayedF, nil, nil, "delayed1000",
+			"delayed packets 1000ms+, file input only"},
+	}
+
+	// "normalize" name: - if filename, use last path element
+	//                   - replace '.' with "_"
+	n := name[strings.LastIndex(name, "/")+1:]
+	n = strings.ReplaceAll(n, ".", "_")
+	return registerCounters(n, parent, grp, pcapCntDefs[:], 20, 1)
+}
+
 // processPCAP  reads pcap packets from the given file and process them
 // in the same way as they would have been if received from the wire.
 // It returns the number of packet seen and the time it took to process
@@ -55,13 +181,43 @@ func processPCAP(fname string, cfg *Config) (uint64,
 	}
 	var h *pcap.Handle
 	var err error
+	var statsGrp *counters.Group
+	var statsCnts pcapCounters
+	var pcapInfo pcapStatsParam
+
+	err = pcapRegIfCounters(fname, pcapCntRootGrp, &statsGrp, &statsCnts,
+		pcapStatsRecvd, pcapStatsDropped, &pcapInfo, pcapRegCountersFileF)
+	if err != nil {
+		ERR("processPCAP: failed to register pcap counters for %q: %s\n",
+			fname, err)
+	}
 
 	if h, err = pcap.OpenOffline(fname); err != nil {
 		ERR("processPCAP: %s\n", err)
 		err = fmt.Errorf("processPCAP: open file %q: %w", fname, err)
 		return 0, 0, 0, err
 	}
-	defer h.Close()
+
+	// record pcap handler for parallel running statistics callbacks
+	pcapInfo.lock.Lock()
+	{
+		pcapInfo.pcaph = h
+		pcapInfo.opened = true
+	}
+	pcapInfo.lock.Unlock()
+
+	defer func() {
+		// mark pcap handler as invalid for parallel running statistics cbks
+		pcapInfo.lock.Lock()
+		{
+			pcapInfo.pcaph = nil
+			pcapInfo.opened = false
+		}
+		pcapInfo.lock.Unlock()
+
+		h.Close()
+	}()
+
 	if err = h.SetBPFFilter(cfg.BPF); err != nil {
 		ERR("processLive: bpf %q: %s\n", cfg.BPF, err)
 		err = fmt.Errorf("processPCAP: set bpf %q: %w", cfg.BPF, err)
@@ -69,7 +225,7 @@ func processPCAP(fname string, cfg *Config) (uint64,
 	}
 	//packetSrc := gopacket.NewPacketSource(h, h.LinkType())
 	//processPacketsSlow(packetSrc, cfg, true)
-	return processPackets(h, cfg, cfg.Replay)
+	return processPackets(h, cfg, cfg.Replay, statsGrp, statsCnts)
 }
 
 // processLive  received packets from the wire.
@@ -87,7 +243,18 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 
 	var h *pcap.Handle
 	var err error
+	var statsGrp *counters.Group
+	var statsCnts pcapCounters
+	var pcapInfo pcapStatsParam
 	// TODO: option for snap len
+
+	err = pcapRegIfCounters(iface, pcapCntRootGrp, &statsGrp, &statsCnts,
+		pcapStatsRecvd, pcapStatsDropped, &pcapInfo, pcapRegCountersHideDelayF)
+	if err != nil {
+		ERR("processLive: failed to register pcap counters for %q: %s\n",
+			iface, err)
+	}
+
 	// wait forever: pcap.BlockForever
 	timeout := cfg.TCPGcInt
 	if timeout > cfg.MaxBlockedTo && cfg.MaxBlockedTo > 0 {
@@ -107,8 +274,30 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 		err = fmt.Errorf("processLive: bpf %q set failed: %w", bpf, err)
 		return 0, 0, 0, err
 	}
-	defer h.Close()
-	return processPackets(h, cfg, false)
+
+	// record pcap handler for parallel running statistics callbacks
+	pcapInfo.lock.Lock()
+	{
+		pcapInfo.pcaph = h
+		pcapInfo.opened = true
+	}
+	pcapInfo.lock.Unlock()
+
+	defer func() {
+		// force final stats update (record last value)
+		pcapStatsRecvd(statsGrp, statsCnts.recv, 0, pcapInfo)
+		pcapStatsDropped(statsGrp, statsCnts.drop, 0, pcapInfo)
+		// mark pcap handler as invalid for parallel running statistics cbks
+		pcapInfo.lock.Lock()
+		{
+			pcapInfo.pcaph = nil
+			pcapInfo.opened = false
+		}
+		pcapInfo.lock.Unlock()
+
+		h.Close()
+	}()
+	return processPackets(h, cfg, false, statsGrp, statsCnts)
 }
 
 func printPacket(w io.Writer, cfg *Config, n int, sip, dip net.IP, sport, dport int, name string, l int) {
@@ -143,7 +332,8 @@ func nonSIP(buf []byte, sip net.IP, sport int, dip net.IP, dport int) bool {
 // difference in pcap timestamps from the previous one.
 // It returns the number of packets seen, the total time spent,
 // the total time according to the pcap timestamps and an error.
-func processPackets(h *pcap.Handle, cfg *Config, replay bool) (uint64,
+func processPackets(h *pcap.Handle, cfg *Config, replay bool,
+	sgrp *counters.Group, scnts pcapCounters) (uint64,
 	time.Duration, time.Duration, error) {
 	var n uint64
 	var err error
@@ -323,10 +513,17 @@ nextpkt:
 				if replayTS.Before(now) {
 					wait = 0
 					diff := now.Sub(replayTS)
-					if diff > 10*time.Millisecond {
-						// TODO: keep some counter for max diff and number of
-						//       conseq big diffs.
-						PDBG("replay wait too big, diff: %v\n", diff)
+					if diff > 1*time.Millisecond {
+						sgrp.Inc(scnts.delayed)
+						if diff >= 1000*time.Millisecond {
+							sgrp.Inc(scnts.delayed1000)
+						} else if diff >= 100*time.Millisecond {
+							sgrp.Inc(scnts.delayed100)
+						} else if diff >= 10*time.Millisecond {
+							sgrp.Inc(scnts.delayed10)
+						} else {
+							sgrp.Inc(scnts.delayed1)
+						}
 					}
 				} else {
 					wait = replayTS.Sub(now)

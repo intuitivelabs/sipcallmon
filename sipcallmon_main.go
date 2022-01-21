@@ -25,7 +25,7 @@ import (
 	"github.com/intuitivelabs/wtimer"
 )
 
-const Version = "0.8.9"
+const Version = "0.8.10"
 
 var BuildTags []string
 
@@ -371,6 +371,11 @@ func Init(cfg *Config) error {
 					t)
 			}
 		}
+	}
+
+	// init pcap counters
+	if !pcapInit() {
+		return fmt.Errorf("failed to init pcap counters")
 	}
 
 	return nil

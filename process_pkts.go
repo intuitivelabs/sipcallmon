@@ -606,6 +606,10 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 				Plog.LogMux(w, true, slog.LNOTICE,
 					"unexpected error after parsing => %s\n", err)
 				Plog.LogMux(w, true, slog.LNOTICE, "parsed ok:\n%q\n", buf[:o])
+			} else if err == sipsp.ErrHdrBug || err == sipsp.ErrConvBug {
+				// show parsing bug always
+				Plog.BUG("unexpected error after parsing => %s ,"+
+					" parsed ok:\n%q\n", err, buf[:o])
 			}
 			var l int
 			if o < len(buf) {

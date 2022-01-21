@@ -230,6 +230,12 @@ func (s *SIPStreamData) Process(data []byte) bool {
 							"parsed ok:\n%q\n",
 							s.buf[s.mstart:s.mstart+o])
 						fmt.Fprintln(s.W)
+					} else if err == sipsp.ErrHdrBug ||
+						err == sipsp.ErrConvBug {
+						// show parsing bug always
+						Plog.BUG("unexpected error after parsing => %s ,"+
+							" parsed ok:\n%q\n", err,
+							s.buf[s.mstart:s.mstart+o])
 					}
 					var l int
 					if o+s.mstart < s.bused {

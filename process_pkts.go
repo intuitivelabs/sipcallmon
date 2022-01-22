@@ -45,8 +45,9 @@ var EventsRing EvRing
 var EvRateBlst calltr.EvRateHash
 
 type pcapCounters struct {
-	recv counters.Handle // total packets received
-	drop counters.Handle // packets dropped
+	recv   counters.Handle // total packets received
+	drop   counters.Handle // packets dropped
+	dropIf counters.Handle // packets dropped by the interface or dirver
 
 	delayed     counters.Handle // delayed packets total
 	delayed1    counters.Handle // delayed    1 ms ..   10ms
@@ -107,6 +108,29 @@ func pcapStatsDropped(g *counters.Group, h counters.Handle,
 	return InvalidVal // error
 }
 
+// counters.CbkF callback for overriding a counter return value
+func pcapStatsIfDropped(g *counters.Group, h counters.Handle,
+	v counters.Val, p interface{}) counters.Val {
+	const InvalidVal = ^counters.Val(0)
+	statsParam, ok := p.(*pcapStatsParam)
+	if !ok {
+		BUG("failed to get pcapStatsParam\n")
+		return InvalidVal
+	}
+	statsParam.lock.Lock() // make sure the handle is not closed under us
+	defer statsParam.lock.Unlock()
+
+	if !statsParam.opened {
+		return v
+	}
+	stats, err := statsParam.pcaph.Stats()
+	if err == nil {
+		return g.Set(h, counters.Val(stats.PacketsIfDropped))
+	}
+	WARN("failed to read stats: %s\n", err)
+	return InvalidVal // error
+}
+
 var pcapCntRootGrp *counters.Group
 
 func pcapInit() bool {
@@ -132,6 +156,7 @@ func pcapRegIfCounters(name string,
 	cnts *pcapCounters,
 	cbkRecvd counters.CbkF,
 	cbkDrop counters.CbkF,
+	cbkDropIf counters.CbkF,
 	cbkParam interface{},
 	flags uint,
 ) error {
@@ -148,6 +173,8 @@ func pcapRegIfCounters(name string,
 			"number of packets received"},
 		{&cnts.drop, pktF, cbkDrop, cbkParam, "drop",
 			"number of packets dropped (processing too slow)"},
+		{&cnts.dropIf, pktF, cbkDropIf, cbkParam, "if_drop",
+			"number of packets dropped by the network interface or driver"},
 
 		{&cnts.delayed, delayedF, nil, nil, "t_delayed",
 			"total delayed packets (more then 1ms), file input only"},
@@ -186,7 +213,8 @@ func processPCAP(fname string, cfg *Config) (uint64,
 	var pcapInfo pcapStatsParam
 
 	err = pcapRegIfCounters(fname, pcapCntRootGrp, &statsGrp, &statsCnts,
-		pcapStatsRecvd, pcapStatsDropped, &pcapInfo, pcapRegCountersFileF)
+		pcapStatsRecvd, pcapStatsDropped, pcapStatsIfDropped,
+		&pcapInfo, pcapRegCountersFileF)
 	if err != nil {
 		ERR("processPCAP: failed to register pcap counters for %q: %s\n",
 			fname, err)
@@ -249,7 +277,8 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 	// TODO: option for snap len
 
 	err = pcapRegIfCounters(iface, pcapCntRootGrp, &statsGrp, &statsCnts,
-		pcapStatsRecvd, pcapStatsDropped, &pcapInfo, pcapRegCountersHideDelayF)
+		pcapStatsRecvd, pcapStatsDropped, pcapStatsIfDropped,
+		&pcapInfo, pcapRegCountersHideDelayF)
 	if err != nil {
 		ERR("processLive: failed to register pcap counters for %q: %s\n",
 			iface, err)
@@ -287,6 +316,7 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 		// force final stats update (record last value)
 		pcapStatsRecvd(statsGrp, statsCnts.recv, 0, pcapInfo)
 		pcapStatsDropped(statsGrp, statsCnts.drop, 0, pcapInfo)
+		pcapStatsIfDropped(statsGrp, statsCnts.drop, 0, pcapInfo)
 		// mark pcap handler as invalid for parallel running statistics cbks
 		pcapInfo.lock.Lock()
 		{

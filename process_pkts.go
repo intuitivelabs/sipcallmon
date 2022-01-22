@@ -270,6 +270,7 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 	time.Duration, time.Duration, error) {
 
 	var h *pcap.Handle
+	var ih *pcap.InactiveHandle
 	var err error
 	var statsGrp *counters.Group
 	var statsCnts pcapCounters
@@ -292,12 +293,55 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 	if timeout <= 0 {
 		timeout = pcap.BlockForever
 	}
+	/*
+		if h, err = pcap.OpenLive(iface, 65535, true, timeout); err != nil {
+			ERR("processLive: failed opening %q: %s\n", iface, err)
+			err = fmt.Errorf("processLive: failed to open %q: %w", iface, err)
+			return 0, 0, 0, err
+		}
+	*/
 
-	if h, err = pcap.OpenLive(iface, 65535, true, timeout); err != nil {
-		ERR("processLive: failed opening %q: %s\n", iface, err)
+	ih, err = pcap.NewInactiveHandle(iface)
+	defer ih.CleanUp()
+	if err != nil {
+		ERR("processLive: failed opening interface %q: %s\n", iface, err)
 		err = fmt.Errorf("processLive: failed to open %q: %w", iface, err)
 		return 0, 0, 0, err
 	}
+	if err = ih.SetSnapLen(65535); err != nil {
+		ERR("processLive: failed setting pcap snap len on %q: %s\n",
+			iface, err)
+		err = fmt.Errorf("processLive: failed  setting pcap snap len: %w", err)
+		return 0, 0, 0, err
+	}
+	if err = ih.SetPromisc(true); err != nil {
+		ERR("processLive: failed setting promisc mode on %q: %s\n",
+			iface, err)
+		err = fmt.Errorf("processLive: failed  setting promisc mode: %w", err)
+		return 0, 0, 0, err
+	}
+	if err = ih.SetTimeout(timeout); err != nil {
+		ERR("processLive: failed setting timeout %v on %q: %s\n",
+			iface, timeout, err)
+		err = fmt.Errorf("processLive: failed setting timeout: %w", err)
+		return 0, 0, 0, err
+	}
+	if cfg.PCAPBufKb > 0 {
+		if err = ih.SetBufferSize(cfg.PCAPBufKb * 1024); err != nil {
+			ERR("processLive: failed setting pcap buffer to %d kb on %q: %s\n",
+				cfg.PCAPBufKb, iface, err)
+			/* non critical, continue */
+		}
+	}
+
+	h, err = ih.Activate()
+	if err != nil {
+		ERR("processLive: failed to activate interface %q: %s\n", iface, err)
+		err = fmt.Errorf("processLive: failed to activate interface %q: %w",
+			iface, err)
+		return 0, 0, 0, err
+	}
+
 	if err = h.SetBPFFilter(bpf); err != nil {
 		ERR("processLive: bpf %q: %s\n", bpf, err)
 		err = fmt.Errorf("processLive: bpf %q set failed: %w", bpf, err)

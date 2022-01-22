@@ -39,7 +39,8 @@ type Config struct {
 	ReplayScale    float64       `config:"replay_scale"`
 	RunForever     bool          `config:"run_forever"`
 	Iface          string        `config:"iface"`
-	BPF            string        `config:"bpf"` // packet filter
+	PCAPBufKb      int           `config:"pcap_buf_kb"` // pcap cap buf in kb
+	BPF            string        `config:"bpf"`         // packet filter
 	HTTPport       int           `config:"http_port"`
 	HTTPaddr       string        `config:"http_addr"`
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
@@ -277,6 +278,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 	flag.StringVar(&cfg.Iface, "iface", c.Iface,
 		"interface to capture packets from")
+	flag.IntVar(&cfg.PCAPBufKb, "pcap_buf_kb", c.PCAPBufKb,
+		"size for pcap buffer in kb")
 	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
 
 	flag.IntVar(&cfg.HTTPport, "http_port", c.HTTPport,

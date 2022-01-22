@@ -46,13 +46,15 @@ type Config struct {
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
 	TCPReorderTo   time.Duration `config:"tcp_reorder_timeout"`
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
-	MaxBlockedTo   time.Duration `config:"max_blocked_timeout"`
-	CallStMax      uint          `config:"calls_max_entries"`
-	CallStMaxMem   uint64        `config:"calls_max_mem"`
-	RegsMax        uint          `config:"regs_max_entries"`
-	RegsMaxMem     uint64        `config:"regs_max_mem"`
-	EvBufferSz     int           `config:"event_buffer_size"`
-	EvTblst        []string      `config:"event_types_blst"`
+	// maximum time blocked waiting for packets, doubles also as
+	// packet receive delay (max. internal timestamp error)
+	MaxBlockedTo time.Duration `config:"max_blocked_timeout"`
+	CallStMax    uint          `config:"calls_max_entries"`
+	CallStMaxMem uint64        `config:"calls_max_mem"`
+	RegsMax      uint          `config:"regs_max_entries"`
+	RegsMaxMem   uint64        `config:"regs_max_mem"`
+	EvBufferSz   int           `config:"event_buffer_size"`
+	EvTblst      []string      `config:"event_types_blst"`
 	// maximum entries in the rate blacklist table.
 	EvRblstMax uint `config:"evr_max_entries"`
 	// ev rate blacklist max values for each rate
@@ -148,7 +150,7 @@ var defaultConfigVals = Config{
 	TCPGcInt:          30 * time.Second,
 	TCPReorderTo:      60 * time.Second,
 	TCPConnTo:         3600 * time.Second,
-	MaxBlockedTo:      1 * time.Second,
+	MaxBlockedTo:      250 * time.Millisecond,
 	EvBufferSz:        10240,
 	EvRblstMax:        1024 * 1024,
 	EvRConseqRmin:     100,

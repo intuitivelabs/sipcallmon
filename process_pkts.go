@@ -411,6 +411,12 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	time.Duration, time.Duration, error) {
 	var n uint64
 	var err error
+	// hack: since the parsed sipmsg is passed to calltr, it will always
+	// escape  (it will always be allocated on the heap). To avoid it we
+	// declare it here (allocated only once) instead of having it
+	// internally in udpSIPMsg() (way nicer, but causes too many unneeded
+	// allocs)
+	var sipmsg sipsp.PSIPMsg
 	/* needed layers */
 	// link layers
 	var sll layers.LinuxSLL // e.g.: pcap files captured on any interface
@@ -761,7 +767,7 @@ nextpkt:
 				stats.Inc(sCnts.seen)
 				var payload []byte = tl.LayerPayload()
 				if !nonSIP(payload, sip, sport, dip, dport) {
-					udpSIPMsg(ioutil.Discard, payload, n, sip, sport,
+					udpSIPMsg(ioutil.Discard, &sipmsg, payload, n, sip, sport,
 						dip, dport, cfg.Verbose)
 				} else {
 					// not sip -> probe
@@ -849,17 +855,29 @@ nextpkt:
 }
 
 // parse & process (calltrack) an udp message
-// If verbose is set, extra information will be logged to w (otherwise only
-// to the log)
-func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
+// Parameters:
+//   w - extra logging done here (use ioutil.Discard to disable it)
+//   sipmsg - will be filled with the parsed sipmsg (must be avalid
+//            pointer). It's a hack to avoid extra allocs (if it would
+//            be declared locally it would escape => extra allocs)
+//   buf     - buffer containing a SIP message (parse source)
+//   n       - packet id / number (for log messages)
+//   sip     - source ip
+//   sport   - source port
+//   dip     - destination ip
+//   dport   - destination port
+//   verbose - if set, extra information will be logged (both to w & to
+//             the log)
+// return: true on success
+func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
+	n uint64, sip net.IP, sport int,
 	dip net.IP, dport int, verbose bool) bool {
 	ret := true
 	if verbose && (Plog.DBGon() || w != ioutil.Discard) {
 		Plog.LogMux(w, verbose, slog.LDBG, "udp pkt: %q\n", buf)
 	}
-	var sipmsg sipsp.PSIPMsg
 	sipmsg.Init(nil, nil, nil)
-	o, err := sipsp.ParseSIPMsg(buf, 0, &sipmsg, sipsp.SIPMsgNoMoreDataF)
+	o, err := sipsp.ParseSIPMsg(buf, 0, sipmsg, sipsp.SIPMsgNoMoreDataF)
 	if len(buf) > 12 || (len(buf) <= 12 && err != sipsp.ErrHdrTrunc) {
 		if !verbose && (err != 0 || o != len(buf)) &&
 			(Plog.L(slog.LNOTICE) || w != ioutil.Discard) {
@@ -924,7 +942,7 @@ func udpSIPMsg(w io.Writer, buf []byte, n uint64, sip net.IP, sport int,
 			endPoints[1].Port = uint16(dport)
 			endPoints[1].SetProto(calltr.NProtoUDP)
 
-			ret = CallTrack(&sipmsg, endPoints)
+			ret = CallTrack(sipmsg, endPoints)
 			if ret {
 				stats.Inc(sCnts.callTrUDP)
 			} else {

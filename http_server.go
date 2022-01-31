@@ -165,10 +165,18 @@ func printStruct(w io.Writer, prefix string, v reflect.Value) {
 		tf := t.Field(i)
 		tag := tf.Tag.Get("config")
 		if len(tag) == 0 {
-			tag = tf.Name
+			//tag = tf.Name
+			continue // skip over values with no tag
 		}
 		if tf.Type.Kind() == reflect.Struct {
 			printStruct(w, prefix+tag+".", f)
+		} else if tf.Type.Kind() == reflect.Map {
+			fmt.Fprintf(w, "%s%s: {", prefix, tag)
+			for _, k := range f.MapKeys() {
+				v := f.MapIndex(k)
+				fmt.Fprintf(w, "%s:%v, ", k, v)
+			}
+			fmt.Fprintf(w, "}\n")
 		} else {
 			fmt.Fprintf(w, "%s%s: %v\n", prefix, tag, f.Interface())
 		}

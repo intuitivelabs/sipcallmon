@@ -48,13 +48,14 @@ type Config struct {
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
 	// maximum time blocked waiting for packets, doubles also as
 	// packet receive delay (max. internal timestamp error)
-	MaxBlockedTo time.Duration `config:"max_blocked_timeout"`
-	CallStMax    uint          `config:"calls_max_entries"`
-	CallStMaxMem uint64        `config:"calls_max_mem"`
-	RegsMax      uint          `config:"regs_max_entries"`
-	RegsMaxMem   uint64        `config:"regs_max_mem"`
-	EvBufferSz   int           `config:"event_buffer_size"`
-	EvTblst      []string      `config:"event_types_blst"`
+	MaxBlockedTo time.Duration            `config:"max_blocked_timeout"`
+	CallStMax    uint                     `config:"calls_max_entries"`
+	CallStMaxMem uint64                   `config:"calls_max_mem"`
+	CallStTo     map[string]time.Duration `config:"calls_timeouts"`
+	RegsMax      uint                     `config:"regs_max_entries"`
+	RegsMaxMem   uint64                   `config:"regs_max_mem"`
+	EvBufferSz   int                      `config:"event_buffer_size"`
+	EvTblst      []string                 `config:"event_types_blst"`
 	// maximum entries in the rate blacklist table.
 	EvRblstMax uint `config:"evr_max_entries"`
 	// ev rate blacklist max values for each rate
@@ -140,17 +141,19 @@ type Config struct {
 }
 
 var defaultConfigVals = Config{
-	LogLev:            int64(slog.LINFO),
-	LogOpt:            uint64(slog.LlocInfoS),
-	ParseLogLev:       int64(slog.LNOTICE),
-	ParseLogOpt:       uint64(slog.LOptNone),
-	DbgCalltr:         uint64(calltr.DefaultConfig.Dbg),
-	ReplayMinDelay:    250 * time.Millisecond,
-	ReplayMaxDelay:    0,
-	TCPGcInt:          30 * time.Second,
-	TCPReorderTo:      60 * time.Second,
-	TCPConnTo:         3600 * time.Second,
-	MaxBlockedTo:      250 * time.Millisecond,
+	LogLev:         int64(slog.LINFO),
+	LogOpt:         uint64(slog.LlocInfoS),
+	ParseLogLev:    int64(slog.LNOTICE),
+	ParseLogOpt:    uint64(slog.LOptNone),
+	DbgCalltr:      uint64(calltr.DefaultConfig.Dbg),
+	ReplayMinDelay: 250 * time.Millisecond,
+	ReplayMaxDelay: 0,
+	TCPGcInt:       30 * time.Second,
+	TCPReorderTo:   60 * time.Second,
+	TCPConnTo:      3600 * time.Second,
+	MaxBlockedTo:   250 * time.Millisecond,
+	CallStTo:       map[string]time.Duration{
+				/*"inv_established": 7200 * time.Second,*/ },
 	EvBufferSz:        10240,
 	EvRblstMax:        1024 * 1024,
 	EvRConseqRmin:     100,
@@ -223,6 +226,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	var evRIntvls string
 	var vxlanPorts string
 	var statsGrps string
+	var callsTo string
 
 	// fill default value strings (for the help msg)
 	defaultEvRmaxVals := ""
@@ -249,6 +253,14 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	}
 
 	defaultStatsGrps := strings.Join(c.StatsGrpsRaw, ",")
+
+	var defaultCallStTo string
+	for k, v := range c.CallStTo {
+		if len(defaultCallStTo) > 0 {
+			defaultCallStTo += ", "
+		}
+		defaultCallStTo += k + ":" + v.String()
+	}
 
 	// initialize cfg with the default config, just in case there is
 	// some option that is not configurable via the command line
@@ -301,6 +313,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"maximum tracked calls (0 for unlimited)")
 	flag.Uint64Var(&cfg.CallStMaxMem, "calls_max_mem", c.CallStMaxMem,
 		"maximum memory for keeping call state (0 for unlimited)")
+	flag.StringVar(&callsTo, "calls_timeouts", defaultCallStTo,
+		"timeouts for each callstate (e.g. inv_established:7200s)")
 	flag.UintVar(&cfg.RegsMax, "regs_max_entries", c.RegsMax,
 		"maximum tracked register bindings (0 for unlimited)")
 	flag.Uint64Var(&cfg.RegsMaxMem, "regs_max_mem", c.RegsMaxMem,
@@ -400,6 +414,12 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 				*maxBlockedToS, perr)
 			errs++
 			return cfg, e
+		}
+
+		var callsTimeouts []NameIntvl
+		callsTimeouts, perr = parseNameIntvlLst(callsTo)
+		for _, nt := range callsTimeouts {
+			cfg.CallStTo[nt.Name] = nt.Intvl
 		}
 
 		// parse the ev rate blacklist max and intervals lists
@@ -609,6 +629,16 @@ func parseEvType(t string) (calltr.EventType, error) {
 	return calltr.EvBad, fmt.Errorf("invalid event %q", t)
 }
 
+func parseCallStateName(t string) (calltr.CallState, error) {
+	for i := calltr.CallStNone + 1; i < calltr.CallStNumber; i++ {
+		if strings.EqualFold(t, i.Name()) ||
+			strings.EqualFold(t, i.String()) {
+			return i, nil
+		}
+	}
+	return calltr.CallStNone, fmt.Errorf("invalid call state name %q", t)
+}
+
 // CfgFix will resolve and/or fill hidden config values.
 // It should be called before CfgCheck() and before using the config.
 func CfgFix(cfg *Config) error {
@@ -648,6 +678,18 @@ func CfgCheck(cfg *Config) error {
 		if len(cfg.EncryptionPassphrase) != 0 &&
 			len(cfg.EncryptionKey) != 0 {
 			return fmt.Errorf("Anonymization required and both encryption passphrase and key provided")
+		}
+	}
+	for callst, to := range cfg.CallStTo {
+		cs, perr := parseCallStateName(callst)
+		if perr != nil {
+			return fmt.Errorf("invalid calls_timeout value: %v", perr)
+		}
+		seconds := uint(to / time.Second)
+		if !calltr.StateTimeoutValid(cs, seconds) {
+			min, max := calltr.StateTimeoutRange(cs)
+			return fmt.Errorf("invalid timeout value for %s : %d s"+
+				" (range %v - %v)", callst, seconds, min, max)
 		}
 	}
 	for _, t := range cfg.EvTblst {

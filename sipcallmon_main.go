@@ -299,6 +299,19 @@ func Init(cfg *Config) error {
 	calltrCfg.Mem.MaxRegEntries = uint64(cfg.RegsMax)
 	calltrCfg.Mem.MaxRegEntriesMem = cfg.RegsMaxMem
 	calltrCfg.Dbg = calltr.DbgFlags(cfg.DbgCalltr)
+
+	for callst, to := range cfg.CallStTo {
+		cs, perr := parseCallStateName(callst)
+		if perr != nil {
+			return fmt.Errorf("invalid calls_timeout value: %v", perr)
+		}
+		seconds := uint(to / time.Second)
+		if !calltr.StateTimeoutSet(&calltrCfg, cs, seconds) {
+			min, max := calltr.StateTimeoutRange(cs)
+			return fmt.Errorf("invalid timeout value for %s : %d s"+
+				" (range %v - %v)", callst, seconds, min, max)
+		}
+	}
 	calltr.SetCfg(&calltrCfg)
 
 	// init evr GC counters

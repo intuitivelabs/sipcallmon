@@ -205,8 +205,8 @@ func htmlQueryEvBlst(w http.ResponseWriter, f calltr.EventFlags) {
 	fmt.Fprintln(w, `</form>`)
 
 	fmt.Fprintln(w, httpFooter)
-
 }
+
 func htmlQueryEvRateBlst(w http.ResponseWriter) {
 
 	fmt.Fprintln(w, httpHeader)
@@ -466,6 +466,34 @@ func htmlInputField(w http.ResponseWriter, n string, nAlign int,
 	fmt.Fprintf(w, "	</div>\n")
 }
 
+// print a form composed of 1 input field.
+// Parameters: n - name,
+//             nAlign - allign to this many chars
+//             defVal - default value (pre-filled)
+//             fSize  - field size
+//             comment - optional comment (printed after the input field)
+//             submit  - name for the submit button
+func htmlInputForm1V(w http.ResponseWriter, n string, nAlign int,
+	defVal string, fSize int, comment string, submit string) {
+
+	fmt.Fprintln(w, `<form action="/calls/timeout" method="get">`)
+	align := ""
+	if nAlign != 0 {
+		align = strconv.Itoa(nAlign)
+	}
+	fmt.Fprintln(w, `<span class="input text">`)
+	fmt.Fprintf(w, "	<pre>%"+align+"s:</pre>\n", n)
+	fmt.Fprintf(w, `	<input type="text" name=%q  value=%q size="%d">`,
+		n, defVal, fSize)
+	fmt.Fprintln(w, `</span><span class="submit">`)
+	fmt.Fprintln(w, `<input type="submit" value="Set"></span>`)
+	if comment != "" {
+		fmt.Fprintf(w, "<pre>    %s</pre>\n", comment)
+	}
+	fmt.Fprintf(w, "	\n")
+	fmt.Fprintln(w, `</form>`)
+}
+
 func htmlDbgOptsSetForm(w http.ResponseWriter) {
 	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
 	fmt.Fprintln(w, `<h2>Logging and debugging options</h2>`)
@@ -521,4 +549,20 @@ func htmlDbgOptsSetForm(w http.ResponseWriter) {
 
 	fmt.Fprintln(w, `<br><input type="submit" value="Set">`)
 	fmt.Fprintln(w, `</form>`)
+}
+
+func htmlQueryCallStTimeout(w http.ResponseWriter, footer string) {
+
+	fmt.Fprintln(w, httpHeader)
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
+	fmt.Fprintln(w, `<h2>Call State Timeout (s)</h2>`)
+	fmt.Fprintln(w, `<hr><br>`)
+	for cs := calltr.CallStNone + 1; cs < calltr.CallStNumber; cs++ {
+		n := cs.Name()
+		v := time.Duration(cs.TimeoutS()) * time.Second
+		htmlInputForm1V(w, n, -16, v.String(), 6, cs.Desc(), "Set")
+	}
+
+	fmt.Fprintln(w, footer)
+	fmt.Fprintln(w, httpFooter)
 }

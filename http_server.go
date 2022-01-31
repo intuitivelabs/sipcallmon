@@ -42,6 +42,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/calls", "", httpCallStats},
 	{"/calls/list", "", httpCallList},
 	{"/calls/list/query", "", httpCallListQuery},
+	{"/calls/timeout", "", httpCallStTimeout},
 	{"/counters", "", httpPrintCounters},
 	{"/counters/avg", "", httpPrintCountersAvg},
 	{"/debug/options", "", httpDbgOptions},
@@ -1522,6 +1523,74 @@ func httpEventsRates(w http.ResponseWriter, r *http.Request) {
 	htmlEvRateSetForm(w)
 	fmt.Fprintln(w, httpFooter)
 
+}
+
+func httpCallStTimeout(w http.ResponseWriter, r *http.Request) {
+	var errStr string
+	var chgs, errs int // number of changes
+
+	cCfg := *calltr.GetCfg() // create a copy of calltr cfg
+	for cs := calltr.CallStNone + 1; cs < calltr.CallStNumber; cs++ {
+		param, ok := r.URL.Query()[cs.Name()]
+		if !ok {
+			// try both names
+			param, ok = r.URL.Query()[cs.String()]
+		}
+		if ok && len(param) > 0 && len(param[0]) > 0 {
+			if v, err := time.ParseDuration(param[0]); err == nil {
+				if v > 0 {
+					seconds := uint(v / time.Second)
+					// set new timeout
+					if !calltr.StateTimeoutSet(&cCfg, cs, seconds) {
+						min, max := calltr.StateTimeoutRange(cs)
+						errStr += fmt.Sprintf("failed to set %q=%d s (%v)"+
+							" range: %ds - %ds\n",
+							cs.Name(), seconds, v, min, max)
+						errs++
+					} else {
+						chgs++
+						/*
+							// propagate value to printable running config
+							// FIXME: lock
+							// make sure the alternate name is not defined
+							delete(RunningCfg.CallStTo, cs.String())
+							// add current value
+							RunningCfg.CallStTo[cs.Name()] =
+								time.Duration(seconds) * time.Second
+						*/
+					}
+				} else {
+					// <= 0  value => reset to default
+					if !calltr.StateTimeoutSet(&cCfg, cs,
+						calltr.StateTimeoutDefault(cs)) {
+						min, max := calltr.StateTimeoutRange(cs)
+						errStr += fmt.Sprintf("failed to set default timeout"+
+							" for %q, range %ds - %ds\n", cs.Name(), min, max)
+						errs++
+					} else {
+						chgs++
+						/*
+							// FIXME: lock
+							// propagate value to printable running config
+							delete(RunningCfg.CallStTo, cs.String())
+							delete(RunningCfg.CallStTo, cs.Name())
+						*/
+					}
+				}
+			} else {
+				errStr += fmt.Sprintf("failed to set %q = %v : error %v\n",
+					cs.Name(), v, err)
+				errs++
+			}
+		}
+	}
+	if chgs > 0 {
+		calltr.SetCfg(&cCfg)
+	}
+	if errs > 0 {
+		errStr = "<br> ERRORs: <br>" + errStr
+	}
+	htmlQueryCallStTimeout(w, errStr)
 }
 
 /*

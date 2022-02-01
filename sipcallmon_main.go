@@ -305,11 +305,22 @@ func Init(cfg *Config) error {
 		if perr != nil {
 			return fmt.Errorf("invalid calls_timeout value: %v", perr)
 		}
-		seconds := uint(to / time.Second)
-		if !calltr.StateTimeoutSet(&calltrCfg, cs, seconds) {
-			min, max := calltr.StateTimeoutRange(cs)
-			return fmt.Errorf("invalid timeout value for %s : %d s"+
-				" (range %v - %v)", callst, seconds, min, max)
+		if to <= 0 {
+			// special value, reset to default
+			if !calltr.StateTimeoutSet(&calltrCfg, cs,
+				calltr.StateTimeoutDefault(cs)) {
+				min, max := calltr.StateTimeoutRange(cs)
+				return fmt.Errorf("invalid default timeout value for "+
+					"%s : %d s (%v) (range %v - %v)",
+					callst, -calltr.StateTimeoutDefault(cs), to, min, max)
+			}
+		} else {
+			seconds := uint(to / time.Second)
+			if !calltr.StateTimeoutSet(&calltrCfg, cs, seconds) {
+				min, max := calltr.StateTimeoutRange(cs)
+				return fmt.Errorf("invalid timeout value for %s : %d s"+
+					" (range %v - %v)", callst, seconds, min, max)
+			}
 		}
 	}
 	calltr.SetCfg(&calltrCfg)

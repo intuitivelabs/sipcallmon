@@ -314,7 +314,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.Uint64Var(&cfg.CallStMaxMem, "calls_max_mem", c.CallStMaxMem,
 		"maximum memory for keeping call state (0 for unlimited)")
 	flag.StringVar(&callsTo, "calls_timeouts", defaultCallStTo,
-		"timeouts for each callstate (e.g. inv_established:7200s)")
+		"timeouts for each callstate (e.g.{ inv_established:7200s, })")
 	flag.UintVar(&cfg.RegsMax, "regs_max_entries", c.RegsMax,
 		"maximum tracked register bindings (0 for unlimited)")
 	flag.Uint64Var(&cfg.RegsMaxMem, "regs_max_mem", c.RegsMaxMem,
@@ -418,6 +418,12 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 		var callsTimeouts []NameIntvl
 		callsTimeouts, perr = parseNameIntvlLst(callsTo)
+		if perr != nil {
+			e := fmt.Errorf("invalid calls_timeouts value: %q: %v",
+				callsTo, perr)
+			errs++
+			return cfg, e
+		}
 		for _, nt := range callsTimeouts {
 			cfg.CallStTo[nt.Name] = nt.Intvl
 		}
@@ -572,29 +578,106 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 // (separated by ',', '|' or space).
 // It returns a filled NameIntvl array or an error.
 func parseNameIntvlLst(lst string) ([]NameIntvl, error) {
-	// parse the ev rate blacklist max and intervals lists
-	// function to check for valid separators
-	checkSep := func(r rune) bool {
-		if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
-			r == rune('[') || r == rune(']') {
-			return true
-		}
-		return false
-	}
+	var ks, ke, vs, ve, ts int
+	var nTok bool
 
-	grpInt := strings.FieldsFunc(lst, checkSep)
 	nameIntvls := make([]NameIntvl, 0, 10)
-	for _, t := range grpInt {
-		if len(t) == 0 {
-			continue
+	key := ""
+	val := ""
+	for i := 0; i < len(lst); i++ {
+		c := lst[i]
+		switch c {
+		case ' ', '\t':
+			fallthrough
+		case ',', '|', '[', ']', '{', '}':
+			if !nTok {
+				// eat separators
+				continue
+			}
+			// value separators
+			// new token lst[s:e]
+			if key == "" {
+				ke = i
+				ks = ts
+				key = lst[ks:ke]
+			} else {
+				ve = i
+				vs = ts
+				val = lst[vs:ve]
+				// save key,val
+				v, perr := time.ParseDuration(val)
+				if perr != nil {
+					return nil, fmt.Errorf("invalid interval value for"+
+						" %s:%s: %v", key, val, perr)
+				}
+				nameIntvls = append(nameIntvls,
+					NameIntvl{Name: key, Intvl: v})
+				// reset
+				key = ""
+				val = ""
+				ks = 0
+				ke = 0
+				vs = 0
+				ve = 0
+			}
+			ts = 0
+			nTok = false
+		case ':':
+			ke = i
+			ks = ts
+			// new key
+			key = lst[ks:ke]
+			nTok = false
+		default:
+			if !nTok {
+				ts = i
+				nTok = true
+			}
 		}
-		gname, intvl, err := parseIdIntvl(t)
-		if err != nil {
-			return nil, err
-		}
-		// -1 == use default
-		nameIntvls = append(nameIntvls, NameIntvl{Name: gname, Intvl: intvl})
 	}
+	if nTok { // end while in-token
+		if key != "" {
+			val = lst[ts:]
+		} else {
+			key = lst[ts:]
+			val = ""
+		}
+	}
+	if key != "" { // final key:val
+		// save key,val
+		v, perr := time.ParseDuration(val)
+		if perr != nil {
+			return nil, fmt.Errorf("invalid interval value for"+
+				" %s:%s: %v", key, val, perr)
+		}
+		nameIntvls = append(nameIntvls,
+			NameIntvl{Name: key, Intvl: v})
+	}
+	/*
+		// parse the ev rate blacklist max and intervals lists
+		// function to check for valid separators
+		checkSep := func(r rune) bool {
+			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
+				r == rune('[') || r == rune(']') ||
+				r == rune('{') || r == rune('}') {
+				return true
+			}
+			return false
+		}
+
+		grpInt := strings.FieldsFunc(lst, checkSep)
+		for _, t := range grpInt {
+			if len(t) == 0 {
+				continue
+			}
+			gname, intvl, err := parseIdIntvl(t)
+			if err != nil {
+				return nil, err
+			}
+			// -1 == use default
+			nameIntvls = append(nameIntvls, NameIntvl{Name: gname, Intvl: intvl})
+		}
+	*/
 	return nameIntvls, nil
 }
 
@@ -686,7 +769,8 @@ func CfgCheck(cfg *Config) error {
 			return fmt.Errorf("invalid calls_timeout value: %v", perr)
 		}
 		seconds := uint(to / time.Second)
-		if !calltr.StateTimeoutValid(cs, seconds) {
+		// <= 0 is a special value, means reset to default
+		if to > 0 && !calltr.StateTimeoutValid(cs, seconds) {
 			min, max := calltr.StateTimeoutRange(cs)
 			return fmt.Errorf("invalid timeout value for %s : %d s"+
 				" (range %v - %v)", callst, seconds, min, max)

@@ -39,12 +39,12 @@ func main() {
 		fmt.Printf("config fixing error %s\n", err)
 		os.Exit(-1)
 	}
-	if err = sipcallmon.CfgCheck(&cfg); err != nil {
-		fmt.Printf("config  error %s\n", err)
-		os.Exit(-1)
-	}
 	if err = sipcallmon.Init(&cfg); err != nil {
 		fmt.Printf("init error %s\n", err)
+		os.Exit(-1)
+	}
+	if err = sipcallmon.CfgCheck(&cfg); err != nil {
+		fmt.Printf("config  error %s\n", err)
 		os.Exit(-1)
 	}
 

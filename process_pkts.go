@@ -168,6 +168,7 @@ func pcapRegIfCounters(name string,
 	if flags&pcapRegCountersFileF != 0 {
 		pktF = counters.CntHideAllF
 	}
+	pktF |= counters.CntNonMonoF
 	pcapCntDefs := [...]counters.Def{
 		{&cnts.recv, pktF, cbkRecvd, cbkParam, "recvd",
 			"number of packets received"},

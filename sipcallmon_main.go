@@ -522,7 +522,8 @@ func Run(cfg *Config) error {
 	}
 	printStats(os.Stdout, stats, &sCnts)
 	// print the counters
-	flags := counters.PrFullName | counters.PrVal | counters.PrRec
+	flags := counters.PrFullName | counters.PrVal | counters.PrRec |
+		counters.PrHideZero
 	//flags |= counters.PrDesc
 	printCounters(cfg, flags)
 

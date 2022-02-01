@@ -6,8 +6,9 @@ github.com/intuitivelabs/bytespool v0.0.2 h1:rR7scHWuZBrqpRQvSOaHCfldo4QmQhlu7N4
 github.com/intuitivelabs/bytespool v0.0.2/go.mod h1:LoAZMZ/ztsXMI5dZx5Qy3tLAh6kte54BBOJN931GRew=
 github.com/intuitivelabs/calltr v1.1.9 h1:+Wgd2waPVDMfcE6SXe36S0xF0lIKWMTeNI9xd7nlKPI=
 github.com/intuitivelabs/calltr v1.1.9/go.mod h1:3s2xs5awDzfyDphlbePbRwFndpgsVtIQ/2Ifu+KACyg=
-github.com/intuitivelabs/counters v0.3.0 h1:GmbPLX6lTPfzX5gFWxIPgaY0h63vQbyylb/AJxpb4RU=
 github.com/intuitivelabs/counters v0.3.0/go.mod h1:gg2mPscHiatkLfDWF7bSuUeHcmsiTazGQx1pW62uJ0w=
+github.com/intuitivelabs/counters v0.3.1 h1:jfyTWCJdHNjzIjJ3O8ydLkFZcxI/QbL0zWaEysfw30E=
+github.com/intuitivelabs/counters v0.3.1/go.mod h1:gg2mPscHiatkLfDWF7bSuUeHcmsiTazGQx1pW62uJ0w=
 github.com/intuitivelabs/mallocs/qmalloc v0.0.3 h1:t1yPsjaykyayZn4TYbhIZQZwMl91VJhXUY65hQQa630=
 github.com/intuitivelabs/mallocs/qmalloc v0.0.3/go.mod h1:VwS4Dzl2y9m+W/tkEy82Cy2g+EwM3vgBldnRbt18zgQ=
 github.com/intuitivelabs/sipsp v1.1.3 h1:PRgcG2Mb1tuCgeImNSqf7voph7fud8tfqf1cl8qJZAY=

@@ -175,7 +175,7 @@ func printStruct(w io.Writer, prefix string, v reflect.Value) {
 			fmt.Fprintf(w, "%s%s: {", prefix, tag)
 			for _, k := range f.MapKeys() {
 				v := f.MapIndex(k)
-				fmt.Fprintf(w, "%s:%v, ", k, v)
+				fmt.Fprintf(w, "%s: %v, ", k, v)
 			}
 			fmt.Fprintf(w, "}\n")
 		} else {

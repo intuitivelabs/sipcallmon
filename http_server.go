@@ -69,6 +69,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/stats/avg?d=1h", "/stats/avg 1h", httpPrintStatsAvg},
 	{"/stats/raw", "", httpPrintStats},
 	{"/stats/rate", "", httpPrintStatsRate},
+	{"/tcp/timeouts", "", httpTCPTimeouts},
 }
 
 var httpHandlers []httpHandler = httpInitHandlers[:]
@@ -1591,6 +1592,86 @@ func httpCallStTimeout(w http.ResponseWriter, r *http.Request) {
 		errStr = "<br> ERRORs: <br>" + errStr
 	}
 	htmlQueryCallStTimeout(w, errStr)
+}
+
+func httpTCPTimeouts(w http.ResponseWriter, r *http.Request) {
+	var errStr string
+	var chgs, errs int // number of changes
+
+	cfg := RunningCfg
+
+	param, ok := r.URL.Query()["tcp_gc_int"]
+	if ok && len(param) > 0 && len(param[0]) > 0 {
+		if v, err := time.ParseDuration(param[0]); err == nil {
+			if v <= 0 {
+				// <= 0  value => reset to default
+				v = GetDefaultCfg().TCPGcInt
+			}
+			interval := time.Duration(
+				atomic.LoadInt64((*int64)(&cfg.TCPGcInt)))
+			if interval != v {
+				if atomic.CompareAndSwapInt64(
+					(*int64)(&cfg.TCPGcInt),
+					int64(interval), int64(v)) {
+					chgs++
+				} // else give-up, parallel change
+			}
+		} else {
+			errStr += fmt.Sprintf("failed to set tcp_gc_int = %v : error %v\n",
+				v, err)
+			errs++
+		}
+	}
+
+	param, ok = r.URL.Query()["tcp_reorder_timeout"]
+	if ok && len(param) > 0 && len(param[0]) > 0 {
+		if v, err := time.ParseDuration(param[0]); err == nil {
+			if v <= 0 {
+				// <= 0  value => reset to default
+				v = GetDefaultCfg().TCPReorderTo
+			}
+			interval := time.Duration(
+				atomic.LoadInt64((*int64)(&cfg.TCPReorderTo)))
+			if interval != v {
+				if atomic.CompareAndSwapInt64(
+					(*int64)(&cfg.TCPReorderTo),
+					int64(interval), int64(v)) {
+					chgs++
+				} // else give-up, parallel change
+			}
+		} else {
+			errStr += fmt.Sprintf("failed to set tcp_reorder_timeout"+
+				" = %v : error %v\n", v, err)
+			errs++
+		}
+	}
+
+	param, ok = r.URL.Query()["tcp_connection_timeout"]
+	if ok && len(param) > 0 && len(param[0]) > 0 {
+		if v, err := time.ParseDuration(param[0]); err == nil {
+			if v <= 0 {
+				// <= 0  value => reset to default
+				v = GetDefaultCfg().TCPConnTo
+			}
+			interval := time.Duration(
+				atomic.LoadInt64((*int64)(&cfg.TCPConnTo)))
+			if interval != v {
+				if atomic.CompareAndSwapInt64(
+					(*int64)(&cfg.TCPConnTo),
+					int64(interval), int64(v)) {
+					chgs++
+				} // else give-up, parallel change
+			}
+		} else {
+			errStr += fmt.Sprintf("failed to set "+
+				"tcp_connection_timeout = %v : error %v\n", v, err)
+			errs++
+		}
+	}
+	if errs > 0 {
+		errStr = "<br> ERRORs: <br>" + errStr
+	}
+	htmlQueryTCPTimeout(w, cfg, errStr)
 }
 
 /*

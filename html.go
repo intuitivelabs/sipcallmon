@@ -467,16 +467,18 @@ func htmlInputField(w http.ResponseWriter, n string, nAlign int,
 }
 
 // print a form composed of 1 input field.
-// Parameters: n - name,
-//             nAlign - allign to this many chars
-//             defVal - default value (pre-filled)
-//             fSize  - field size
+// Parameters:
+//            actionUrl
+//             n       - name,
+//             nAlign  - allign to this many chars
+//             defVal  - default value (pre-filled)
+//             fSize   - field size
 //             comment - optional comment (printed after the input field)
 //             submit  - name for the submit button
-func htmlInputForm1V(w http.ResponseWriter, n string, nAlign int,
-	defVal string, fSize int, comment string, submit string) {
+func htmlInputForm1V(w http.ResponseWriter, actionUrl, n string,
+	nAlign int, defVal string, fSize int, comment string, submit string) {
 
-	fmt.Fprintln(w, `<form action="/calls/timeout" method="get">`)
+	fmt.Fprintln(w, `<form action="`, actionUrl, `" method="get">`)
 	align := ""
 	if nAlign != 0 {
 		align = strconv.Itoa(nAlign)
@@ -553,6 +555,7 @@ func htmlDbgOptsSetForm(w http.ResponseWriter) {
 
 func htmlQueryCallStTimeout(w http.ResponseWriter, footer string) {
 
+	url := "/calls/timeout" // target action url
 	fmt.Fprintln(w, httpHeader)
 	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
 	fmt.Fprintln(w, `<h2>Call State Timeout (s)</h2>`)
@@ -560,8 +563,41 @@ func htmlQueryCallStTimeout(w http.ResponseWriter, footer string) {
 	for cs := calltr.CallStNone + 1; cs < calltr.CallStNumber; cs++ {
 		n := cs.Name()
 		v := time.Duration(cs.TimeoutS()) * time.Second
-		htmlInputForm1V(w, n, -16, v.String(), 6, cs.Desc(), "Set")
+		htmlInputForm1V(w, url, n, -16, v.String(), 6, cs.Desc(), "Set")
 	}
+	fmt.Fprintln(w, `<br><small>(note: a 0 value reverts`+
+		` back to the default)</small><br><br>`)
+
+	fmt.Fprintln(w, footer)
+	fmt.Fprintln(w, httpFooter)
+}
+
+func htmlQueryTCPTimeout(w http.ResponseWriter, cfg *Config, footer string) {
+
+	url := "/tcp/timeouts" // target action url
+	fmt.Fprintln(w, httpHeader)
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
+	fmt.Fprintln(w, `<h2>TCP Timeouts</h2>`)
+	fmt.Fprintln(w, `<hr><br>`)
+
+	v := time.Duration(
+		atomic.LoadInt64((*int64)(&cfg.TCPGcInt)))
+	htmlInputForm1V(w, url, "tcp_gc_int", -23, v.String(), 6,
+		"frequency for checking the other tcp timeouts", "Set")
+
+	v = time.Duration(
+		atomic.LoadInt64((*int64)(&cfg.TCPReorderTo)))
+	htmlInputForm1V(w, url, "tcp_reorder_timeout", -23, v.String(), 6,
+		"wait timeout for reordered segments", "Set")
+
+	v = time.Duration(
+		atomic.LoadInt64((*int64)(&cfg.TCPConnTo)))
+	htmlInputForm1V(w, url, "tcp_connection_timeout", -23, v.String(), 6,
+		"timeout for closing streams on which no packets have been seen",
+		"Set")
+
+	fmt.Fprintln(w, `<br><small>(note: a 0 value reverts`+
+		` back to the default)</small><br><br>`)
 
 	fmt.Fprintln(w, footer)
 	fmt.Fprintln(w, httpFooter)

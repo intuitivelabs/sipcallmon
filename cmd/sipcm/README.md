@@ -21,6 +21,8 @@ It can either capture live packets or replay pcap files.
     	maximum tracked calls (0 for unlimited)
   -calls_max_mem uint
     	maximum memory for keeping call state (0 for unlimited)
+  -calls_timeouts hash ( {state: timeout, ...})
+    	timeouts for each callstate (e.g. {inv_established: 7200s,})
   -contact_ignore_port
     	ignore port number when comparing contacts (but not AORs)
   -debug_calltr uint
@@ -62,7 +64,7 @@ It can either capture live packets or replay pcap files.
   -log_opt uint
     	log format options (default 1)
   -max_blocked_timeout string
-    	maximum blocked timeout (default "1s")
+    	maximum blocked timeout (default "250ms")
   -parse_log_level int
     	log level for capturing and parsing (default 1)
   -parse_log_opt uint
@@ -87,6 +89,8 @@ It can either capture live packets or replay pcap files.
     	scale factor for inter packet delay intervals
   -run_forever
     	keep web server running
+  -stats_groups string  (e.g. ["calls,pcap",])
+    	counter groups reported on exit, comma or space separated (default "all")
   -tcp_connection_timeout string
     	tcp connection timeout (default "1h0m0s")
   -tcp_gc_int string
@@ -109,8 +113,10 @@ It can either capture live packets or replay pcap files.
 | /calls | call tracking hash table statistics |
 | /calls/list | list 100 calls (add ?n=NNN to change the number) |
 | /calls/list/query | list only calls matching a query (form) |
+| /calls/timeout | call tracking per state timeouts |
 | /counters | list statistics counters (params: group, counter, short, flags) |
 | /debug/options | logging and debugging options |
+| /debug/forcetimeout | force timeout for all the tracked calls (params: timeout=duration , default 100ms)|
 | /events | list first 100 events (add ?n=NNN to change the number) |
 | /events/blst | blacklist specific event types |
 | /events/query | list events matching the query (form) |

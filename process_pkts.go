@@ -517,6 +517,8 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	statsUpd := time.Now().Add(5 * time.Second)
 	tcpStartupOver := time.Now().Add(TCPstartupInt)
 	tcpReorderTo := TCPstartupReorderTimeout // initial
+	tcpConnTo := time.Duration(
+		atomic.LoadInt64((*int64)(&cfg.TCPConnTo)))
 	var startPCAPts time.Time
 	var lastPCAPts time.Time
 	var replayTS time.Time // sys time when a packet should be replied
@@ -526,13 +528,18 @@ nextpkt:
 		now := time.Now()
 		if cfg.TCPGcInt > 0 && now.After(tcpGCRun) {
 			if now.After(tcpStartupOver) {
-				tcpGCInt = cfg.TCPGcInt // revert to normal config option
-				tcpReorderTo = cfg.TCPReorderTo
+				// revert to normal config option
+				tcpGCInt = time.Duration(
+					atomic.LoadInt64((*int64)(&cfg.TCPGcInt)))
+				tcpReorderTo = time.Duration(
+					atomic.LoadInt64((*int64)(&cfg.TCPReorderTo)))
+				tcpConnTo = time.Duration(
+					atomic.LoadInt64((*int64)(&cfg.TCPConnTo)))
 			}
 			tcpGCRun = now.Add(tcpGCInt)
 			flushed, closed := tcpAssembler.FlushWithOptions(
 				tcpassembly.FlushOptions{
-					T:        now.Add(-cfg.TCPConnTo),
+					T:        now.Add(-tcpConnTo),
 					CloseAll: true,
 				})
 			stats.Add(sCnts.tcpExpReorder, counters.Val(flushed))

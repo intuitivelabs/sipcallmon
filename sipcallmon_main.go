@@ -279,6 +279,12 @@ func Init(cfg *Config) error {
 	if err := statsInit(); err != nil {
 		return err
 	}
+	// register http & ws stats only if configured with websocket ports
+	if len(cfg.WSports) > 0 {
+		if err := httpStatsInit(); err != nil {
+			return err
+		}
+	}
 
 	if cfg == nil {
 		return fmt.Errorf("invalid nil config in Init\n")

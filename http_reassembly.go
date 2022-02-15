@@ -833,6 +833,7 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 				case websocket.ErrMsgOk:
 					if c.wsP.frame.Ctrl() {
 						wsStats.Inc(wsCnts.ctrlFrames)
+						c.wsP.frame.Reset() // prepare for next frame
 						break
 					}
 					if c.wsP.state == wsSkipFrags {

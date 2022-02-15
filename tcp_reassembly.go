@@ -19,6 +19,7 @@ import (
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
+	"github.com/intuitivelabs/timestamp"
 )
 
 type SIPStreamState uint8
@@ -485,8 +486,53 @@ func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream
 	if bufSize == 0 {
 		bufSize = 8192
 	}
+	port := tcpFlow.Src().Raw()
+	srcPort := uint16(port[0])<<8 + uint16(port[1])
+	port = tcpFlow.Dst().Raw()
+	dstPort := uint16(port[0])<<8 + uint16(port[1])
+
+	// check if websocket or http
+	if len(f.WSports) > 0 {
+		for _, p := range f.WSports {
+			if srcPort == p || dstPort == p {
+				s := &HTTPHalfConn{}
+				var cfg HTTPStreamOptions
+				cfg.W = f.W // for extra DBG
+				cfg.Verbose = f.Verbose
+				cfg.BSize = f.bufSize
+				// TODO make MaxBSize configurable
+				cfg.MaxBSize = 32768 // 8842 //f.bufSize
+
+				s.Init(&cfg, nil)
+				s.created = timestamp.Now()
+				s.lastRcv = s.created
+				var ip1, ip2 [16]byte
+				l1 := copy(ip1[:], netFlow.Src().Raw())
+				l2 := copy(ip2[:], netFlow.Dst().Raw())
+				if l1 != l2 {
+					Plog.BUG("New stream: different src & dst IP len: %d != %d"+
+						" for %s & %d\n", l1, l2,
+						net.IP(netFlow.Src().Raw()),
+						net.IP(netFlow.Dst().Raw()))
+				}
+				s.srcIdx = InitConnKey(&s.key,
+					ip1, srcPort, ip2, dstPort, uint8(l1))
+				httpStats.Inc(httpCnts.tcpStreams)
+				return s
+			}
+		}
+	}
+	// not websocket or http => sip
+
 	// TODO: use a buf cache or at least sync.Pool
+	// Note: there is a race check when New() is called from
+	// gopacket/tcpassembly and if the race is lost there is no function
+	// called to free possible resources that New() might have allocated
+	// => try to allocate most of the resources on 1st seq seen and free
+	// them from ReassemblyComplete()
+
 	buf := make([]byte, bufSize)
+	// TODO support for MaxBSize & buffer grow
 	s := &SIPStreamData{}
 	s.Init(&f.SIPStreamOptions, buf)
 	if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
@@ -498,10 +544,8 @@ func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream
 	s.srcIP = s.srcIP[:l]
 	l = copy(s.dstIP, netFlow.Dst().Raw())
 	s.dstIP = s.dstIP[:l]
-	port := tcpFlow.Src().Raw()
-	s.sport = uint16(port[0])<<8 + uint16(port[1])
-	port = tcpFlow.Dst().Raw()
-	s.dport = uint16(port[0])<<8 + uint16(port[1])
+	s.sport = srcPort
+	s.dport = dstPort
 	s.created = time.Now()
 	s.lastRcv = s.created
 	stats.Inc(sCnts.tcpStreams)

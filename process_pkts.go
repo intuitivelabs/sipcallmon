@@ -793,7 +793,8 @@ nextpkt:
 				// websocket port/ports are configurable:
 				if len(cfg.WSports) != 0 {
 					for _, v := range cfg.WSports {
-						if v != 0 && dport == int(v) {
+						if v != 0 &&
+							(dport == int(v) || sport == int(v)) {
 							// websocket candidate
 							stats.Inc(sCnts.wsN)
 							if ipl == &ip4 {
@@ -811,6 +812,7 @@ nextpkt:
 								stats.Inc(sCnts.decodeErrs)
 								continue nextpkt
 							}
+							break
 						}
 					}
 				}

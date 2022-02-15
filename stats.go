@@ -56,8 +56,10 @@ type statsCounters struct {
 	sipWS          counters.Handle
 	callTrUDP      counters.Handle
 	callTrTCP      counters.Handle
+	callTrWS       counters.Handle
 	callTrErrUDP   counters.Handle
 	callTrErrTCP   counters.Handle
+	callTrErrWS    counters.Handle
 	tcpSyn         counters.Handle
 	tcpFin         counters.Handle
 	tcpClosed      counters.Handle
@@ -158,10 +160,14 @@ func statsInit() error {
 			"successfully call tracked udp packets"},
 		{&sCnts.callTrTCP, 0, nil, nil, "tracked_ok_tcp",
 			"successfully call tracked tcp packets"},
+		{&sCnts.callTrWS, 0, nil, nil, "tracked_ok_ws",
+			"successfully call tracked sip over websockets packets"},
 		{&sCnts.callTrErrUDP, 0, nil, nil, "tracked_err_udp",
 			"call tracking errors for udp packets"},
 		{&sCnts.callTrErrTCP, 0, nil, nil, "tracked_err_tcp",
 			"call tracking errors for tcp packets"},
+		{&sCnts.callTrErrWS, 0, nil, nil, "tracked_err_ws",
+			"call tracking errors for sip over websockets packets"},
 		{&sCnts.tcpSyn, 0, nil, nil, "tcp_syn", "tcp SYNs seen"},
 		{&sCnts.tcpFin, 0, nil, nil, "tcp_fin", "tcp FINs seen"},
 		{&sCnts.tcpClosed, 0, nil, nil, "tcp_closed",
@@ -297,6 +303,7 @@ func statsComputeRate(dst, crt, old *counters.Group,
 }
 
 func printStats(w io.Writer, stats *counters.Group, sCnts *statsCounters) {
+	wsOn := len(RunningCfg.WSports) > 0 // websockets on
 	fmt.Fprintf(w, "\n\nStatistics:\n")
 	fmt.Fprintf(w, "%9d packets %9d ipv4 %9d ipv6 %9d inj.\n",
 		stats.Get(sCnts.n), stats.Get(sCnts.ip4), stats.Get(sCnts.ip6),
@@ -339,12 +346,20 @@ func printStats(w io.Writer, stats *counters.Group, sCnts *statsCounters) {
 	fmt.Fprintf(w, "Parsed: %9d udp ok %9d errs %9d tcp ok %9d errs\n",
 		stats.Get(sCnts.sipUDP), stats.Get(sCnts.errsUDP),
 		stats.Get(sCnts.sipTCP), stats.Get(sCnts.errsTCP))
+	if wsOn {
+		fmt.Fprintf(w, "        %9d ws  ok %9d errs\n",
+			stats.Get(sCnts.sipWS), stats.Get(sCnts.errsWS))
+	}
 	fmt.Fprintf(w, "Errors: %9d parse  %9d offset mismatch %9d body\n",
 		stats.Get(sCnts.errs), stats.Get(sCnts.offsetErr),
 		stats.Get(sCnts.bodyErr))
 	fmt.Fprintf(w, "Tracked: %9d udp %9d tcp %9d err udp %9d err tcp\n",
 		stats.Get(sCnts.callTrUDP), stats.Get(sCnts.callTrTCP),
 		stats.Get(sCnts.callTrErrUDP), stats.Get(sCnts.callTrErrTCP))
+	if wsOn {
+		fmt.Fprintf(w, "         %9d ws                %9d err ws\n",
+			stats.Get(sCnts.callTrWS), stats.Get(sCnts.callTrErrWS))
+	}
 
 	for e := 1; e < len(sCnts.errType); e++ {
 		if stats.Get(sCnts.errType[e]) != 0 {

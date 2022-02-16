@@ -311,7 +311,9 @@ func (c *HTTPHalfConn) httpHProcess(data []byte) bool {
 					" bused %d, skip %d, copied %d bytes\n",
 				c, c.httpP.state, c.mstart, c.bused, c.skip, l)
 		}
-		for err == 0 && c.mstart < c.bused {
+		err = httpsp.ErrHdrOk
+		for err == httpsp.ErrHdrOk && c.mstart < c.bused &&
+			c.offs < (c.bused-c.mstart) {
 			if c.cfg.Verbose && (Plog.DBGon() || c.cfg.W != ioutil.Discard) {
 				Plog.LogMux(c.cfg.W, true, slog.LDBG,
 					"Process http %p loop %d: state %d, mstart %d,"+
@@ -830,7 +832,8 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 				c, c.wsP.state, c.mstart, c.bused, c.skip, l, l+len(data))
 		}
 		err := websocket.ErrMsgOk
-		for err == websocket.ErrMsgOk && c.mstart < c.bused {
+		for err == websocket.ErrMsgOk && c.mstart < c.bused &&
+			c.offs < (c.bused-c.mstart) {
 			if c.cfg.Verbose && (Plog.DBGon() || c.cfg.W != ioutil.Discard) {
 				Plog.LogMux(c.cfg.W, true, slog.LDBG,
 					"Process ws %p  loop %d: state %d, mstart %d,"+

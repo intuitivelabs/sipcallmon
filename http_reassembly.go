@@ -816,9 +816,12 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 				c.wsP.state = wsFrame
 				fallthrough
 			case wsFrame, wsSkipFrags:
-				o, err = c.wsP.frame.Decode(c.buf[c.mstart:c.bused], c.offs)
+				o, err = c.wsP.frame.Decode(c.buf[c.mstart:c.bused], c.offs,
+					true /* mask automatically */)
 				// hack to avoid Decode() out of buf bug when hdr parsed
 				if o > (c.bused - c.mstart) {
+					Plog.BUG("ws frame.Decode offset too big %d > %d, err %s\n",
+						o, c.bused-c.mstart, err)
 					err = websocket.ErrDataMoreBytes
 					o = c.offs
 				}
@@ -859,8 +862,11 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 						wsStats.Inc(wsCnts.sipCompFrames)
 						c.wsP.comp = true
 					}
-					// un-mask the data in-place
-					c.wsP.frame.Mask(c.buf[c.mstart:c.bused])
+					// Note: masked frame are client-server so we can
+					//  use it for direction stats
+					// latest version un-masks in Decode() so this can be
+					// skipped
+					// c.wsP.frame.Mask(c.buf[c.mstart:c.bused])
 					dstart := c.mstart
 					if !c.wsP.frame.OnlyOne() {
 						// compact it -> append to previous decoded frag data
@@ -911,6 +917,8 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 					// else do nothing, wait for more bytes
 				default:
 					wsStats.Inc(wsCnts.errs)
+					Plog.ERR("websocket decode error %s, offs %d buf sz %d\n",
+						err, c.offs, c.bused-c.mstart)
 					// try more frames ?
 					// prepare for new frames
 					// TODO: repl. w/ c.prepareNewWSmsg(c.offs, c.wsP.state)

@@ -263,6 +263,11 @@ func (c *HTTPHalfConn) handleHTTPmsg() (httpsp.MsgPState, httpHConnMode) {
 	}
 	// Look for upgrade
 	if c.httpP.msg.PV.Upgrade.Parsed() {
+		// TODO: be more strict?, according to the rfc (6455) we should
+		//  - interpret Upgrade only in HTTP 1.1+ GET or 101.
+		//  - require a Connection header that includes "Upgrade" as a token
+		//  - Sec-WebSocket-Key for req and Sec-WebSocket-Accept for replies
+		//  - Sec-WebSocket-Version == 13  (required in req)
 		connType = hConnIgnore // upgrade to unknown protocol or WS sub-proto
 		if c.httpP.msg.Request() {
 			httpStats.Inc(httpCnts.upgradeReq)
@@ -622,15 +627,16 @@ func (c *HTTPHalfConn) wsSkippedBytes(n int) bool {
 		// parsing a frame
 		if !c.wsP.frame.Header.DecodedF ||
 			uint64(n) > c.wsP.frame.Len() {
+			// cannot recover
 			return false
 		}
 		c.skip = int(c.wsP.frame.Len())
-		// TODO: repl. w/ c.prepareNewWSmsg(c.offs, c.wsP.state)
-		c.offs = 0
-		c.wsP.dataEnd = c.mstart
-		c.wsP.frame.Reset()
-		c.wsP.comp = false
-		c.wsP.state = wsSkipBytes
+		// current frame cannot be recovered => skip it:
+		//  - skipping frame.Len() - missed_bytes (wsSkipBytes with c.skip)
+		//    ( "-n" in the fallthrough case wsSkipBytes below)
+		//  - if next frame is a continuation of the current one skip
+		//    it  too (form wsSkipBytes -> esSkipFragments)
+		c.wsPrepareNewMsg(0, wsSkipBytes)
 		fallthrough
 	case wsSkipBytes:
 		if c.skip >= n {
@@ -664,13 +670,6 @@ func (c *HTTPHalfConn) skippedBytes(n int) bool {
 	return false
 }
 
-// wsReset resets the state kept by websocket
-func (c *HTTPHalfConn) wsReset() {
-	c.wsP.state = wsInit
-	c.wsP.frame.Reset()
-	c.wsP.dataEnd = c.mstart
-}
-
 func (c *HTTPHalfConn) wsSIPMsg(b []byte) sipsp.ErrorHdr {
 	var i int
 skip_crlf:
@@ -686,6 +685,8 @@ skip_crlf:
 	if len(b) < 12 {
 		if len(b) == 0 {
 			// empty buffer (CRLF ping)
+			// (possible stats improvement: we could distinguish between
+			// CRLF ping, empty frames and whitespace frames)
 			wsStats.Inc(wsCnts.sipEmpty)
 			return sipsp.ErrHdrOk
 		} else {
@@ -784,6 +785,26 @@ skip_crlf:
 	return err
 }
 
+// wsReset resets the state kept by websocket
+func (c *HTTPHalfConn) wsReset() {
+	c.wsP.state = wsInit
+	c.wsP.frame.Reset()
+	c.wsP.dataEnd = c.mstart
+}
+
+// wsPrepareNewMsg skips offs bytes from current message start and
+// prepares for parsing a new websocket msg (which could be composed from
+// more frames).
+func (c *HTTPHalfConn) wsPrepareNewMsg(offs int, s wsState) {
+	c.advMStart(offs)
+	// reset current frame && msg state, except for sip parsing state
+	// (not needed since sip msg is re-init each time before parsing)
+	c.wsP.dataEnd = c.mstart // current payload end == msg start
+	c.wsP.frame.Reset()
+	c.wsP.comp = false
+	c.wsP.state = s
+}
+
 // wsProcess handles websocket data.
 // It tries to go frame by frame and xor-decode or defragment in-place
 // (overwriting original data).
@@ -836,21 +857,21 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 				case websocket.ErrMsgOk:
 					if c.wsP.frame.Ctrl() {
 						wsStats.Inc(wsCnts.ctrlFrames)
-						c.wsP.frame.Reset() // prepare for next frame
+						// TODO: more stats: FIN, ping, pong
+						//  ignore current frame & prepare for next
+						//(but keep using the current msg)
+						c.wsP.frame.Reset()
 						break
 					}
 					if c.wsP.state == wsSkipFrags {
 						if c.wsP.frame.First() {
-							// keep it
+							// new 1st frame belonging to new "msg"
+							// => keep it and exit wsSkipFrags, returning
+							// to wsFrame
 							c.wsP.state = wsFrame
 						} else {
-							// prepare for new frames
-							// TODO: repl. w/ c.prepareNewWSmsg(c.offs, c.wsP.state)
-							c.mstart += c.offs
-							c.offs = 0
-							c.wsP.dataEnd = c.mstart
-							c.wsP.frame.Reset()
-							c.wsP.comp = false
+							// prepare for new msg, ignore this frag. frame
+							c.wsPrepareNewMsg(c.offs, c.wsP.state)
 							break // skip over this frame
 						}
 					}
@@ -864,12 +885,15 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 					}
 					// Note: masked frame are client-server so we can
 					//  use it for direction stats
+
 					// latest version un-masks in Decode() so this can be
 					// skipped
 					// c.wsP.frame.Mask(c.buf[c.mstart:c.bused])
 					dstart := c.mstart
 					if !c.wsP.frame.OnlyOne() {
-						// compact it -> append to previous decoded frag data
+						// this is a fragment => compact it ->
+						// append to previous decoded frag data payload
+						// overwriting the current fragment header
 						copy(c.buf[c.wsP.dataEnd:],
 							c.wsP.frame.PayloadData(c.buf[c.mstart:c.bused]))
 						c.wsP.dataEnd += int(c.wsP.frame.Pf().Len)
@@ -882,20 +906,15 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 					dend := c.wsP.dataEnd
 					if c.wsP.frame.Last() {
 						if c.wsP.comp {
+							// TODO: uncompress support
 							Plog.BUG("websocket: decompression not supported\n")
 							goto errDecomp
 						}
-						// TODO: uncompress support
 						c.wsSIPMsg(c.buf[dstart:dend])
 						// ignore sip msg parse errors (try to continue)
 
-						// prepare for new frames
-						// TODO: repl. w/ c.prepareNewWSmsg(c.offs, c.wsP.state)
-						c.mstart += c.offs
-						c.offs = 0
-						c.wsP.dataEnd = c.mstart
-						c.wsP.frame.Reset()
-						c.wsP.comp = false
+						// prepare for new  ws message, keep current state
+						c.wsPrepareNewMsg(c.offs, c.wsP.state)
 					} else {
 						// prepare for more fragments
 						c.wsP.frame.Reset()
@@ -907,11 +926,10 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 						c.wsP.frame.Len() > 0 {
 						// skip
 						// try more frames ?
-						// prepare for new frames
-						// TODO: repl. w/ c.prepareNewWSmsg(c.offs, c.wsP.state)
+						// discard current frames, prepare for new ones
+						// and skip frame.Len() bytes
 						c.skip = int(c.wsP.frame.Len())
-						c.wsP.frame.Reset()
-						c.wsP.state = wsSkipBytes
+						c.wsPrepareNewMsg(c.offs, wsSkipBytes)
 						break
 					}
 					// else do nothing, wait for more bytes
@@ -920,22 +938,16 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 					Plog.ERR("websocket decode error %s, offs %d buf sz %d\n",
 						err, c.offs, c.bused-c.mstart)
 					// try more frames ?
-					// prepare for new frames
-					// TODO: repl. w/ c.prepareNewWSmsg(c.offs, c.wsP.state)
-					c.mstart += c.offs
-					c.offs = 0
-					c.wsP.dataEnd = c.mstart
-					c.wsP.frame.Reset()
-					c.wsP.comp = false
+					// prepare for new frames /msg
+					c.wsPrepareNewMsg(c.offs, c.wsP.state)
 				}
-			case wsSkipBytes:
+			case wsSkipBytes: // skip c.skip bytes from c.mstart
 				if (c.mstart + c.skip) <= c.bused {
-					c.mstart += c.skip
-					c.wsP.dataEnd = c.mstart
-					c.wsP.frame.Reset()
-					c.offs = 0
+					// after skipping c.skip bytes, ignore any possible
+					// fragments belonging to the current message
+					// (start new message on first frame/fragment only)
+					c.wsPrepareNewMsg(c.skip, wsSkipFrags)
 					c.skip = 0
-					c.wsP.state = wsSkipFrags
 				} else {
 					c.skip -= (c.bused - c.mstart)
 					c.mstart = c.bused
@@ -1016,6 +1028,11 @@ func (c *HTTPHalfConn) processData(mode httpHConnMode, data []byte) bool {
 	case hConnWSSIP:
 		if old != mode {
 			c.wsReset()
+			if c.offs != 0 {
+				Plog.BUG("changed state to ws (%d -> %d) and offs"+
+					" non zero: %d (mstart %d bused %d)\n",
+					old, mode, c.offs, c.mstart, c.bused)
+			}
 		}
 		return c.wsProcess(data)
 	// TODO: hConnSkipBytes

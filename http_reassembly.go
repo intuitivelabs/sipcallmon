@@ -534,6 +534,12 @@ func (c *HTTPHalfConn) httpHProcess(data []byte) bool {
 				// TODO: ? c.skip = -1
 			}
 		}
+		// if whole c.bused used, reset to buf start:
+		if c.mstart == c.bused {
+			// point back at buffer start
+			c.mstart = 0
+			c.bused = 0
+		}
 		// if we are here => need more bytes
 		if c.bused == len(c.buf) {
 			// used the entire buf. => make space
@@ -957,8 +963,13 @@ func (c *HTTPHalfConn) wsProcess(data []byte) bool {
 				Plog.BUG("websocket: unhandled state %d\n", c.wsP.state)
 			}
 		}
-		// TODO: if whole c.bused used, reset to buf start:
-		// if c.mstart == c.bused {c.mstart = 0; c.bused = 0}
+		// if whole c.bused used, reset to buf start:
+		if c.mstart == c.bused {
+			// point back at buffer start
+			c.mstart = 0
+			c.bused = 0
+			c.wsP.dataEnd = c.mstart
+		}
 		// if we are here => need more bytes
 		if c.bused == len(c.buf) {
 			// used the entire buf. => make space

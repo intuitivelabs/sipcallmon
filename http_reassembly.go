@@ -169,11 +169,13 @@ func (c *HTTPHalfConn) Init(cfg *HTTPStreamOptions, b []byte) {
 // FinishInit is called on 1st packet, before processing. It's the right place
 // to allocate extra resources.
 func (c *HTTPHalfConn) FinishInit() {
-	sz := c.cfg.BSize
-	if sz == 0 {
-		sz = 8192
+	if c.buf == nil {
+		sz := c.cfg.BSize
+		if sz == 0 {
+			sz = 8192
+		}
+		c.buf = make([]byte, sz) // TODO: sync.Pool or alloc
 	}
-	c.buf = make([]byte, sz) // TODO: sync.Pool or alloc
 }
 
 // Destroy  is called before removing the connection. It's the right place
@@ -198,8 +200,8 @@ func (c *HTTPHalfConn) DstPort() uint16 {
 	return c.key.Port1(int(c.srcIdx))
 }
 
-// growBuf tried to grow the internal buffer, up to c.cfg.MaxBSize.
-// returns true on success, false on error (cannot grow, max size)
+// growBuf tries to grow the internal buffer, up to c.cfg.MaxBSize.
+// Returns true on success, false on error (cannot grow, max size).
 func (c *HTTPHalfConn) growBuf() bool {
 	if len(c.buf) < c.cfg.MaxBSize {
 		sz := 2 * len(c.buf)

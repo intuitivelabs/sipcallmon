@@ -295,6 +295,12 @@ func (s *SIPStreamData) Process(data []byte) bool {
 				}
 			}
 		}
+		// if whole s.bused used, reset to buf start
+		if s.mstart == s.bused {
+			// point back at buffer start
+			s.mstart = 0
+			s.bused = 0
+		}
 		// if we are here => need more bytes
 		if s.bused == len(s.buf) {
 			// used the entire buf. => make space

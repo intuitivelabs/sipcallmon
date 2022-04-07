@@ -502,7 +502,8 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 
 	// setup tcp reassembly
 	tcpStreamFactory := SIPStreamFactory{
-		bufSize: 4096,
+		bufSize:    cfg.TCPMsgBufSz,
+		bufMaxSize: cfg.TCPMsgBufMaxSz,
 	}
 	tcpStreamFactory.SIPStreamOptions =
 		SIPStreamOptions{Verbose: cfg.Verbose, W: ioutil.Discard,

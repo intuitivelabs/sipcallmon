@@ -46,6 +46,8 @@ type Config struct {
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
 	TCPReorderTo   time.Duration `config:"tcp_reorder_timeout"`
 	TCPConnTo      time.Duration `config:"tcp_connection_timeout"`
+	TCPMsgBufSz    int           `config:"tcp_msg_buf"`
+	TCPMsgBufMaxSz int           `config:"tcp_msg_buf_max"`
 	// maximum time blocked waiting for packets, doubles also as
 	// packet receive delay (max. internal timestamp error)
 	MaxBlockedTo time.Duration            `config:"max_blocked_timeout"`
@@ -154,6 +156,8 @@ var defaultConfigVals = Config{
 	TCPGcInt:       30 * time.Second,
 	TCPReorderTo:   60 * time.Second,
 	TCPConnTo:      3600 * time.Second,
+	TCPMsgBufSz:    4096,  // default message size
+	TCPMsgBufMaxSz: 16384, // maximum size for message reconstruction buffer
 	MaxBlockedTo:   250 * time.Millisecond,
 	CallStTo:       map[string]time.Duration{
 				/*"inv_established": 7200 * time.Second,*/ },
@@ -315,10 +319,15 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 	tcpGCIntS := flag.String("tcp_gc_int", c.TCPGcInt.String(),
 		"tcp connections garbage collection interval")
-	tcpReorderToS := flag.String("tcp_reorder_timeout", c.TCPReorderTo.String(),
-		"tcp reorder timeout")
+	tcpReorderToS := flag.String("tcp_reorder_timeout",
+		c.TCPReorderTo.String(), "tcp reorder timeout")
 	tcpConnToS := flag.String("tcp_connection_timeout", c.TCPConnTo.String(),
 		"tcp connection timeout")
+	flag.IntVar(&cfg.TCPMsgBufSz, "tcp_msg_buf", c.TCPMsgBufSz,
+		"initial size for the tcp reassembly message buffer")
+	flag.IntVar(&cfg.TCPMsgBufMaxSz, "tcp_msg_buf_max", c.TCPMsgBufMaxSz,
+		"maximum size for the tcp reassembly message buffer")
+
 	maxBlockedToS := flag.String("max_blocked_timeout",
 		c.MaxBlockedTo.String(), "maximum blocked timeout")
 	flag.UintVar(&cfg.CallStMax, "calls_max_entries", c.CallStMax,

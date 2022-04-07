@@ -476,7 +476,8 @@ func (s *SIPStreamData) ReassemblyComplete() {
 // implement tcpassembly.Stream
 
 type SIPStreamFactory struct {
-	bufSize int
+	bufSize    int
+	bufMaxSize int
 	SIPStreamOptions
 }
 
@@ -500,8 +501,7 @@ func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream
 				cfg.W = f.W // for extra DBG
 				cfg.Verbose = f.Verbose
 				cfg.BSize = f.bufSize
-				// TODO make MaxBSize configurable
-				cfg.MaxBSize = 32768 // 8842 //f.bufSize
+				cfg.MaxBSize = f.bufMaxSize
 
 				s.Init(&cfg, nil)
 				s.created = timestamp.Now()

@@ -52,9 +52,11 @@ func (state SIPStreamState) String() string {
 }
 
 type SIPStreamOptions struct {
-	Verbose bool
-	W       io.Writer // write debug messages here
-	WSports []uint16  // web socket ports list
+	bufSize    int
+	bufMaxSize int
+	Verbose    bool
+	W          io.Writer // write debug messages here
+	WSports    []uint16  // web socket ports list
 }
 
 // sip state per stream (uni-directional connection)
@@ -105,6 +107,36 @@ func (s *SIPStreamData) Init(o *SIPStreamOptions, b []byte) {
 	s.Reset(o)
 	s.pmsg.Init(nil, nil, nil)
 	s.buf = b
+}
+
+func (s *SIPStreamData) FinishInit() {
+	if s.buf == nil {
+		sz := s.bufSize
+		if sz == 0 {
+			sz = 8192
+		}
+		s.buf = make([]byte, sz) // TODO sync.Pool or alloc
+	}
+}
+
+// growBuf tries to grow the internal buffer, up to s.bufMaxSize.
+// Returns true on success, false on error (cannot grow, max size).
+func (s *SIPStreamData) growBuf() bool {
+	if len(s.buf) < s.bufMaxSize {
+		sz := 2 * len(s.buf)
+		if sz > s.bufMaxSize {
+			sz = s.bufMaxSize
+		}
+		b := make([]byte, sz) // TODO: sync.Pool or alloc
+		// copy only the used part
+		copy(b, s.buf[s.mstart:s.bused])
+		s.buf = b // TODO: if sync.Pool or alloc put/free prev s.buf
+		s.bused -= s.mstart
+		s.mstart = 0
+		// TODO: stats: inc tcpBufGrow, set tcpBufMax.
+		return true
+	}
+	return false
 }
 
 func (s *SIPStreamData) Process(data []byte) bool {
@@ -305,19 +337,23 @@ func (s *SIPStreamData) Process(data []byte) bool {
 		if s.bused == len(s.buf) {
 			// used the entire buf. => make space
 			if s.mstart == 0 {
-				// not enought space to move message "down"
-				// ERROR! Message too big
-				goto errTooBig
+				// not enough space to move message "down" => try to grow s.buf
+				if !s.growBuf() {
+					// ERROR! Message too big
+					goto errTooBig
+				} // else grow successful
+			} else {
+				// "compact" buffer -> move content mstart:bused down to buf[0]
+				if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+					Plog.LogMux(s.W, true, slog.LDBG,
+						"Process %p making space: state %s, mstart %d,"+
+							" bused %d, skip %d\n",
+						s, s.state, s.mstart, s.bused, s.skip)
+				}
+				copy(s.buf, s.buf[s.mstart:s.bused])
+				s.bused -= s.mstart
+				s.mstart = 0
 			}
-			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
-				Plog.LogMux(s.W, true, slog.LDBG,
-					"Process %p making space: state %s, mstart %d,"+
-						" bused %d, skip %d\n",
-					s, s.state, s.mstart, s.bused, s.skip)
-			}
-			copy(s.buf, s.buf[s.mstart:])
-			s.bused -= s.mstart
-			s.mstart = 0
 			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
 				Plog.LogMux(s.W, true, slog.LDBG,
 					"Process %p after space: state %s, mstart %d,"+
@@ -403,6 +439,10 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		if seg.End {
 			stats.Inc(sCnts.tcpFin)
 		}
+		if s.segs == 0 {
+			// first segment ever used
+			s.FinishInit() // finish allocating resources
+		}
 		s.segs++
 		s.rcvd += uint64(len(seg.Bytes))
 		stats.Inc(sCnts.tcpSegs)
@@ -482,17 +522,11 @@ func (s *SIPStreamData) ReassemblyComplete() {
 // implement tcpassembly.Stream
 
 type SIPStreamFactory struct {
-	bufSize    int
-	bufMaxSize int
 	SIPStreamOptions
 }
 
 // implement tcpasembly.StreamFactory
 func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream {
-	bufSize := f.bufSize
-	if bufSize == 0 {
-		bufSize = 8192
-	}
 	port := tcpFlow.Src().Raw()
 	srcPort := uint16(port[0])<<8 + uint16(port[1])
 	port = tcpFlow.Dst().Raw()
@@ -537,10 +571,8 @@ func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream
 	// => try to allocate most of the resources on 1st seq seen and free
 	// them from ReassemblyComplete()
 
-	buf := make([]byte, bufSize)
-	// TODO support for MaxBSize & buffer grow
 	s := &SIPStreamData{}
-	s.Init(&f.SIPStreamOptions, buf)
+	s.Init(&f.SIPStreamOptions, nil)
 	if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
 		Plog.LogMux(s.W, true, slog.LDBG,
 			"new stream %p, options %+v\n", s, f.SIPStreamOptions)

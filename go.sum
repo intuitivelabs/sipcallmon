@@ -18,8 +18,8 @@ github.com/intuitivelabs/slog v0.0.2 h1:XFDdI5gTK7t7C896D7kTdDRWXDSF1hHjAor/TITS
 github.com/intuitivelabs/slog v0.0.2/go.mod h1:Ui5r7QQoGGj6/sODBbsz8VJbbylXyx86aVhbdoriIKY=
 github.com/intuitivelabs/timestamp v0.0.3 h1:9rZng4tXiENmaXRJ/LAM4kMt04C4HsvJbJAWFTQ6LnI=
 github.com/intuitivelabs/timestamp v0.0.3/go.mod h1:g6iXgcaQTyNvYhRewLj5li0dhUBrlm0ibApJTklqoXU=
-github.com/intuitivelabs/websocket v0.0.0-20220216160940-d61cd4ed4e9e h1:UxNoGwcnVaE3RfTYldEJXZCSFJ0Yn82ar2C+ciscB70=
-github.com/intuitivelabs/websocket v0.0.0-20220216160940-d61cd4ed4e9e/go.mod h1:WnxiNaoclkJ3PP+iQKE/LBlHCX74OQMO/2frDOJHksU=
+github.com/intuitivelabs/websocket v0.0.1 h1:whA+XSRGdtQ2St1Od6rKO3D86GspsDdxW6h1ccy62oc=
+github.com/intuitivelabs/websocket v0.0.1/go.mod h1:WnxiNaoclkJ3PP+iQKE/LBlHCX74OQMO/2frDOJHksU=
 github.com/intuitivelabs/wtimer v0.0.2 h1:cow+iYQCww021YeMPY+nsYVQv/W4Igsc3PRG3CWNAxQ=
 github.com/intuitivelabs/wtimer v0.0.2/go.mod h1:69mqpDr+n8bmUUMPT2IES/bSZSFdg5kR4aENUrLNS3s=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

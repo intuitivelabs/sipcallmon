@@ -293,6 +293,7 @@ func Init(cfg *Config) error {
 	// forward config options to calltr
 	calltrCfg := *calltr.GetCfg()
 	calltrCfg.RegDelta = uint32(cfg.RegDelta)
+	calltrCfg.RegDelDelay = int32(cfg.RegDelDelay)
 	calltrCfg.ContactIgnorePort = cfg.ContactIgnorePort
 	calltrCfg.Mem.MaxCallEntries = uint64(cfg.CallStMax)
 	calltrCfg.Mem.MaxCallEntriesMem = cfg.CallStMaxMem

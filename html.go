@@ -602,3 +602,41 @@ func htmlQueryTCPTimeout(w http.ResponseWriter, cfg *Config, footer string) {
 	fmt.Fprintln(w, footer)
 	fmt.Fprintln(w, httpFooter)
 }
+
+func htmlRegCfg(w http.ResponseWriter, ccfg *calltr.Config, footer string) {
+
+	url := "/regs/cfg" // target action url
+	fmt.Fprintln(w, httpHeader)
+	fmt.Fprintln(w, `<style type='text/css'> pre {display: inline;} </style>`)
+	fmt.Fprintln(w, `<h2>Register Handling Config</h2>`)
+	fmt.Fprintln(w, `<hr><br>`)
+
+	rDelta := uint64(ccfg.RegDelta)
+	htmlInputForm1V(w, url, "reg_exp_delta", -23,
+		strconv.FormatUint(rDelta, 10), 6,
+		"extra REGISTER expiration delta in s, for absorbing "+
+			"delayed re-REGISTERs",
+		"Set")
+
+	rDelay := int64(ccfg.RegDelDelay)
+	htmlInputForm1V(w, url, "reg_del_delay", -23,
+		strconv.FormatInt(rDelay, 10), 6,
+		"RegDel event generation delay in s, to work around quick reg.del"+
+			" re-reg",
+		"Set")
+
+	ignPort := int64(0)
+	if ccfg.ContactIgnorePort {
+		ignPort = 1
+	}
+	htmlInputForm1V(w, url, "contact_ignore_port", -23,
+		strconv.FormatInt(ignPort, 10), 6,
+		"ignore port number when comparing contacts (but not AORs)",
+		"Set")
+
+	fmt.Fprintln(w, `<br><small>(note: a -1 value reverts`+
+		` back to the default)</small><br><br>`)
+
+	fmt.Fprintln(w, footer)
+	fmt.Fprintln(w, httpFooter)
+}

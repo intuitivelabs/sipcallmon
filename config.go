@@ -87,7 +87,8 @@ type Config struct {
 	EvRgcTarget uint64 `config:"evr_gc_target"`
 
 	// call tracing options
-	RegDelta uint `config:"reg_exp_delta"` // seconds
+	RegDelta    uint `config:"reg_exp_delta"` // seconds
+	RegDelDelay int  `config:"reg_del_delay"` // seconds
 	// contact matching options
 	ContactIgnorePort bool `config:"contact_ignore_port"`
 
@@ -163,6 +164,7 @@ var defaultConfigVals = Config{
 	EvRgcMaxRunT:      1 * time.Second,
 	EvRgcTarget:       10, // 10? entries
 	RegDelta:          30, // seconds
+	RegDelDelay:       0,  // seconds
 	ContactIgnorePort: false,
 	StatsInterval:     5 * time.Minute,
 	StatsGrpsRaw:      []string{"all"},
@@ -353,6 +355,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 	flag.UintVar(&cfg.RegDelta, "reg_exp_delta", c.RegDelta,
 		"extra REGISTER expiration delta for absorbing delayed re-REGISTERs")
+	flag.IntVar(&cfg.RegDelDelay, "reg_del_delay", c.RegDelDelay,
+		"RegDel event generation delay to work around quick reg.del re-reg")
 	flag.BoolVar(&cfg.ContactIgnorePort, "contact_ignore_port",
 		c.ContactIgnorePort,
 		"ignore port number when comparing contacts (but not AORs)")

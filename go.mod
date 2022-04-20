@@ -5,9 +5,9 @@ go 1.15
 require (
 	github.com/google/gopacket v1.1.19
 	github.com/intuitivelabs/bytescase v1.0.2
-	github.com/intuitivelabs/calltr v1.1.9
+	github.com/intuitivelabs/calltr v1.1.10-0.20220420084537-8117b6dc417a
 	github.com/intuitivelabs/counters v0.3.1
-	github.com/intuitivelabs/sipsp v1.1.3
+	github.com/intuitivelabs/sipsp v1.1.4
 	github.com/intuitivelabs/slog v0.0.2
 	github.com/intuitivelabs/timestamp v0.0.3
 	github.com/intuitivelabs/wtimer v0.0.2

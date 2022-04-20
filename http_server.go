@@ -60,6 +60,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/evrateblst/gccfg2", "", httpEvRateBlstGCcfg2},
 	{"/inject", "", httpInjectMsg},
 	{"/regs", "", httpRegStats},
+	{"/regs/cfg", "", httpRegCfg},
 	{"/regs/list", "", httpRegBindingsList},
 	{"/regs/list/query", "", httpRegBindingsListQuery},
 	{"/stats", "", httpPrintStats},
@@ -1672,6 +1673,75 @@ func httpTCPTimeouts(w http.ResponseWriter, r *http.Request) {
 		errStr = "<br> ERRORs: <br>" + errStr
 	}
 	htmlQueryTCPTimeout(w, cfg, errStr)
+}
+
+func httpRegCfg(w http.ResponseWriter, r *http.Request) {
+	var errStr string
+	var chgs, errs int // number of changes
+
+	c := *calltr.GetCfg()
+
+	param, ok := r.URL.Query()["reg_exp_delta"]
+	if ok && len(param) > 0 && len(param[0]) > 0 {
+		if v, err := strconv.ParseInt(param[0], 10, 32); err == nil {
+			if v < 0 {
+				// reset to default
+				v = int64(GetDefaultCfg().RegDelta)
+			}
+			if uint32(v) != c.RegDelta {
+				c.RegDelta = uint32(v)
+				chgs++
+			}
+		} else {
+			errStr += fmt.Sprintf("failed to set reg_exp_delta = %v :"+
+				" error %v\n", v, err)
+			errs++
+		}
+	}
+
+	param, ok = r.URL.Query()["reg_del_delay"]
+	if ok && len(param) > 0 && len(param[0]) > 0 {
+		if v, err := strconv.ParseInt(param[0], 10, 32); err == nil {
+			if v < 0 {
+				// < 0  value => reset to default
+				v = int64(GetDefaultCfg().RegDelDelay)
+			}
+			if int32(v) != c.RegDelDelay {
+				c.RegDelDelay = int32(v)
+				chgs++
+			}
+		} else {
+			errStr += fmt.Sprintf("failed to set reg_del_delay"+
+				" = %v : error %v\n", v, err)
+			errs++
+		}
+	}
+
+	param, ok = r.URL.Query()["contact_ignore_port"]
+	if ok && len(param) > 0 && len(param[0]) > 0 {
+		if v, err := strconv.ParseInt(param[0], 10, 32); err == nil {
+			val := v != 0
+			if v < 0 {
+				// < 0  value => reset to default
+				val = GetDefaultCfg().ContactIgnorePort
+			}
+			if val != c.ContactIgnorePort {
+				c.ContactIgnorePort = val
+				chgs++
+			}
+		} else {
+			errStr += fmt.Sprintf("failed to set "+
+				"contact_ignore_port = %v : error %v\n", v, err)
+			errs++
+		}
+	}
+	if chgs > 0 {
+		calltr.SetCfg(&c)
+	}
+	if errs > 0 {
+		errStr = "<br> ERRORs: <br>" + errStr
+	}
+	htmlRegCfg(w, &c, errStr)
 }
 
 /*

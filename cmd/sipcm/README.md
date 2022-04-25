@@ -73,6 +73,8 @@ It can either capture live packets or replay pcap files.
     	read packets from pcap files
   -pcap_loop uint
     	loop through pcap files multiple times
+  -reg_del_delay int
+    	RegDel event generation delay to work around quick reg.del re-reg
   -reg_exp_delta uint
     	extra REGISTER expiration delta for absorbing delayed re-REGISTERs (default 30)
   -regs_max_entries uint

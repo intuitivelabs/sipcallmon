@@ -173,6 +173,7 @@ var defaultConfigVals = Config{
 	EncryptIPs:        false,
 	EncryptIpcipher:   false,
 	EncryptURIs:       false,
+	EncryptCbcURI:     false,
 	EncryptCallIDs:    false,
 	EncryptUA:         false,
 }

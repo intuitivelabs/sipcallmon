@@ -120,6 +120,8 @@ type Config struct {
 	EncryptIpcipher bool `config:"encrypt_ipcipher"`
 	// are the URIs encrypted?
 	EncryptURIs bool `config:"encrypt_uris"`
+	// is AES CBC mode used for URIs encryption?
+	EncryptCbcURI bool `config:"encrypt_cbc_uri"`
 	// are the CallIDs encrypted?
 	EncryptCallIDs bool `config:"encrypt_call_ids"`
 	// are the UA and UAS encrypted?
@@ -200,6 +202,10 @@ func (cfg Config) UseAnonymization() bool {
 
 func (cfg Config) UseIpcipher() bool {
 	return cfg.EncryptIpcipher
+}
+
+func (cfg Config) UseCbcURI() bool {
+	return cfg.EncryptCbcURI
 }
 
 var DefaultMaxRates = calltr.EvRateMaxes{

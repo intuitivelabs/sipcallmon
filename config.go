@@ -126,6 +126,10 @@ type Config struct {
 	EncryptCallIDs bool `config:"encrypt_call_ids"`
 	// are the UA and UAS encrypted?
 	EncryptUA bool `config:"encrypt_ua"`
+	// geoip country iso should _not_ be encrypted
+	ClearTxtCountryISO bool `config:"unencrypted_country_iso"`
+	// geoip city id should be _not_ be encrypted
+	ClearTxtCityID bool `config:"unencrypted_city_id"`
 
 	// encryption key is either generated from a configured passphrase...
 	EncryptionPassphrase string `config:"encryption_passphrase"`
@@ -157,25 +161,27 @@ var defaultConfigVals = Config{
 	MaxBlockedTo:   250 * time.Millisecond,
 	CallStTo:       map[string]time.Duration{
 				/*"inv_established": 7200 * time.Second,*/ },
-	EvBufferSz:        10240,
-	EvRblstMax:        1024 * 1024,
-	EvRConseqRmin:     100,
-	EvRConseqRmax:     10000,
-	EvRgcInterval:     10 * time.Second,
-	EvRgcOldAge:       300 * time.Second,
-	EvRgcMaxRunT:      1 * time.Second,
-	EvRgcTarget:       10, // 10? entries
-	RegDelta:          30, // seconds
-	RegDelDelay:       0,  // seconds
-	ContactIgnorePort: false,
-	StatsInterval:     5 * time.Minute,
-	StatsGrpsRaw:      []string{"all"},
-	EncryptIPs:        false,
-	EncryptIpcipher:   false,
-	EncryptURIs:       false,
-	EncryptCbcURI:     false,
-	EncryptCallIDs:    false,
-	EncryptUA:         false,
+	EvBufferSz:         10240,
+	EvRblstMax:         1024 * 1024,
+	EvRConseqRmin:      100,
+	EvRConseqRmax:      10000,
+	EvRgcInterval:      10 * time.Second,
+	EvRgcOldAge:        300 * time.Second,
+	EvRgcMaxRunT:       1 * time.Second,
+	EvRgcTarget:        10, // 10? entries
+	RegDelta:           30, // seconds
+	RegDelDelay:        0,  // seconds
+	ContactIgnorePort:  false,
+	StatsInterval:      5 * time.Minute,
+	StatsGrpsRaw:       []string{"all"},
+	EncryptIPs:         false,
+	EncryptIpcipher:    false,
+	EncryptURIs:        false,
+	EncryptCbcURI:      false,
+	EncryptCallIDs:     false,
+	EncryptUA:          false,
+	ClearTxtCountryISO: false,
+	ClearTxtCityID:     false,
 }
 
 func (cfg Config) UseIPAnonymization() bool {

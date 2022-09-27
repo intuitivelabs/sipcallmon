@@ -68,13 +68,14 @@ type SIPStreamData struct {
 	segs    uint64
 	oo      uint64 // out of order, dbg
 
-	pmsg   sipsp.PSIPMsg  // message parsing state
-	offs   int            // current offset/parsing point in buf[mstart:]
-	skip   int            // skip n bytes (e.g. skip body)
-	mstart int            // saved current message start in buffer
-	bused  int            // how much of buf is used
-	state  SIPStreamState // current state
-	buf    []byte         // keep not-yet (fully) processed bytes here
+	pmsg    sipsp.PSIPMsg  // message parsing state
+	siphdrs [100]sipsp.Hdr // max 100 parsed sip headers
+	offs    int            // current offset/parsing point in buf[mstart:]
+	skip    int            // skip n bytes (e.g. skip body)
+	mstart  int            // saved current message start in buffer
+	bused   int            // how much of buf is used
+	state   SIPStreamState // current state
+	buf     []byte         // keep not-yet (fully) processed bytes here
 
 	SIPStreamOptions
 
@@ -86,12 +87,12 @@ type SIPStreamData struct {
 
 func (s *SIPStreamData) Reset(o *SIPStreamOptions) {
 	buf := s.buf
+	s.pmsg.Reset()
 	pmsg := s.pmsg
 	var rst SIPStreamData
 	*s = rst
 	s.buf = buf
 	s.pmsg = pmsg
-	s.pmsg.Reset()
 	if o != nil {
 		s.SIPStreamOptions = *o
 	}
@@ -101,7 +102,7 @@ func (s *SIPStreamData) Reset(o *SIPStreamOptions) {
 
 func (s *SIPStreamData) Init(o *SIPStreamOptions, b []byte) {
 	s.Reset(o)
-	s.pmsg.Init(nil, nil, nil)
+	s.pmsg.Init(nil, s.siphdrs[:], nil)
 	s.buf = b
 }
 

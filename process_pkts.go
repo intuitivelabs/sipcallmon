@@ -418,6 +418,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	// internally in udpSIPMsg() (way nicer, but causes too many unneeded
 	// allocs)
 	var sipmsg sipsp.PSIPMsg
+	var siphdrs [100]sipsp.Hdr // parse max. 100 headers by default
 	/* needed layers */
 	// link layers
 	var sll layers.LinuxSLL // e.g.: pcap files captured on any interface
@@ -435,6 +436,10 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	var sctp layers.SCTP
 	var tls layers.TLS
 	var vxlan layers.VXLAN
+
+	// init sipmsg
+	sipmsg.Init(nil, siphdrs[:], nil)
+
 	//var appl gopacket.Payload
 	// space for decoded layers:
 	// eth|sll, ip4|ip6, ?ip6ext?, tcp|udp|sctp, tls.
@@ -884,7 +889,8 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 	if verbose && (Plog.DBGon() || w != ioutil.Discard) {
 		Plog.LogMux(w, verbose, slog.LDBG, "udp pkt: %q\n", buf)
 	}
-	sipmsg.Init(nil, nil, nil)
+	sipmsg.Reset()
+	// sipmsg.Init(nil, siphdrs[:], nil)
 	o, err := sipsp.ParseSIPMsg(buf, 0, sipmsg, sipsp.SIPMsgNoMoreDataF)
 	if len(buf) > 12 || (len(buf) <= 12 && err != sipsp.ErrHdrTrunc) {
 		if !verbose && (err != 0 || o != len(buf)) &&

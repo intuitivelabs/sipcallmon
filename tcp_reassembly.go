@@ -19,6 +19,7 @@ import (
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
+	"github.com/intuitivelabs/timestamp"
 )
 
 type SIPStreamState uint8
@@ -51,8 +52,11 @@ func (state SIPStreamState) String() string {
 }
 
 type SIPStreamOptions struct {
-	Verbose bool
-	W       io.Writer // write debug messages here
+	bufSize    int
+	bufMaxSize int
+	Verbose    bool
+	W          io.Writer // write debug messages here
+	WSports    []uint16  // web socket ports list
 }
 
 // sip state per stream (uni-directional connection)
@@ -103,6 +107,36 @@ func (s *SIPStreamData) Init(o *SIPStreamOptions, b []byte) {
 	s.Reset(o)
 	s.pmsg.Init(nil, nil, nil)
 	s.buf = b
+}
+
+func (s *SIPStreamData) FinishInit() {
+	if s.buf == nil {
+		sz := s.bufSize
+		if sz == 0 {
+			sz = 8192
+		}
+		s.buf = make([]byte, sz) // TODO sync.Pool or alloc
+	}
+}
+
+// growBuf tries to grow the internal buffer, up to s.bufMaxSize.
+// Returns true on success, false on error (cannot grow, max size).
+func (s *SIPStreamData) growBuf() bool {
+	if len(s.buf) < s.bufMaxSize {
+		sz := 2 * len(s.buf)
+		if sz > s.bufMaxSize {
+			sz = s.bufMaxSize
+		}
+		b := make([]byte, sz) // TODO: sync.Pool or alloc
+		// copy only the used part
+		copy(b, s.buf[s.mstart:s.bused])
+		s.buf = b // TODO: if sync.Pool or alloc put/free prev s.buf
+		s.bused -= s.mstart
+		s.mstart = 0
+		// TODO: stats: inc tcpBufGrow, set tcpBufMax.
+		return true
+	}
+	return false
 }
 
 func (s *SIPStreamData) Process(data []byte) bool {
@@ -293,23 +327,33 @@ func (s *SIPStreamData) Process(data []byte) bool {
 				}
 			}
 		}
+		// if whole s.bused used, reset to buf start
+		if s.mstart == s.bused {
+			// point back at buffer start
+			s.mstart = 0
+			s.bused = 0
+		}
 		// if we are here => need more bytes
 		if s.bused == len(s.buf) {
 			// used the entire buf. => make space
 			if s.mstart == 0 {
-				// not enought space to move message "down"
-				// ERROR! Message too big
-				goto errTooBig
+				// not enough space to move message "down" => try to grow s.buf
+				if !s.growBuf() {
+					// ERROR! Message too big
+					goto errTooBig
+				} // else grow successful
+			} else {
+				// "compact" buffer -> move content mstart:bused down to buf[0]
+				if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
+					Plog.LogMux(s.W, true, slog.LDBG,
+						"Process %p making space: state %s, mstart %d,"+
+							" bused %d, skip %d\n",
+						s, s.state, s.mstart, s.bused, s.skip)
+				}
+				copy(s.buf, s.buf[s.mstart:s.bused])
+				s.bused -= s.mstart
+				s.mstart = 0
 			}
-			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
-				Plog.LogMux(s.W, true, slog.LDBG,
-					"Process %p making space: state %s, mstart %d,"+
-						" bused %d, skip %d\n",
-					s, s.state, s.mstart, s.bused, s.skip)
-			}
-			copy(s.buf, s.buf[s.mstart:])
-			s.bused -= s.mstart
-			s.mstart = 0
 			if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
 				Plog.LogMux(s.W, true, slog.LDBG,
 					"Process %p after space: state %s, mstart %d,"+
@@ -395,6 +439,10 @@ func (s *SIPStreamData) Reassembled(bufs []tcpassembly.Reassembly) {
 		if seg.End {
 			stats.Inc(sCnts.tcpFin)
 		}
+		if s.segs == 0 {
+			// first segment ever used
+			s.FinishInit() // finish allocating resources
+		}
 		s.segs++
 		s.rcvd += uint64(len(seg.Bytes))
 		stats.Inc(sCnts.tcpSegs)
@@ -474,20 +522,57 @@ func (s *SIPStreamData) ReassemblyComplete() {
 // implement tcpassembly.Stream
 
 type SIPStreamFactory struct {
-	bufSize int
 	SIPStreamOptions
 }
 
 // implement tcpasembly.StreamFactory
 func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream {
-	bufSize := f.bufSize
-	if bufSize == 0 {
-		bufSize = 8192
+	port := tcpFlow.Src().Raw()
+	srcPort := uint16(port[0])<<8 + uint16(port[1])
+	port = tcpFlow.Dst().Raw()
+	dstPort := uint16(port[0])<<8 + uint16(port[1])
+
+	// check if websocket or http
+	if len(f.WSports) > 0 {
+		for _, p := range f.WSports {
+			if srcPort == p || dstPort == p {
+				s := &HTTPHalfConn{}
+				var cfg HTTPStreamOptions
+				cfg.W = f.W // for extra DBG
+				cfg.Verbose = f.Verbose
+				cfg.BSize = f.bufSize
+				cfg.MaxBSize = f.bufMaxSize
+
+				s.Init(&cfg, nil)
+				s.created = timestamp.Now()
+				s.lastRcv = s.created
+				var ip1, ip2 [16]byte
+				l1 := copy(ip1[:], netFlow.Src().Raw())
+				l2 := copy(ip2[:], netFlow.Dst().Raw())
+				if l1 != l2 {
+					Plog.BUG("New stream: different src & dst IP len: %d != %d"+
+						" for %s & %d\n", l1, l2,
+						net.IP(netFlow.Src().Raw()),
+						net.IP(netFlow.Dst().Raw()))
+				}
+				s.srcIdx = InitConnKey(&s.key,
+					ip1, srcPort, ip2, dstPort, uint8(l1))
+				httpStats.Inc(httpCnts.tcpStreams)
+				return s
+			}
+		}
 	}
+	// not websocket or http => sip
+
 	// TODO: use a buf cache or at least sync.Pool
-	buf := make([]byte, bufSize)
+	// Note: there is a race check when New() is called from
+	// gopacket/tcpassembly and if the race is lost there is no function
+	// called to free possible resources that New() might have allocated
+	// => try to allocate most of the resources on 1st seq seen and free
+	// them from ReassemblyComplete()
+
 	s := &SIPStreamData{}
-	s.Init(&f.SIPStreamOptions, buf)
+	s.Init(&f.SIPStreamOptions, nil)
 	if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
 		Plog.LogMux(s.W, true, slog.LDBG,
 			"new stream %p, options %+v\n", s, f.SIPStreamOptions)
@@ -497,10 +582,8 @@ func (f SIPStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stream
 	s.srcIP = s.srcIP[:l]
 	l = copy(s.dstIP, netFlow.Dst().Raw())
 	s.dstIP = s.dstIP[:l]
-	port := tcpFlow.Src().Raw()
-	s.sport = uint16(port[0])<<8 + uint16(port[1])
-	port = tcpFlow.Dst().Raw()
-	s.dport = uint16(port[0])<<8 + uint16(port[1])
+	s.sport = srcPort
+	s.dport = dstPort
 	s.created = time.Now()
 	s.lastRcv = s.created
 	stats.Inc(sCnts.tcpStreams)

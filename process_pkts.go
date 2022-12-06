@@ -502,10 +502,13 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 
 	// setup tcp reassembly
 	tcpStreamFactory := SIPStreamFactory{
-		bufSize: 4096,
+		SIPStreamOptions{
+			bufSize:    cfg.TCPMsgBufSz,
+			bufMaxSize: cfg.TCPMsgBufMaxSz,
+			Verbose:    cfg.Verbose,
+			W:          ioutil.Discard,
+			WSports:    cfg.WSports},
 	}
-	tcpStreamFactory.SIPStreamOptions =
-		SIPStreamOptions{Verbose: cfg.Verbose, W: ioutil.Discard}
 	tcpStreamPool := tcpassembly.NewStreamPool(tcpStreamFactory)
 	tcpAssembler := tcpassembly.NewAssembler(tcpStreamPool)
 	// TODO: config options
@@ -789,6 +792,32 @@ nextpkt:
 				tl = &tcp
 				sport = int(tcp.SrcPort)
 				dport = int(tcp.DstPort)
+				// websocket port/ports are configurable:
+				if len(cfg.WSports) != 0 {
+					for _, v := range cfg.WSports {
+						if v != 0 &&
+							(dport == int(v) || sport == int(v)) {
+							// websocket candidate
+							stats.Inc(sCnts.wsN)
+							if ipl == &ip4 {
+								// count it as websocket over ipv4
+								stats.Inc(sCnts.ws4)
+							} else if ipl == &ip6 {
+								// count it as websocket over ipv6
+								stats.Inc(sCnts.ws6)
+							} else {
+								if PDBGon() {
+									PDBG("strange websocket packet %d"+
+										" tcp but no network layer: %s \n",
+										n, tcp.TransportFlow())
+								}
+								stats.Inc(sCnts.decodeErrs)
+								continue nextpkt
+							}
+							break
+						}
+					}
+				}
 				stats.Inc(sCnts.tcpN)
 				if ipl == &ip4 {
 					stats.Inc(sCnts.tcp4)

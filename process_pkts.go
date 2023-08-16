@@ -422,6 +422,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	/* needed layers */
 	// link layers
 	var sll layers.LinuxSLL // e.g.: pcap files captured on any interface
+	var sll2 LinuxSLL2Layer // e.g.: pcap file captured on any if, newer ver.
 	var lo layers.Loopback
 	var eth layers.Ethernet
 	var ethllc layers.LLC  // needed for 802.3 and pcap files
@@ -475,6 +476,12 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 		layerType = layers.LayerTypeIPv4
 	case layers.LinkTypeIPv6:
 		layerType = layers.LayerTypeIPv6
+	case 20:
+		// special hack for linux SLL2 (linux cooked capture v2):
+		// the actual number if 276, but google/gopacket support only uint8
+		// as LinkType => it's truncated to 20 (which luckily does not
+		// conflict with any of the other defined link types)
+		layerType = LayerTypeLinuxSLL2 // our "custom" SLL2 layer
 	default: // fallback
 		layerType = h.LinkType().LayerType()
 	}
@@ -485,7 +492,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	}
 	parser := gopacket.NewDecodingLayerParser(layerType,
 		&lo, &eth, &ethllc, &dot1q,
-		&sll,
+		&sll, &sll2,
 		&ip4, &ip6, &ip6ext,
 		&udp, &tcp, &sctp, &tls,
 	)

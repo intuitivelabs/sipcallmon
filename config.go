@@ -33,6 +33,14 @@ type Config struct {
 	DbgCalltr      uint64        `config:"debug_calltr"`
 	PCAPs          string        `config:"pcap"`
 	PCAPloop       uint64        `config:"pcap_loop"`
+	WpcapDir       string        `config:"pcap_dump_dir"`
+	WpcapPrefix    string        `config:"pcap_dump_prefix"`
+	WpcapSuffix    string        `config:"pcap_dump_suffix"`
+	WpcapExt       string        `config:"pcap_dump_extension"`
+	WpcapDumpOn    bool          `config:"pcap_dump_on"`
+	WpcapOnErr     bool          `config:"pcap_dump_onerr"`
+	WpcapWorkers   int           `config:"pcap_dump_workers"`
+	WpcapQueueLen  int           `config:"pcap_dump_queue_len"`
 	Replay         bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
@@ -153,11 +161,19 @@ type Config struct {
 }
 
 var defaultConfigVals = Config{
-	LogLev:         int64(slog.LINFO),
-	LogOpt:         uint64(slog.LlocInfoS),
-	ParseLogLev:    int64(slog.LNOTICE),
-	ParseLogOpt:    uint64(slog.LOptNone),
-	DbgCalltr:      uint64(calltr.DefaultConfig.Dbg),
+	LogLev:      int64(slog.LINFO),
+	LogOpt:      uint64(slog.LlocInfoS),
+	ParseLogLev: int64(slog.LNOTICE),
+	ParseLogOpt: uint64(slog.LOptNone),
+	DbgCalltr:   uint64(calltr.DefaultConfig.Dbg),
+
+	WpcapPrefix:   "callid_",
+	WpcapSuffix:   "",
+	WpcapExt:      "pcap",
+	WpcapOnErr:    false,
+	WpcapWorkers:  1,
+	WpcapQueueLen: 10, // TODO: replace with higher value after testing
+
 	ReplayMinDelay: 250 * time.Millisecond,
 	ReplayMaxDelay: 0,
 	TCPGcInt:       30 * time.Second,
@@ -310,6 +326,26 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.StringVar(&cfg.PCAPs, "pcap", c.PCAPs, "read packets from pcap files")
 	flag.Uint64Var(&cfg.PCAPloop, "pcap_loop", c.PCAPloop,
 		"loop through pcap files multiple times")
+
+	flag.StringVar(&cfg.WpcapDir, "pcap_dump_dir", c.WpcapDir,
+		"write directory for generated pcap per call files")
+	flag.StringVar(&cfg.WpcapPrefix, "pcap_dump_prefix", c.WpcapPrefix,
+		"prefix added to the name of the generated pcap per call files")
+	flag.StringVar(&cfg.WpcapSuffix, "pcap_dump_suffix", c.WpcapSuffix,
+		"suffix added to the name of the generated pcap per call files")
+	flag.StringVar(&cfg.WpcapExt, "pcap_dump_extension", c.WpcapExt,
+		"extension for the generated pcap per call files")
+	flag.BoolVar(&cfg.WpcapDumpOn, "pcap_dump_on", c.WpcapDumpOn,
+		"enable/disable writing a pcap file for every call"+
+			" (pcap_dump_dir must also be set")
+	flag.BoolVar(&cfg.WpcapOnErr, "pcap_dump_onerr", c.WpcapOnErr,
+		"enable/disable appending error/bad messages to pcap per call files"+
+			" (pcap_dump_on must also be set")
+	flag.IntVar(&cfg.WpcapWorkers, "pcap_dump_workers", c.WpcapWorkers,
+		"number of pcap dump worker threads")
+	flag.IntVar(&cfg.WpcapQueueLen, "pcap_dump_queue_len", c.WpcapQueueLen,
+		"message queue length for each of the pcap dump worker threads")
+
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")
 	replMinDelayS := flag.String("replay_min_delay", c.ReplayMaxDelay.String(),
@@ -816,6 +852,11 @@ func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
 	}
+	if cfg.WpcapDumpOn && len(cfg.WpcapDir) == 0 {
+		return fmt.Errorf("if pcap write mode is enabled it requires a" +
+			" non-empty write directory: pcap_dump_dir")
+	}
+
 	if cfg.UseAnonymization() {
 		if len(cfg.EncryptionPassphrase) == 0 &&
 			len(cfg.EncryptionKey) == 0 {

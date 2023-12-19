@@ -39,6 +39,9 @@ var gcTicker *time.Ticker
 var httpSrv *http.Server
 var stopLock sync.Mutex // avoid running Stop() in parallel
 
+// pcap per call-id dump
+var pcapDumper PcapWriter
+
 // global counters / stats
 
 type evrGCcounters struct {
@@ -95,6 +98,7 @@ func Stop() {
 	stopCh = nil
 	gcTicker = nil
 	httpSrv = nil
+	pcapDumper.Stop()
 	stopLock.Unlock()
 }
 
@@ -409,6 +413,32 @@ func Init(cfg *Config) error {
 		return fmt.Errorf("failed to init pcap counters")
 	}
 
+	// pcap dumper init
+	if cfg.WpcapDumpOn {
+		pcapDumperCfg := PcapWriterCfg{
+			NWorkers: cfg.WpcapWorkers,
+			QueueLen: cfg.WpcapQueueLen,
+		}
+		// fix dir
+		if len(cfg.WpcapDir) > 0 && cfg.WpcapDir[len(cfg.WpcapDir)-1] != '/' {
+			pcapDumperCfg.Prefix = cfg.WpcapDir + "/" + cfg.WpcapPrefix
+		} else {
+			pcapDumperCfg.Prefix = cfg.WpcapDir + cfg.WpcapPrefix
+		}
+		// fix extension
+		pcapDumperCfg.Suffix = cfg.WpcapSuffix
+		if len(cfg.WpcapExt) > 0 {
+			if cfg.WpcapExt[0] != '.' {
+				pcapDumperCfg.Suffix += "." + cfg.WpcapExt
+			} else {
+				pcapDumperCfg.Suffix += cfg.WpcapExt
+			}
+		}
+		if !pcapDumper.Init(pcapDumperCfg) {
+			return fmt.Errorf("failed to init pcap dumper")
+		}
+	}
+
 	return nil
 }
 
@@ -447,6 +477,15 @@ func Run(cfg *Config) error {
 			waitgrp.Done()
 			Stop()
 			return fmt.Errorf("Run: starting web server error: %w", err)
+		}
+	}
+	// start pcap dumper
+	if cfg.WpcapDumpOn {
+		if !pcapDumper.Start() {
+			stopLock.Unlock()
+			waitgrp.Done()
+			Stop()
+			return fmt.Errorf("Run: failed to start pcap dumper")
 		}
 	}
 	stopLock.Unlock()

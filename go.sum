@@ -18,6 +18,8 @@ github.com/intuitivelabs/slog v0.0.2 h1:XFDdI5gTK7t7C896D7kTdDRWXDSF1hHjAor/TITS
 github.com/intuitivelabs/slog v0.0.2/go.mod h1:Ui5r7QQoGGj6/sODBbsz8VJbbylXyx86aVhbdoriIKY=
 github.com/intuitivelabs/timestamp v0.0.3 h1:9rZng4tXiENmaXRJ/LAM4kMt04C4HsvJbJAWFTQ6LnI=
 github.com/intuitivelabs/timestamp v0.0.3/go.mod h1:g6iXgcaQTyNvYhRewLj5li0dhUBrlm0ibApJTklqoXU=
+github.com/intuitivelabs/unsafeconv v0.0.1 h1:vVd4BsepyJz9eqNWqh8cVrZt1Aj21ucphP2k7wr/vX0=
+github.com/intuitivelabs/unsafeconv v0.0.1/go.mod h1:QK7AOVbwVRbhdxEwAT8BsUvLqliEHETqqF9r74ICb8g=
 github.com/intuitivelabs/websocket v0.0.1 h1:whA+XSRGdtQ2St1Od6rKO3D86GspsDdxW6h1ccy62oc=
 github.com/intuitivelabs/websocket v0.0.1/go.mod h1:WnxiNaoclkJ3PP+iQKE/LBlHCX74OQMO/2frDOJHksU=
 github.com/intuitivelabs/wtimer v0.0.2 h1:cow+iYQCww021YeMPY+nsYVQv/W4Igsc3PRG3CWNAxQ=

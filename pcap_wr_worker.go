@@ -1,7 +1,6 @@
 package sipcallmon
 
 import (
-	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -11,7 +10,6 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/intuitivelabs/sipsp"
-	"github.com/intuitivelabs/unsafeconv"
 )
 
 const (
@@ -203,8 +201,7 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	}
 	// TODO: search if fd & name cached, based on m.key
 	// if not, create or open/append file
-	escKey := url.PathEscape(unsafeconv.Str(key))
-	fname := pwr.cfg.Prefix + escKey + pwr.cfg.Suffix
+	fname := pwr.cfg.PcapFileFullPath(key)
 	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d: open file %q\n",
 		pwr.name, key, flags, len(content), fname)
 	if (flags & PcapDumpAppendOnlyF) != 0 {

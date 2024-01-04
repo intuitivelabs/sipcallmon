@@ -852,9 +852,15 @@ func CfgCheck(cfg *Config) error {
 	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
 		return fmt.Errorf("at least one pcap file or a bpf expression required")
 	}
-	if cfg.WpcapDumpOn && len(cfg.WpcapDir) == 0 {
-		return fmt.Errorf("if pcap write mode is enabled it requires a" +
-			" non-empty write directory: pcap_dump_dir")
+	if cfg.WpcapDumpOn {
+		if len(cfg.WpcapDir) == 0 {
+			return fmt.Errorf("if pcap write mode is enabled it requires a" +
+				" non-empty write directory: pcap_dump_dir")
+		}
+		if cfg.UseAnonymization() {
+			return fmt.Errorf("pcap write mode is incompatible with" +
+				" any anonymisation or encryption options (ecrypt_*)")
+		}
 	}
 
 	if cfg.UseAnonymization() {

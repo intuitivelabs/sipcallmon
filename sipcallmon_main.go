@@ -41,6 +41,7 @@ var stopLock sync.Mutex // avoid running Stop() in parallel
 
 // pcap per call-id dump
 var pcapDumper PcapWriter
+var PcapDumperCfg PcapWriterCfg
 
 // global counters / stats
 
@@ -415,26 +416,27 @@ func Init(cfg *Config) error {
 
 	// pcap dumper init
 	if cfg.WpcapDumpOn {
-		pcapDumperCfg := PcapWriterCfg{
+		PcapDumperCfg = PcapWriterCfg{
 			NWorkers: cfg.WpcapWorkers,
 			QueueLen: cfg.WpcapQueueLen,
 		}
 		// fix dir
 		if len(cfg.WpcapDir) > 0 && cfg.WpcapDir[len(cfg.WpcapDir)-1] != '/' {
-			pcapDumperCfg.Prefix = cfg.WpcapDir + "/" + cfg.WpcapPrefix
+			PcapDumperCfg.Dir = cfg.WpcapDir + "/"
 		} else {
-			pcapDumperCfg.Prefix = cfg.WpcapDir + cfg.WpcapPrefix
+			PcapDumperCfg.Dir = cfg.WpcapDir
 		}
+		PcapDumperCfg.Prefix = cfg.WpcapPrefix
 		// fix extension
-		pcapDumperCfg.Suffix = cfg.WpcapSuffix
+		PcapDumperCfg.Suffix = cfg.WpcapSuffix
 		if len(cfg.WpcapExt) > 0 {
 			if cfg.WpcapExt[0] != '.' {
-				pcapDumperCfg.Suffix += "." + cfg.WpcapExt
+				PcapDumperCfg.Suffix += "." + cfg.WpcapExt
 			} else {
-				pcapDumperCfg.Suffix += cfg.WpcapExt
+				PcapDumperCfg.Suffix += cfg.WpcapExt
 			}
 		}
-		if !pcapDumper.Init(pcapDumperCfg) {
+		if !pcapDumper.Init(PcapDumperCfg) {
 			return fmt.Errorf("failed to init pcap dumper")
 		}
 	}

@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/intuitivelabs/calltr" // GetHash
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/unsafeconv"
 )
 
 // ethernet addresses used in generated pcaps (local)
@@ -21,8 +23,24 @@ var errorPcapWNewMsgFailed = errors.New("pcap dumper message alloc failed")
 type PcapWriterCfg struct {
 	NWorkers int    // number of worker threads started
 	QueueLen int    // queue size per worker
-	Prefix   string // should contain directory + file prefix
+	Dir      string // should contain the parent directory for the pcap files
+	Prefix   string // should contain a file prefix (optional)
 	Suffix   string // should contain file suffix + extension
+}
+
+func (pcfg PcapWriterCfg) PcapFileName(key []byte) string {
+	escKey := url.PathEscape(unsafeconv.Str(key))
+	return pcfg.Prefix + escKey + pcfg.Suffix
+}
+
+// PcapFileRelPath returns the relative path to pcfg.Dir of the output
+// pcap file  corresponding to "key". It includes the file name.
+func (pcfg PcapWriterCfg) PcapFileRelPath(key []byte) string {
+	return pcfg.PcapFileName(key)
+}
+
+func (pcfg PcapWriterCfg) PcapFileFullPath(key []byte) string {
+	return pcfg.Dir + pcfg.PcapFileName(key)
 }
 
 // PcapWriter writes messages into pcap files.

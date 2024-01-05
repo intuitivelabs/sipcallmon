@@ -436,6 +436,10 @@ func Init(cfg *Config) error {
 				PcapDumperCfg.Suffix += cfg.WpcapExt
 			}
 		}
+		err = PcapDumperCfg.InitSubDirs(cfg.WpcapFlags, cfg.WpcapSubDirs)
+		if err != nil {
+			return err
+		}
 		if !pcapDumper.Init(PcapDumperCfg) {
 			return fmt.Errorf("failed to init pcap dumper")
 		}

@@ -1,6 +1,7 @@
 package sipcallmon
 
 import (
+	"errors"
 	"os"
 	"sync"
 	"time"
@@ -106,6 +107,7 @@ type PcapWrWorker struct {
 	stop     chan struct{} // internal strop (via Strop())
 	wg       sync.WaitGroup
 	initLock sync.Mutex // avoid running Stop() in parallel
+
 }
 
 func (pwr *PcapWrWorker) Init(name string, cfg *PcapWriterCfg) error {
@@ -150,13 +152,16 @@ func (pwr *PcapWrWorker) QueueMsg(m PcapWrMsg) bool {
 	}
 	select {
 	case pwr.msgs <- m:
-		// add some counter
+		// TODO: inc a queued counter
+		//DBG("message queued to %q\n", pwr.name)
 		break
 	default:
 		// message capacity exceeded
 		// inc some counter
+		DBG("queue exceeded for %q\n", pwr.name)
 		return false
 	}
+	//DBG("%q returning true\n", pwr.name)
 	return true
 }
 
@@ -168,6 +173,7 @@ loop:
 			if !ok { // channel closed
 				break loop
 			}
+			// TODO: dec a queued counter
 			pwr.writeMsg(m)
 			// TODO: free msg
 			continue
@@ -201,19 +207,37 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	}
 	// TODO: search if fd & name cached, based on m.key
 	// if not, create or open/append file
-	fname := pwr.cfg.PcapFileFullPath(key)
-	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d: open file %q\n",
-		pwr.name, key, flags, len(content), fname)
-	if (flags & PcapDumpAppendOnlyF) != 0 {
-		f, err = os.OpenFile(fname, os.O_WRONLY, 0644)
-	} else {
-		f, err = os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, 0644)
-	}
-	if err != nil {
-		goto err_cleanup
+	fname, dirname := pwr.cfg.PcapFileFullPath(key)
+	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d: open file %q (%q)\n",
+		pwr.name, key, flags, len(content), fname, dirname)
+	for tries := 0; tries < 2; tries++ {
+		if (flags & PcapDumpAppendOnlyF) != 0 {
+			f, err = os.OpenFile(fname, os.O_WRONLY, 0644)
+		} else {
+			f, err = os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, 0644)
+		}
+		if err != nil {
+			if tries == 0 && errors.Is(err, os.ErrNotExist) {
+				// try to create subdir
+				err = os.MkdirAll(dirname, 0700)
+				if err != nil && !errors.Is(err, os.ErrExist) {
+					DBG("error creating dir %q: %v (%T)\n", dirname, err)
+					goto err_cleanup
+				}
+				DBG("PCAP Dumper %s: created dir %q for %q (file %q)\n",
+					pwr.name, dirname, key, fname)
+				continue // retry OpenFile
+			} else {
+				DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+					pwr.name, key, err, err)
+				goto err_cleanup
+			}
+		}
 	}
 	// seek to the end of file and get the offset
 	if offs, err = f.Seek(0, os.SEEK_END); err != nil {
+		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+			pwr.name, key, err, err)
 		goto err_cleanup
 	}
 	pcapDump = pcapgo.NewWriter(f)
@@ -221,11 +245,15 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 		// new file -> write pcap header
 		err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
 		if err != nil {
+			DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+				pwr.name, key, err, err)
 			goto err_cleanup
 		}
 	}
 	err = pcapDump.WritePacket(ci, content)
 	if err != nil {
+		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+			pwr.name, key, err, err)
 		goto err_cleanup
 	}
 
@@ -238,8 +266,9 @@ err_cleanup:
 	}
 
 	if err != nil {
-		DBG("PCAP Dumper %s: ERROR for message %q flags 0x%0x  len %d: %v\n",
-			pwr.name, key, flags, len(content), err)
+		DBG("PCAP Dumper %s: ERROR for message %q flags 0x%0x  len %d type %T"+
+			": %v\n",
+			pwr.name, key, flags, len(content), err, err)
 	}
 	return err
 }

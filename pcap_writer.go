@@ -20,12 +20,44 @@ var DefDstEthAddr = net.HardwareAddr{0x02, 0x05, 0x01, 0x04, 0x0c, 0x0b}
 var errorPcapWQueueFull = errors.New("pcap dumper write queue full")
 var errorPcapWNewMsgFailed = errors.New("pcap dumper message alloc failed")
 
+var pcapSubDirChrSet = []byte("0123456789abcdefghijklmnopqrstuvwxyz")
+
 type PcapWriterCfg struct {
 	NWorkers int    // number of worker threads started
 	QueueLen int    // queue size per worker
 	Dir      string // should contain the parent directory for the pcap files
 	Prefix   string // should contain a file prefix (optional)
 	Suffix   string // should contain file suffix + extension
+
+	subDirs []string // array of subdirs for spreading the pcap files
+}
+
+// InitSubDirs will fill the subdirectory names used for spreading the
+// created pcap files (relative to pcfg.Dir). flags specifies the method
+// for creating the subdir names and no the number of the subdirectories
+// (0 means disabled, all the files will be created directly in pcfg.Dir)
+func (pcfg *PcapWriterCfg) InitSubDirs(flags int, no int) error {
+	pcfg.subDirs = nil
+	if no <= 0 {
+		return nil
+	}
+	// find a good length for the subdirectories names
+	chrSet := pcapSubDirChrSet
+	chrSetLen := len(chrSet)
+	l := 1
+	for r := chrSetLen; r <= no; r, l = r*chrSetLen, l+1 {
+	}
+	pcfg.subDirs = make([]string, no)
+	for i := 0; i < no; i++ {
+		n := make([]byte, l+1)
+		for k, v := 0, i; k < l; k, v = k+1, v/chrSetLen {
+			n[l-1-k] = chrSet[v%chrSetLen]
+		}
+		n[l] = '/'
+		pcfg.subDirs[i] = string(n)
+		DBG("pcap dump config: subdir[%05d] = %q\n", i, pcfg.subDirs[i])
+	}
+	return nil
 }
 
 func (pcfg PcapWriterCfg) PcapFileName(key []byte) string {
@@ -36,11 +68,23 @@ func (pcfg PcapWriterCfg) PcapFileName(key []byte) string {
 // PcapFileRelPath returns the relative path to pcfg.Dir of the output
 // pcap file  corresponding to "key". It includes the file name.
 func (pcfg PcapWriterCfg) PcapFileRelPath(key []byte) string {
-	return pcfg.PcapFileName(key)
+	return pcfg.PcapFileSubDir(key) + pcfg.PcapFileName(key)
 }
 
-func (pcfg PcapWriterCfg) PcapFileFullPath(key []byte) string {
-	return pcfg.Dir + pcfg.PcapFileName(key)
+func (pcfg PcapWriterCfg) PcapFileFullPath(key []byte) (fpath, dirpath string) {
+	dirpath = pcfg.Dir + pcfg.PcapFileSubDir(key)
+	fpath = dirpath + pcfg.PcapFileName(key)
+	return
+}
+
+// PcapFileSubDir returns the corresponding subdirectory for writing
+// the file specified by "key".
+func (pcfg PcapWriterCfg) PcapFileSubDir(key []byte) string {
+	if len(pcfg.subDirs) != 0 {
+		h := calltr.GetHash2(key, 0, len(key))
+		return pcfg.subDirs[h%uint32(len(pcfg.subDirs))]
+	}
+	return ""
 }
 
 // PcapWriter writes messages into pcap files.
@@ -93,13 +137,13 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 	if pw.running < 1 {
 		return fmt.Errorf("PcapWrite::WriteRawMsg: BUG: not initialized")
 	}
-	h := calltr.GetHash(msg, int(key.Offs), int(key.Len))
+	h := calltr.GetHash2(msg, int(key.Offs), int(key.Len))
 	i := int(h) % pw.running
 	m := NewPcapWrMsg(key, flags, msg)
 	if m != nil {
 		if !pw.wrWorkers[i].QueueMsg(m) {
-			ERR("queue size exceeded for %q size %d\n",
-				key.Get(msg), len(msg))
+			ERR("queue size exceeded for %q size %d worker %d\n",
+				key.Get(msg), len(msg), i)
 			return errorPcapWQueueFull
 		}
 	} else {

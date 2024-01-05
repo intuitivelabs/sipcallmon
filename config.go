@@ -37,6 +37,8 @@ type Config struct {
 	WpcapPrefix    string        `config:"pcap_dump_prefix"`
 	WpcapSuffix    string        `config:"pcap_dump_suffix"`
 	WpcapExt       string        `config:"pcap_dump_extension"`
+	WpcapSubDirs   int           `config:"pcap_dump_subdirs"`
+	WpcapFlags     int           `config:"pcap_dump_flags"`
 	WpcapDumpOn    bool          `config:"pcap_dump_on"`
 	WpcapOnErr     bool          `config:"pcap_dump_onerr"`
 	WpcapWorkers   int           `config:"pcap_dump_workers"`
@@ -335,6 +337,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"suffix added to the name of the generated pcap per call files")
 	flag.StringVar(&cfg.WpcapExt, "pcap_dump_extension", c.WpcapExt,
 		"extension for the generated pcap per call files")
+	flag.IntVar(&cfg.WpcapSubDirs, "pcap_dump_subdirs", c.WpcapSubDirs,
+		"number of subdirectories for spreading the pcap dump files")
+	flag.IntVar(&cfg.WpcapFlags, "pcap_dump_flags", c.WpcapFlags,
+		"pcap dump flags (future use)")
 	flag.BoolVar(&cfg.WpcapDumpOn, "pcap_dump_on", c.WpcapDumpOn,
 		"enable/disable writing a pcap file for every call"+
 			" (pcap_dump_dir must also be set")
@@ -859,7 +865,7 @@ func CfgCheck(cfg *Config) error {
 		}
 		if cfg.UseAnonymization() {
 			return fmt.Errorf("pcap write mode is incompatible with" +
-				" any anonymisation or encryption options (ecrypt_*)")
+				" any anonymisation or encryption options (encrypt_*)")
 		}
 	}
 

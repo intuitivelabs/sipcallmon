@@ -37,6 +37,7 @@ var stopProcessing uint32 // if set to 1, will stop (atomic access)
 var stopCh chan struct{}  // stop channel used by Stop() to stop threads a.s.o.
 var gcTicker *time.Ticker
 var httpSrv *http.Server
+var acmeIPFIXsrv *AcmeIPFIXcollector
 var stopLock sync.Mutex // avoid running Stop() in parallel
 
 // global counters / stats
@@ -88,6 +89,11 @@ func Stop() {
 			WARN("http server shutdown failed: %s\n", err)
 			httpSrv.Close() // force Close() just to be sure
 		}
+	}
+	// ipfix srv shutdown
+	if acmeIPFIXsrv != nil && acmeIPFIXsrv.IsInit() {
+		acmeIPFIXsrv.Stop()
+		acmeIPFIXsrv = nil
 	}
 	if waitgrp != nil {
 		waitgrp.Wait()
@@ -424,7 +430,17 @@ func Run(cfg *Config) error {
 		}
 	}
 
+	if cfg.IPFIXport != 0 {
+		acmeIPFIXsrv = &AcmeIPFIXcollector{}
+		err = acmeIPFIXsrv.Init(cfg.IPFIXaddr, cfg.IPFIXport)
+		if err != nil {
+			acmeIPFIXsrv = nil
+			return err
+		}
+	}
+
 	stopLock.Lock()
+
 	if atomic.LoadUint32(&stopProcessing) != 0 {
 		stopLock.Unlock()
 		return nil
@@ -449,6 +465,20 @@ func Run(cfg *Config) error {
 			return fmt.Errorf("Run: starting web server error: %w", err)
 		}
 	}
+
+	if acmeIPFIXsrv != nil && acmeIPFIXsrv.IsInit() {
+		// TODO: add a channel for reporting back pkts no and ipfix runtime
+		// start IPFIX listener
+		DBG("ipfix start on port %d\n", cfg.IPFIXport)
+		err = acmeIPFIXsrv.Start(waitgrp)
+		if err != nil {
+			stopLock.Unlock()
+			DBG("starting IPFIX server error: %s\n", err)
+			Stop()
+			return fmt.Errorf("Run: starting IPFIX server error: %w", err)
+		}
+	}
+
 	stopLock.Unlock()
 
 	var runTime time.Duration
@@ -484,7 +514,7 @@ func Run(cfg *Config) error {
 				pcapTime += pcapT
 			}
 		}
-	} else {
+	} else if len(cfg.BPF) > 0 {
 		//processLive(cfg.Iface, strings.Join(flag.Args(), " "), &cfg)
 		pktsNo, runTime, pcapTime, err = processLive(cfg.Iface, cfg.BPF, cfg)
 	}
@@ -526,6 +556,9 @@ func Run(cfg *Config) error {
 			fmt.Fprintf(os.Stdout, "pcap    MB/s: %.3f (%.3f Gbits/s)\n",
 				speedMB, speedMB*8/1024)
 		}
+	} else if acmeIPFIXsrv != nil {
+		// IPFIX only mode
+		acmeIPFIXsrv.Wait()
 	}
 	printStats(os.Stdout, stats, &sCnts)
 	// print the counters

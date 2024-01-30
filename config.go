@@ -41,6 +41,8 @@ type Config struct {
 	Iface          string        `config:"iface"`
 	PCAPBufKb      int           `config:"pcap_buf_kb"` // pcap cap buf in kb
 	BPF            string        `config:"bpf"`         // packet filter
+	IPFIXaddr      string        `config:"ipfix_addr"`
+	IPFIXport      int           `config:"ipfix_port"`
 	HTTPport       int           `config:"http_port"`
 	HTTPaddr       string        `config:"http_addr"`
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
@@ -326,6 +328,11 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.IntVar(&cfg.PCAPBufKb, "pcap_buf_kb", c.PCAPBufKb,
 		"size for pcap buffer in kb")
 	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
+
+	flag.IntVar(&cfg.IPFIXport, "ipfix_port", c.IPFIXport,
+		"port for receiving oracle/acme sbc IPFIX messages, 0 == disable")
+	flag.StringVar(&cfg.IPFIXaddr, "ipfix_addr", c.IPFIXaddr,
+		"listen address for the oracle/acme IPFIX message collector")
 
 	flag.IntVar(&cfg.HTTPport, "http_port", c.HTTPport,
 		"port for the internal http server, 0 == disable")
@@ -813,8 +820,9 @@ func CfgFix(cfg *Config) error {
 // CfgCheck does some sanity checks on the config.
 // It should be called before using the config, but after CfgFix().
 func CfgCheck(cfg *Config) error {
-	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 {
-		return fmt.Errorf("at least one pcap file or a bpf expression required")
+	if len(cfg.PCAPs) == 0 && len(cfg.BPF) == 0 && cfg.IPFIXport == 0 {
+		return fmt.Errorf("at least one pcap file, a bpf expression or" +
+			" a configured IPFIX collector required")
 	}
 	if cfg.UseAnonymization() {
 		if len(cfg.EncryptionPassphrase) == 0 &&

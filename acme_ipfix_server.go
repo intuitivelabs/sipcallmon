@@ -31,6 +31,15 @@ type AcmeIPFIXcollector struct {
 func (s *AcmeIPFIXcollector) Init(addr string, port int) error {
 
 	ipv6 := false
+
+	if h, p, err := net.SplitHostPort(addr); err == nil {
+		// addr is in host:port format -> ignore port
+		WARN("ipfix_addr is in host:port format (%q),"+
+			" overriding port %s with %d\n",
+			addr, p, port)
+		addr = h
+	}
+
 	if ip, err := netip.ParseAddr(addr); err == nil {
 		ipv6 = ip.Is6()
 		if ipv6 {
@@ -42,6 +51,7 @@ func (s *AcmeIPFIXcollector) Init(addr string, port int) error {
 		s.laddr = net.TCPAddrFromAddrPort(addrPort)
 	} else {
 		// addr is not ip => try to resolve it
+		addr = fmt.Sprintf("%s:%d", addr, port) // add port
 
 		var t *net.TCPAddr
 		if ipv6 { // if ipv6 first -> try first ipv6

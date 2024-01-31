@@ -59,6 +59,10 @@ It can either capture live packets or replay pcap files.
     	port for the internal http server, 0 == disable
   -iface string
     	interface to capture packets from
+  -ipfix_addr string
+    	listen address for the acme/oracle ipfix collector
+  -ipfix_port int
+    	port for the internal ipfix collector, 0 == disable
   -log_level int
     	log level (default 2)
   -log_opt uint
@@ -130,6 +134,7 @@ It can either capture live packets or replay pcap files.
 | /evrateblst/gccfg1 | periodic GC config for event rates entries |
 | /evrateblst/gccfg2 | memory pressure GC config and strategies for event rates entries |
 | /inject | inject a sip message (via web form) |
+| /ipfix/list | list all the IPFIX probes connections (params: n, s)
 | /regs | registration bindings hash table statistics |
 | /regs/list | list 100 register bindings (add ?n=NNN to change) |
 | /regs/list/query | list registration bindings matching query (form) |

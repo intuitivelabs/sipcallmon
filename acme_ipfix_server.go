@@ -8,7 +8,9 @@ import (
 	"net"
 	"net/netip"
 	"sync"
-	"time"
+	"sync/atomic"
+
+	"github.com/intuitivelabs/timestamp"
 )
 
 // AcmeIPFIXcollector listens on a socket and start processing go routines
@@ -18,6 +20,7 @@ type AcmeIPFIXcollector struct {
 	net      string
 	listener *net.TCPListener
 	conns    AcmeIPFIXconnLst
+	connsNo  atomic.Uint32
 	gStats   *acmeIPFIXstatsT
 
 	init     bool
@@ -71,6 +74,7 @@ func (s *AcmeIPFIXcollector) Init(addr string, port int) error {
 	var err error
 	s.initLock.Lock()
 	s.conns.Init()
+	s.connsNo.Store(0)
 	s.wg = sync.WaitGroup{}
 	s.listener, err = net.ListenTCP(s.net, s.laddr)
 	if err == nil {
@@ -155,6 +159,59 @@ func (s *AcmeIPFIXcollector) Wait() {
 	s.wg.Wait()
 }
 
+func (s *AcmeIPFIXcollector) Addr() net.Addr {
+	if s.IsInit() && s.listener != nil {
+		return s.listener.Addr()
+	}
+	return nil
+}
+
+func (s *AcmeIPFIXcollector) ConnsNo() uint32 {
+	return s.connsNo.Load()
+}
+
+// GetConnInfo will fill an AcmeIPFIXconnInfo array from the
+// list of active connections, starting at connection with index
+// equal to start and ending after copying "no" connections or when
+// the array is full.
+// It returns the number of filled elements in the array and the
+// total number of connections in the list (ConnsNo()).
+func (s *AcmeIPFIXcollector) GetConnInfo(info []AcmeIPFIXconnInfo,
+	start int, no int) (int, int) {
+	var i int
+	var connsNo uint32
+
+	if start < 0 || no <= 0 {
+		return 0, int(s.ConnsNo())
+	}
+	s.conns.Lock()
+	{
+		s.conns.ForEachUnsafe(func(c *AcmeIPFIXconn) bool {
+			if i < start {
+				i++
+				return true
+			}
+			if (i - start) >= no {
+				return false // stop, exceeded requested number
+			}
+			if (i - start) < len(info) {
+				c.GetInfo(&info[i-start])
+			} else {
+				return false // stop, no more space in info
+			}
+			i++
+			return true
+		})
+
+		connsNo = s.connsNo.Load()
+	}
+	s.conns.Unlock()
+	if i < start {
+		return 0, int(connsNo)
+	}
+	return i - start, int(connsNo)
+}
+
 // NOTE: supposed to run in a go-routine, with s.wg.Add(1)
 func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 
@@ -162,12 +219,14 @@ func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 	for {
 		tcpConn, err := s.listener.AcceptTCP()
 		if err == nil {
+			now := timestamp.Now()
 			// TODO: use sync.pool
 			conn := &AcmeIPFIXconn{
-				id:     connId,
-				conn:   *tcpConn,
-				lastIO: time.Now(),
-				gStats: s.gStats,
+				id:      connId,
+				conn:    *tcpConn,
+				startTS: now,
+				lastIO:  now,
+				gStats:  s.gStats,
 			}
 			s.addConn(conn)
 			connId++
@@ -197,11 +256,13 @@ func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 func (s *AcmeIPFIXcollector) addConn(c *AcmeIPFIXconn) {
 	s.conns.Lock()
 	s.conns.InsertUnsafe(c)
+	s.connsNo.Add(1)
 	s.conns.Unlock()
 }
 
 func (s *AcmeIPFIXcollector) rmConn(c *AcmeIPFIXconn) {
 	s.conns.Lock()
 	s.conns.RmUnsafe(c)
+	s.connsNo.Add(^(uint32(0))) // Dec
 	s.conns.Unlock()
 }

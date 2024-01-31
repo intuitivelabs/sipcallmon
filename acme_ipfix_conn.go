@@ -3,11 +3,12 @@ package sipcallmon
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"os"
-	"time"
+	"sync/atomic"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -15,23 +16,71 @@ import (
 	"github.com/intuitivelabs/calltr"
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/timestamp"
 )
+
+// AcmeIPFIXconnInfo contains a copy of the interesting parts
+// of AcmeIPFIXconn struct.
+type AcmeIPFIXconnInfo struct {
+	Id        uint64
+	Src       calltr.NetInfo
+	Dst       calltr.NetInfo
+	StartTS   timestamp.TS
+	LastIO    timestamp.TS
+	KeepAlive uint16
+	PktNo     uint64
+	SIPpktNo  uint64
+	HNameLen  int32
+	HName     [255]byte
+}
+
+func (c *AcmeIPFIXconnInfo) String() string {
+	s := fmt.Sprintf("%s:%d -> %s:%d   id:%5d,  pkts:%6d,  sip:%6d,  name:%s",
+		c.Src.IP(), c.Src.Port, c.Dst.IP(), c.Dst.Port,
+		c.Id, c.PktNo, c.SIPpktNo, c.HName[:c.HNameLen])
+	return s
+}
 
 type AcmeIPFIXconn struct {
 	id        uint64
 	conn      net.TCPConn
 	keepAlive uint16 // keep alive in s
-	lastIO    time.Time
-	pktNo     uint64
+	startTS   timestamp.TS
+	lastIO    timestamp.TS
+	pktNo     atomic.Uint64
+	sipPktNo  atomic.Uint64
 	sipmsg    sipsp.PSIPMsg  // avoids allocs
 	sipHdrs   [100]sipsp.Hdr // extra space for sip headers (needed for msg sig)
 
 	gStats *acmeIPFIXstatsT // global stats (must be init)
 
-	hnameLen uint8     // remote hostname len
-	hname    [255]byte // hostname buffer
+	hnameLen atomic.Int32 // remote hostname len
+	hname    [255]byte    // hostname buffer
 
 	next, prev *AcmeIPFIXconn
+}
+
+func (c *AcmeIPFIXconn) GetInfo(info *AcmeIPFIXconnInfo) {
+	info.Id = c.id
+	src := c.conn.RemoteAddr().(*net.TCPAddr)
+	dst := c.conn.LocalAddr().(*net.TCPAddr)
+	info.Src.SetProto(calltr.NProtoTCP)
+	info.Src.SetIP(src.IP)
+	info.Src.Port = uint16(src.Port)
+	info.Dst.SetProto(calltr.NProtoTCP)
+	info.Dst.SetIP(dst.IP)
+	info.Dst.Port = uint16(dst.Port)
+	info.StartTS = c.startTS // not changing so no need for atomic
+	info.LastIO = timestamp.AtomicLoad(&c.lastIO)
+	info.PktNo = c.pktNo.Load()
+	info.SIPpktNo = c.sipPktNo.Load()
+	// should be safe, we always set hnamelen last, after the content
+	// (if more connect open happen in almost the same time, we do
+	//  have a race, but the worst it could happen would be a hostname
+	// containing some part of the old one and we don't care so much
+	// about it to add a CompareAndSwap test or locking)
+	info.HNameLen = c.hnameLen.Load()
+	copy(info.HName[:], c.hname[:info.HNameLen])
 }
 
 func (c *AcmeIPFIXconn) run() {
@@ -73,6 +122,7 @@ func (c *AcmeIPFIXconn) run() {
 			DBG("connection EOF\n")
 			break
 		}
+		timestamp.AtomicStore(&c.lastIO, timestamp.Now())
 		c.gStats.cnts.Add(c.gStats.hRdBytes, counters.Val(n))
 
 	skip_read:
@@ -105,6 +155,7 @@ func (c *AcmeIPFIXconn) run() {
 			end = int(mHdr.Length) // end of current message
 			// read at least a whole packet
 			c.gStats.cnts.Inc(c.gStats.hRdPkts)
+			c.pktNo.Add(1)
 			err = c.handlePkt(mHdr, buf[:end])
 			// check error and close connection if needed
 			if err != nil {
@@ -209,7 +260,8 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 	// TODO: lock protecting keepAlive & hname ?
 	c.keepAlive = cSet.KeepAliveT
 	// save hostname
-	c.hnameLen = uint8(copy(c.hname[:], cSet.HostName))
+	l := copy(c.hname[:], cSet.HostName)
+	c.hnameLen.Store(int32(l))
 
 	// reply to connect request
 	cSet.CfgFlags = 0 // sip only
@@ -278,6 +330,7 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 				c.conn.RemoteAddr(), c.conn.LocalAddr(), err)
 			return err
 		}
+		timestamp.AtomicStore(&c.lastIO, timestamp.Now())
 		c.gStats.cnts.Inc(c.gStats.hWrPkts)
 		break
 	}
@@ -292,7 +345,7 @@ func (c *AcmeIPFIXconn) handleSIPudp4(setID uint16, buf []byte) error {
 	var nxt, missing int
 	var err error
 
-	c.pktNo++
+	c.sipPktNo.Add(1)
 	switch setID {
 	case AcmeIPFIXsipUDP4In:
 		c.gStats.cnts.Inc(c.gStats.hSIPudp4In)
@@ -345,7 +398,7 @@ func (c *AcmeIPFIXconn) handleSIPudp4(setID uint16, buf []byte) error {
 	if !nonSIP(udp.Payload, ip4.SrcIP, int(udp.SrcPort),
 		ip4.DstIP, int(udp.DstPort)) {
 
-		udpSIPMsg(ioutil.Discard, &c.sipmsg, udp.Payload, c.pktNo,
+		udpSIPMsg(ioutil.Discard, &c.sipmsg, udp.Payload, c.pktNo.Load(),
 			ip4.SrcIP, int(udp.SrcPort),
 			ip4.DstIP, int(udp.DstPort), false)
 	} else {
@@ -367,7 +420,7 @@ func (c *AcmeIPFIXconn) handleSIPtcp4(setID uint16, buf []byte) error {
 	var nxt, missing int
 	var err error
 
-	c.pktNo++
+	c.sipPktNo.Add(1)
 	switch setID {
 	case AcmeIPFIXsipTCP4In:
 		c.gStats.cnts.Inc(c.gStats.hSIPtcp4In)

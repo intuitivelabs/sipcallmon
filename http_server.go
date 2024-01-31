@@ -59,6 +59,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/evrateblst/gccfg1", "", httpEvRateBlstGCcfg1},
 	{"/evrateblst/gccfg2", "", httpEvRateBlstGCcfg2},
 	{"/inject", "", httpInjectMsg},
+	{"/ipfix/list", "", httpIPFIXconnList},
 	{"/regs", "", httpRegStats},
 	{"/regs/cfg", "", httpRegCfg},
 	{"/regs/list", "", httpRegBindingsList},
@@ -1751,6 +1752,61 @@ func httpEventsRatesSet(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, httpFooter)
 }
 */
+
+func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
+	n := 1000 // default
+	s := 0
+
+	paramN := r.URL.Query()["n"] // max entries
+	paramS := r.URL.Query()["s"] // start
+
+	cfg := RunningCfg
+	if acmeIPFIXsrv == nil {
+		fmt.Fprintf(w, "Error: IPFIX disabled (addr: %q port:%p)\n",
+			cfg.IPFIXaddr, cfg.IPFIXport)
+		return
+	}
+
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+			if n > 100000 {
+				fmt.Fprintf(w, "Error: n value too big (%d), truncating\n", n)
+				n = 100000
+			}
+			if n < 0 {
+				n = 0
+			}
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+	if len(paramS) > 0 && len(paramS[0]) > 0 {
+		if i, err := strconv.Atoi(paramS[0]); err == nil {
+			s = i
+		} else {
+			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
+		}
+	}
+
+	connsInfo := make([]AcmeIPFIXconnInfo, n)
+	retNo, totalConns := acmeIPFIXsrv.GetConnInfo(connsInfo, s, n)
+	fmt.Fprintf(w, "IPFIX connections on %s (%d/%d) :\n\n",
+		acmeIPFIXsrv.Addr(), retNo, totalConns)
+	now := timestamp.Now()
+	for i, c := range connsInfo[:retNo] {
+		fmt.Fprintf(w,
+			"%5d. (%d) %s\n",
+			i+s, i, c.String())
+		fmt.Fprintf(w,
+			"       started   : %s (%ds ago)\n"+
+				"       last io   : %s (%ds ago)\n"+
+				"       keepalive : %ds\n\n",
+			c.StartTS, now.Sub(c.StartTS)/time.Second,
+			c.LastIO, now.Sub(c.LastIO)/time.Second,
+			c.KeepAlive)
+	}
+}
 
 func unescapeMsg(msg string, format string) ([]byte, error) {
 	m := []byte(msg)

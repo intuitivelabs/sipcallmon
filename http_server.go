@@ -1801,10 +1801,36 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w,
 			"       started   : %s (%ds ago)\n"+
 				"       last io   : %s (%ds ago)\n"+
-				"       keepalive : %ds\n\n",
+				"       keepalive : %ds\n",
 			c.StartTS, now.Sub(c.StartTS)/time.Second,
 			c.LastIO, now.Sub(c.LastIO)/time.Second,
 			c.KeepAlive)
+
+		if c.HandshakeNo > 0 {
+			fmt.Fprintf(w,
+				"       handshake : no %d\n"+
+					"                   protocol ver %d.%d"+
+					" cfg flags %04x %04x"+
+					" sys flags %04x"+
+					" system id: %d\n"+
+					"                   keepalive %ds\n"+
+					"                   product   0x%02x%02x ver %d.%d.%d\n"+
+					"                   host      %q\n\n",
+				c.HandshakeNo,
+				c.Handshake.MajorVer, c.Handshake.MinorVer,
+				c.Handshake.CfgFlags, c.Handshake.CfgFlags2,
+				c.Handshake.SysFlags,
+				c.Handshake.SysID,
+				c.Handshake.KeepAliveT,
+				c.Handshake.ProdCode1, c.Handshake.ProdCode2,
+				c.Handshake.ProdMajorVer, c.Handshake.ProdMinorVer,
+				c.Handshake.Revision,
+				c.Handshake.HostName,
+			)
+		} else {
+			fmt.Fprintf(w, "       handshake : no %d\n\n", c.HandshakeNo)
+		}
+
 	}
 }
 

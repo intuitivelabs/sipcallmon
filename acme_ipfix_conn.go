@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"sync"
 	"sync/atomic"
 
 	"github.com/google/gopacket"
@@ -22,22 +23,23 @@ import (
 // AcmeIPFIXconnInfo contains a copy of the interesting parts
 // of AcmeIPFIXconn struct.
 type AcmeIPFIXconnInfo struct {
-	Id        uint64
-	Src       calltr.NetInfo
-	Dst       calltr.NetInfo
-	StartTS   timestamp.TS
-	LastIO    timestamp.TS
-	KeepAlive uint16
-	PktNo     uint64
-	SIPpktNo  uint64
-	HNameLen  int32
-	HName     [255]byte
+	Id          uint64
+	Src         calltr.NetInfo
+	Dst         calltr.NetInfo
+	StartTS     timestamp.TS
+	LastIO      timestamp.TS
+	KeepAlive   uint16
+	PktNo       uint64
+	SIPpktNo    uint64
+	HandshakeNo uint32
+	Handshake   AcmeIPFIXconnectSet // handshake info (probe connect)
+	hname       [255]byte
 }
 
 func (c *AcmeIPFIXconnInfo) String() string {
-	s := fmt.Sprintf("%s:%d -> %s:%d   id:%5d,  pkts:%6d,  sip:%6d,  name:%s",
+	s := fmt.Sprintf("%s:%d -> %s:%d   id:%5d,  pkts:%6d,  sip:%6d",
 		c.Src.IP(), c.Src.Port, c.Dst.IP(), c.Dst.Port,
-		c.Id, c.PktNo, c.SIPpktNo, c.HName[:c.HNameLen])
+		c.Id, c.PktNo, c.SIPpktNo)
 	return s
 }
 
@@ -52,10 +54,11 @@ type AcmeIPFIXconn struct {
 	sipmsg    sipsp.PSIPMsg  // avoids allocs
 	sipHdrs   [100]sipsp.Hdr // extra space for sip headers (needed for msg sig)
 
-	gStats *acmeIPFIXstatsT // global stats (must be init)
-
-	hnameLen atomic.Int32 // remote hostname len
-	hname    [255]byte    // hostname buffer
+	gStats   *acmeIPFIXstatsT // global stats (must be init)
+	hshkLock sync.Mutex
+	hshkNo   uint32              // handshake number
+	hshkInfo AcmeIPFIXconnectSet // handshake info (probe connect)
+	hname    [255]byte           // hostname buffer
 
 	next, prev *AcmeIPFIXconn
 }
@@ -74,13 +77,14 @@ func (c *AcmeIPFIXconn) GetInfo(info *AcmeIPFIXconnInfo) {
 	info.LastIO = timestamp.AtomicLoad(&c.lastIO)
 	info.PktNo = c.pktNo.Load()
 	info.SIPpktNo = c.sipPktNo.Load()
-	// should be safe, we always set hnamelen last, after the content
-	// (if more connect open happen in almost the same time, we do
-	//  have a race, but the worst it could happen would be a hostname
-	// containing some part of the old one and we don't care so much
-	// about it to add a CompareAndSwap test or locking)
-	info.HNameLen = c.hnameLen.Load()
-	copy(info.HName[:], c.hname[:info.HNameLen])
+	// copy handshake info
+	c.hshkLock.Lock()
+	{
+		copy(info.hname[:], c.hshkInfo.HostName)
+		info.Handshake = c.hshkInfo
+		info.HandshakeNo = c.hshkNo
+	}
+	c.hshkLock.Unlock()
 }
 
 func (c *AcmeIPFIXconn) run() {
@@ -257,11 +261,16 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 	}
 	DBG("acme ipfix: connect open request: %v\n", cSet)
 
-	// TODO: lock protecting keepAlive & hname ?
-	c.keepAlive = cSet.KeepAliveT
-	// save hostname
-	l := copy(c.hname[:], cSet.HostName)
-	c.hnameLen.Store(int32(l))
+	c.hshkLock.Lock()
+	{
+		c.keepAlive = cSet.KeepAliveT
+		// save hostname
+		l := copy(c.hname[:], cSet.HostName)
+		c.hshkInfo = cSet
+		c.hshkInfo.HostName = c.hname[:l] // fix HostName slice
+		c.hshkNo++
+	}
+	c.hshkLock.Unlock()
 
 	// reply to connect request
 	cSet.CfgFlags = 0 // sip only

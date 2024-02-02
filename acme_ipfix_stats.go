@@ -28,11 +28,14 @@ type acmeIPFIXstatsT struct {
 	hSIPsctp4In  counters.Handle
 	hSIPsctp4Out counters.Handle
 
+	hMaxClifetime counters.Handle
+
 	hMaxSetsPkt counters.Handle
 	hMaxPadding counters.Handle
 	hPaddedSets counters.Handle
 	hShortRead  counters.Handle
 	hLongRead   counters.Handle
+	hIOdeadline counters.Handle
 
 	hWrPkts  counters.Handle
 	hWrBytes counters.Handle
@@ -40,6 +43,8 @@ type acmeIPFIXstatsT struct {
 	hRdBytes counters.Handle
 
 	hPktParseErr counters.Handle
+	hTimeoutErr  counters.Handle
+	hErrOther    counters.Handle
 	hBUG         counters.Handle
 }
 
@@ -74,6 +79,10 @@ func (s *acmeIPFIXstatsT) Init() bool {
 		{&s.hSIPsctp4Out, 0, nil, nil, "sip_sctp4_out",
 			"number of egress SIP over IPv4 SCTP data sets received"},
 
+		{&s.hMaxClifetime, counters.CntMaxF | counters.CntNonMonoF, nil, nil,
+			"max_conn_lifetime",
+			"max IPFIX connection lifetime in s (dbg)"},
+
 		{&s.hMaxSetsPkt, counters.CntMaxF | counters.CntNonMonoF, nil, nil,
 			"max_sets",
 			"max IPFIX sets received per packet (dbg)"},
@@ -86,6 +95,8 @@ func (s *acmeIPFIXstatsT) Init() bool {
 			"socket reads less then a packet (dbg)"},
 		{&s.hLongRead, 0, nil, nil, "long_read",
 			"socket reads more then a packet (dbg)"},
+		{&s.hIOdeadline, 0, nil, nil, "dbg_io_deadlines",
+			"number of triggered IO deadlines (dbg)"},
 
 		{&s.hWrPkts, 0, nil, nil, "pkts_sent",
 			"number of sent packets (connection open acks)"},
@@ -98,6 +109,10 @@ func (s *acmeIPFIXstatsT) Init() bool {
 
 		{&s.hPktParseErr, 0, nil, nil, "err_parse",
 			"number of packet parse errors"},
+		{&s.hTimeoutErr, 0, nil, nil, "err_timeout",
+			"number of IO timeout errors"},
+		{&s.hErrOther, 0, nil, nil, "err_other",
+			"other errors (dbg)"},
 		{&s.hBUG, 0, nil, nil, "err_bug",
 			"number of detected BUGs (dbg)"},
 	}

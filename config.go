@@ -43,6 +43,8 @@ type Config struct {
 	BPF            string        `config:"bpf"`         // packet filter
 	IPFIXaddr      string        `config:"ipfix_addr"`
 	IPFIXport      int           `config:"ipfix_port"`
+	IPFIXminTo     int           `config:"ipfix_timeout_min"`
+	IPFIXmaxTo     int           `config:"ipfix_timeout_max"`
 	HTTPport       int           `config:"http_port"`
 	HTTPaddr       string        `config:"http_addr"`
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
@@ -333,6 +335,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"port for receiving oracle/acme sbc IPFIX messages, 0 == disable")
 	flag.StringVar(&cfg.IPFIXaddr, "ipfix_addr", c.IPFIXaddr,
 		"listen address for the oracle/acme IPFIX message collector")
+	flag.IntVar(&cfg.IPFIXminTo, "ipfix_timeout_min", c.IPFIXminTo,
+		"minimum ipfix IO timeout, 0 == disable")
+	flag.IntVar(&cfg.IPFIXmaxTo, "ipfix_timeout_max", c.IPFIXmaxTo,
+		"maximum ipfix IO timeout, 0 == disable")
 
 	flag.IntVar(&cfg.HTTPport, "http_port", c.HTTPport,
 		"port for the internal http server, 0 == disable")
@@ -813,6 +819,26 @@ func CfgFix(cfg *Config) error {
 	}
 	if len(nameIntvls) > 0 {
 		cfg.StatsGrps = nameIntvls
+	}
+	// fix timeout values: set both to the same value if one <= 0
+	if cfg.IPFIXminTo <= 0 {
+		cfg.IPFIXminTo = cfg.IPFIXmaxTo
+	} else if cfg.IPFIXmaxTo <= 0 {
+		cfg.IPFIXmaxTo = cfg.IPFIXminTo
+	}
+	// swap values if reverteed
+	if cfg.IPFIXminTo > cfg.IPFIXmaxTo {
+		/* swap */
+		t := cfg.IPFIXminTo
+		cfg.IPFIXminTo = cfg.IPFIXmaxTo
+		cfg.IPFIXmaxTo = t
+	}
+	// limit to 65535
+	if cfg.IPFIXminTo > 65535 {
+		cfg.IPFIXminTo = 65535 // limit to 16 bits
+	}
+	if cfg.IPFIXmaxTo > 65535 {
+		cfg.IPFIXmaxTo = 65535 // limit to 16 bits
 	}
 	return nil
 }

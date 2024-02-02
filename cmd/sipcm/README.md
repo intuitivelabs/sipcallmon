@@ -63,6 +63,10 @@ It can either capture live packets or replay pcap files.
     	listen address for the acme/oracle ipfix collector
   -ipfix_port int
     	port for the internal ipfix collector, 0 == disable
+  -ipfix_timeout_min
+    	minimum ipfix IO timeout, 0 == disable
+  -ipfix_timeout_max
+    	maxmimum ipfix IO timeout, 0 == disable
   -log_level int
     	log level (default 2)
   -log_opt uint

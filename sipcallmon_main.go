@@ -432,7 +432,11 @@ func Run(cfg *Config) error {
 
 	if cfg.IPFIXport != 0 {
 		acmeIPFIXsrv = &AcmeIPFIXcollector{}
-		err = acmeIPFIXsrv.Init(cfg.IPFIXaddr, cfg.IPFIXport)
+		err = acmeIPFIXsrv.Init(cfg.IPFIXaddr, cfg.IPFIXport,
+			AcmeIPFIXconnCfg{
+				TimeoutMin: cfg.IPFIXminTo,
+				TimeoutMax: cfg.IPFIXmaxTo,
+			})
 		if err != nil {
 			acmeIPFIXsrv = nil
 			return err

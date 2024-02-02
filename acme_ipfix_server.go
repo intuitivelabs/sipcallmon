@@ -9,7 +9,9 @@ import (
 	"net/netip"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/timestamp"
 )
 
@@ -26,9 +28,13 @@ type AcmeIPFIXcollector struct {
 	init     bool
 	initLock sync.Mutex
 	wg       sync.WaitGroup // for local go-routines
+	Cfg      AcmeIPFIXconnCfg
 }
 
-func (s *AcmeIPFIXcollector) Init(addr string, port int) error {
+func (s *AcmeIPFIXcollector) Init(addr string, port int,
+	cfg AcmeIPFIXconnCfg) error {
+
+	s.Cfg = cfg
 
 	ipv6 := false
 
@@ -130,28 +136,22 @@ func (s *AcmeIPFIXcollector) Start(wg *sync.WaitGroup) error {
 		}
 		s.acceptConns(wg)
 		s.Stop()
-		DBG("acceptConns: before Wait\n")
 		s.wg.Done() // acceptConns go routine
 		s.Wait()    // wait for all the conns go routines
-		DBG("acceptConns: after Wait\n")
 	}()
 	return nil
 }
 
 func (s *AcmeIPFIXcollector) Stop() bool {
-	DBG("AcmeIPFIXcollector::Stop entered\n")
 	s.initLock.Lock()
-	DBG("AcmeIPFIXcollector::Stop after Lock\n")
 	ret := s.init
 	if s.init {
 		if s.listener != nil {
 			s.listener.Close()
-			DBG("AcmeIPFIXcollector::Stop after listener.Close\n")
 		}
 		s.init = false
 	}
 	s.initLock.Unlock()
-	DBG("AcmeIPFIXcollector::Stop before conns.Lock\n")
 	s.conns.Lock()
 	// TODO: some close timeout?
 	s.conns.ForEachUnsafe(func(c *AcmeIPFIXconn) bool {
@@ -159,7 +159,6 @@ func (s *AcmeIPFIXcollector) Stop() bool {
 		return true
 	})
 	s.conns.Unlock()
-	DBG("AcmeIPFIXcollector::Stop exiting\n")
 	return ret
 }
 
@@ -237,6 +236,7 @@ func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 				startTS: now,
 				lastIO:  now,
 				gStats:  s.gStats,
+				Cfg:     s.Cfg,
 			}
 			s.addConn(conn)
 			connId++
@@ -248,6 +248,9 @@ func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 				conn.run()
 				DBG("AcmeIPFIX: conn.run() exit\n")
 				conn.conn.Close()
+				lifetime := timestamp.Now().Sub(conn.startTS) / time.Second
+				s.gStats.cnts.Set(s.gStats.hMaxClifetime,
+					counters.Val(lifetime))
 				s.gStats.cnts.Dec(s.gStats.hActiveConns)
 				s.wg.Done()
 				s.rmConn(conn)

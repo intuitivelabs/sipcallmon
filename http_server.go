@@ -1801,10 +1801,10 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w,
 			"       started   : %s (%ds ago)\n"+
 				"       last io   : %s (%ds ago)\n"+
-				"       keepalive : %ds\n",
+				"       timeout   : %ds (keepalive : %ds)\n",
 			c.StartTS, now.Sub(c.StartTS)/time.Second,
 			c.LastIO, now.Sub(c.LastIO)/time.Second,
-			c.KeepAlive)
+			c.Timeout, c.KeepAlive)
 
 		if c.HandshakeNo > 0 {
 			fmt.Fprintf(w,

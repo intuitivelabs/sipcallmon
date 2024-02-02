@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -28,11 +29,12 @@ type AcmeIPFIXconnInfo struct {
 	Dst         calltr.NetInfo
 	StartTS     timestamp.TS
 	LastIO      timestamp.TS
-	KeepAlive   uint16
+	Timeout     int32
 	PktNo       uint64
 	SIPpktNo    uint64
 	HandshakeNo uint32
 	Handshake   AcmeIPFIXconnectSet // handshake info (probe connect)
+	KeepAlive   uint16
 	hname       [255]byte
 }
 
@@ -43,22 +45,29 @@ func (c *AcmeIPFIXconnInfo) String() string {
 	return s
 }
 
-type AcmeIPFIXconn struct {
-	id        uint64
-	conn      net.TCPConn
-	keepAlive uint16 // keep alive in s
-	startTS   timestamp.TS
-	lastIO    timestamp.TS
-	pktNo     atomic.Uint64
-	sipPktNo  atomic.Uint64
-	sipmsg    sipsp.PSIPMsg  // avoids allocs
-	sipHdrs   [100]sipsp.Hdr // extra space for sip headers (needed for msg sig)
+type AcmeIPFIXconnCfg struct {
+	TimeoutMin int
+	TimeoutMax int
+}
 
-	gStats   *acmeIPFIXstatsT // global stats (must be init)
-	hshkLock sync.Mutex
-	hshkNo   uint32              // handshake number
-	hshkInfo AcmeIPFIXconnectSet // handshake info (probe connect)
-	hname    [255]byte           // hostname buffer
+type AcmeIPFIXconn struct {
+	id       uint64
+	conn     net.TCPConn
+	startTS  timestamp.TS
+	lastIO   timestamp.TS
+	timeout  atomic.Int32 // io timeout in s
+	pktNo    atomic.Uint64
+	sipPktNo atomic.Uint64
+	sipmsg   sipsp.PSIPMsg  // avoids allocs
+	sipHdrs  [100]sipsp.Hdr // extra space for sip headers (needed for msg sig)
+
+	gStats    *acmeIPFIXstatsT // global stats (must be init)
+	hshkLock  sync.Mutex
+	hshkNo    uint32              // handshake number
+	hshkInfo  AcmeIPFIXconnectSet // handshake info (probe connect)
+	keepAlive uint16              // negotiated/replied KeepAlive value
+	hname     [255]byte           // hostname buffer
+	Cfg       AcmeIPFIXconnCfg
 
 	next, prev *AcmeIPFIXconn
 }
@@ -75,6 +84,7 @@ func (c *AcmeIPFIXconn) GetInfo(info *AcmeIPFIXconnInfo) {
 	info.Dst.Port = uint16(dst.Port)
 	info.StartTS = c.startTS // not changing so no need for atomic
 	info.LastIO = timestamp.AtomicLoad(&c.lastIO)
+	info.Timeout = c.timeout.Load()
 	info.PktNo = c.pktNo.Load()
 	info.SIPpktNo = c.sipPktNo.Load()
 	// copy handshake info
@@ -83,8 +93,37 @@ func (c *AcmeIPFIXconn) GetInfo(info *AcmeIPFIXconnInfo) {
 		copy(info.hname[:], c.hshkInfo.HostName)
 		info.Handshake = c.hshkInfo
 		info.HandshakeNo = c.hshkNo
+		info.KeepAlive = c.keepAlive
 	}
 	c.hshkLock.Unlock()
+}
+
+// common timeout handling, returns nil if no timeout, else the passed error.
+func (c *AcmeIPFIXconn) handleIOdeadline(e error) error {
+	c.gStats.cnts.Inc(c.gStats.hIOdeadline)
+	// handle deadline: check if time from last io
+	//  exceeds timeout and if so => error, else extend
+	//  deadline.
+	crtTimeout := int(c.timeout.Load())
+	if crtTimeout <= 0 {
+		// io timeouts disabled
+		return nil
+	}
+	lastIO := timestamp.AtomicLoad(&c.lastIO)
+	if timestamp.Now().Sub(lastIO) <=
+		time.Duration(crtTimeout)*time.Second {
+		// less then timeout seconds since last IO
+		e := c.conn.SetDeadline(lastIO.Add(
+			time.Duration(crtTimeout) * time.Second).Time())
+		if e != nil {
+			ERR("SetDeadline (%s) failed with %q\n",
+				lastIO.Add(time.Duration(crtTimeout)*time.Second).Time(),
+				e)
+			c.gStats.cnts.Inc(c.gStats.hErrOther)
+		}
+		return nil
+	}
+	return e
 }
 
 func (c *AcmeIPFIXconn) run() {
@@ -99,6 +138,20 @@ func (c *AcmeIPFIXconn) run() {
 	// (more headers remembered by default helps in getting a
 	//   a message sig)
 	c.sipmsg.Init(nil, c.sipHdrs[:], nil)
+	// initial timeout
+	timeout := c.Cfg.TimeoutMax
+	if timeout <= 0 {
+		timeout = c.Cfg.TimeoutMin
+	}
+	if timeout > 0 {
+		c.timeout.Store(int32(timeout))
+		if e := c.conn.SetDeadline(
+			time.Now().Add(time.Duration(timeout) * time.Second)); e != nil {
+			ERR("SetDeadline (%s) failed with %q\n",
+				time.Now().Add(time.Duration(timeout)*time.Second), e)
+			c.gStats.cnts.Inc(c.gStats.hErrOther)
+		}
+	}
 
 	for {
 		n, err = c.conn.Read(buf[rpos:])
@@ -109,8 +162,16 @@ func (c *AcmeIPFIXconn) run() {
 				DBG("connection closed by us or EOF: %s\n", err)
 				break
 			} else if errors.Is(err, os.ErrDeadlineExceeded) {
-				// TODO: handle deadline - set new one or exit
-				ERR("acme ipfix: connection deadline\n")
+				if c.handleIOdeadline(err) == nil {
+					continue
+				}
+				// else timeout exceeded
+				ERR("acme ipfix: connection io timeout exceeded (%d/%d)"+
+					" on read\n",
+					timestamp.Now().Sub(
+						timestamp.AtomicLoad(&c.lastIO))/time.Second,
+					c.timeout.Load())
+				c.gStats.cnts.Inc(c.gStats.hTimeoutErr)
 				return // exit
 			} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				WARN("acme ipfix: temporary read error on %s %s: %s\n",
@@ -203,7 +264,8 @@ func (c *AcmeIPFIXconn) handlePkt(pktHdr IPFIXmsgHdr, buf []byte) error {
 		set := buf[setOffs:endOffs]
 		switch setHdr.SetID {
 		case AcmeIPFIXkeepAlive:
-			// TODO: reset keep alive timer
+			//  receiving something automatically resets the io timeout
+			// (nothing to do here)
 			c.gStats.cnts.Inc(c.gStats.hKeepAlive)
 
 		case AcmeIPFIXconnectReq:
@@ -260,10 +322,23 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 		c.gStats.cnts.Inc(c.gStats.hPaddedSets)
 	}
 	DBG("acme ipfix: connect open request: %v\n", cSet)
+	timeout := 2 * int(cSet.KeepAliveT) // new I/O timeout, 2* req. keepalive
+	if c.Cfg.TimeoutMin > 0 && timeout < c.Cfg.TimeoutMin {
+		timeout = c.Cfg.TimeoutMin
+	}
+	if c.Cfg.TimeoutMax > 0 && timeout > c.Cfg.TimeoutMax {
+		timeout = c.Cfg.TimeoutMax
+	}
+	keepAlive := timeout / 2
+	if keepAlive == 0 && timeout != 0 {
+		keepAlive = 1           // timeout < 2, but 2 is min.
+		timeout = 2 * keepAlive // min. timeout
+	}
+	oldTimeout := c.timeout.Swap(int32(timeout))
 
 	c.hshkLock.Lock()
 	{
-		c.keepAlive = cSet.KeepAliveT
+		c.keepAlive = uint16(keepAlive)
 		// save hostname
 		l := copy(c.hname[:], cSet.HostName)
 		c.hshkInfo = cSet
@@ -273,6 +348,7 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 	c.hshkLock.Unlock()
 
 	// reply to connect request
+	cSet.KeepAliveT = uint16(keepAlive)
 	cSet.CfgFlags = 0 // sip only
 	cSet.CfgFlags2 = 0
 	cSet.SysFlags = 0
@@ -283,6 +359,21 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 			AcmeIPFIXConnOtherStatsF | AcmeIPFIXConnEnumF |
 			AcmeIPFIXConnDNSF | AcmeIPFIXConnLDAPF)
 	*/
+
+	// set new timeout after handshake
+	if int(oldTimeout) != timeout {
+		if timeout > 0 {
+			e := c.conn.SetDeadline(time.Now().Add(
+				time.Duration(timeout) * time.Second))
+			if e != nil {
+				ERR("SetDeadline (%s) failed with %q\n",
+					time.Now().Add(time.Duration(timeout)*time.Second),
+					e)
+				c.gStats.cnts.Inc(c.gStats.hErrOther)
+			}
+		}
+	}
+
 	if (int(sHdr.Length) - IPFIXsetHdrLen) > len(buf) {
 		BUG("acme ipfix: passed set length (%d) > buf size (%d)\n",
 			int(sHdr.Length)-IPFIXsetHdrLen, len(buf))
@@ -327,8 +418,16 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 				// NOTE: net.ErrClosed available since go 1.16
 				break
 			} else if errors.Is(err, os.ErrDeadlineExceeded) {
-				// TODO: handle deadline - set new one or exit
-				ERR("acme ipfix: connection deadline on write\n")
+				if c.handleIOdeadline(err) == nil {
+					continue
+				}
+				// else timeout exceeded
+				ERR("acme ipfix: connection io timeout exceeded (%d/%d)"+
+					" on write\n",
+					timestamp.Now().Sub(
+						timestamp.AtomicLoad(&c.lastIO))/time.Second,
+					c.timeout.Load())
+				c.gStats.cnts.Inc(c.gStats.hTimeoutErr)
 				return err // exit
 			} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				WARN("acme ipfix: temporary write error on %s %s: %s\n",

@@ -72,6 +72,10 @@ type AcmeIPFIXconn struct {
 	next, prev *AcmeIPFIXconn
 }
 
+func (c *AcmeIPFIXconn) Reset() {
+	*c = AcmeIPFIXconn{}
+}
+
 func (c *AcmeIPFIXconn) GetInfo(info *AcmeIPFIXconnInfo) {
 	info.Id = c.id
 	src := c.conn.RemoteAddr().(*net.TCPAddr)

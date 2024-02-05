@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,17 @@ import (
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/timestamp"
 )
+
+var acmeIPFIXconnPool = sync.Pool{
+	New: func() any {
+		acmeIPFIXstats.cnts.Inc(acmeIPFIXstats.hPoolConns)
+		n := new(AcmeIPFIXconn)
+		runtime.SetFinalizer(n, func(c *AcmeIPFIXconn) {
+			acmeIPFIXstats.cnts.Dec(acmeIPFIXstats.hPoolConns)
+		})
+		return new(AcmeIPFIXconn)
+	},
+}
 
 // AcmeIPFIXcollector listens on a socket and start processing go routines
 // for each new connection (acme ipfix tcp traffic expected).
@@ -229,15 +241,25 @@ func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 		tcpConn, err := s.listener.AcceptTCP()
 		if err == nil {
 			now := timestamp.Now()
-			// TODO: use sync.pool
-			conn := &AcmeIPFIXconn{
-				id:      connId,
-				conn:    *tcpConn,
-				startTS: now,
-				lastIO:  now,
-				gStats:  s.gStats,
-				Cfg:     s.Cfg,
-			}
+			// use sync.pool
+			conn, _ := acmeIPFIXconnPool.Get().(*AcmeIPFIXconn)
+			conn.Reset()
+			conn.id = connId
+			conn.conn = *tcpConn
+			conn.startTS = now
+			conn.lastIO = now
+			conn.gStats = s.gStats
+			conn.Cfg = s.Cfg
+			/*
+				conn := &AcmeIPFIXconn{
+					id:      connId,
+					conn:    *tcpConn,
+					startTS: now,
+					lastIO:  now,
+					gStats:  s.gStats,
+					Cfg:     s.Cfg,
+				}
+			*/
 			s.addConn(conn)
 			connId++
 			s.wg.Add(1)
@@ -254,6 +276,7 @@ func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 				s.gStats.cnts.Dec(s.gStats.hActiveConns)
 				s.wg.Done()
 				s.rmConn(conn)
+				acmeIPFIXconnPool.Put(conn)
 			}()
 		} else { // some error
 			if errors.Is(err, net.ErrClosed) {

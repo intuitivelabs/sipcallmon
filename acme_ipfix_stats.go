@@ -14,6 +14,7 @@ type acmeIPFIXstatsT struct {
 
 	hActiveConns counters.Handle
 	hTotalConns  counters.Handle
+	hPoolConns   counters.Handle
 
 	hTemplateSet        counters.Handle
 	hOptionsTemplateSet counters.Handle
@@ -54,6 +55,8 @@ func (s *acmeIPFIXstatsT) Init() bool {
 			"active acme ipfix connections"},
 		{&s.hTotalConns, 0, nil, nil, "conns_total",
 			"total opened acme ipfix connections"},
+		{&s.hPoolConns, 0, nil, nil, "conns_pool",
+			"total acme ipfix connections in pool (dbg)"},
 
 		{&s.hTemplateSet, 0, nil, nil, "template_sets",
 			"total template sets received"},

@@ -1,4 +1,25 @@
 // Oracle / Acme sbc ipfix support (non-standard)
+// Oracle /ACME SBCs use IPFIX packet format, but without ever sending
+// the templates (the templates must be known by each side, with no way
+// to check them).
+// Proprietary extensions:
+//  - after connection establishment a handshake exchange takes place:
+//     the probe sends a handshake message (in the form of a specific
+//     IPFIX data set), which contains several version numbers, the
+//     probe hostname, a keepalive interval and several configuration flags.
+//     The "collector" answers in the same format with its desired keepalive
+//      value and flags set for what data it wants (e.g. only SIP, no DNS
+//      or QOS stats).
+//  - periodically keepalive packets are sent. These are IPFIX packets
+//    containing an empty data set (length 0) with id 0.
+//
+// Useful links:
+//  - https://datatracker.ietf.org/doc/html/rfc7011 (IPFIX RFC)
+//  -   https://www.npmjs.com/package/sipfix (javascript library
+//      for decoding the oracle/acme ipfix packets)
+//  -  https://github.com/sipcapture/hepfix.js (javascript code
+//          using sipfix above, it contains some of the data set
+//          ids needed for knowing which data set template to use)
 
 package sipcallmon
 

@@ -21,6 +21,8 @@ import (
 	"github.com/intuitivelabs/timestamp"
 )
 
+var ErrAcmeIPFIXbadIPhdrVer = errors.New("invalid IP header version")
+
 // AcmeIPFIXconnInfo contains a copy of the interesting parts
 // of AcmeIPFIXconn struct.
 type AcmeIPFIXconnInfo struct {
@@ -275,9 +277,11 @@ func (c *AcmeIPFIXconn) handlePkt(pktHdr IPFIXmsgHdr, buf []byte) error {
 		case AcmeIPFIXconnectReq:
 			err = c.handleConnReq(pktHdr, setHdr, set)
 		case AcmeIPFIXsipUDP4In, AcmeIPFIXsipUDP4Out:
-			err = c.handleSIPudp4(setHdr.SetID, set)
+			err = c.handleSIPudp(setHdr.SetID, set)
 		case AcmeIPFIXsipTCP4In, AcmeIPFIXsipTCP4Out:
 			err = c.handleSIPtcp4(setHdr.SetID, set)
+		// missing: UDP6In, UDP6Out (same as ID & format as UPD4?)
+		// missing: TCP6In & TCP6Out (unknown ID & format)
 		case IPFIXtemplateID:
 			WARN("acme ipfix: unexpected template set (%d)\n", setHdr.SetID)
 			c.gStats.cnts.Inc(c.gStats.hTemplateSet)
@@ -449,7 +453,11 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 	return err
 }
 
-func (c *AcmeIPFIXconn) handleSIPudp4(setID uint16, buf []byte) error {
+// handleSIPudp  handles IPv4 and IPv6 UDP ingress and egress datasets.
+// Note: we suppose the IPv6 UDP is the same format as IPv4, but
+//
+//	there is no confirmation for that.
+func (c *AcmeIPFIXconn) handleSIPudp(setID uint16, buf []byte) error {
 
 	var udp4InSet AcmeIPFIXsipUDP4InSet
 	var udp4OutSet AcmeIPFIXsipUDP4OutSet
@@ -460,11 +468,9 @@ func (c *AcmeIPFIXconn) handleSIPudp4(setID uint16, buf []byte) error {
 	c.sipPktNo.Add(1)
 	switch setID {
 	case AcmeIPFIXsipUDP4In:
-		c.gStats.cnts.Inc(c.gStats.hSIPudp4In)
 		nxt, missing, err = ParseAcmeIPFIXsipUDP4InSet(buf, 0, &udp4InSet)
 		msg = udp4InSet.Msg
 	case AcmeIPFIXsipUDP4Out:
-		c.gStats.cnts.Inc(c.gStats.hSIPudp4Out)
 		nxt, missing, err = ParseAcmeIPFIXsipUDP4OutSet(buf, 0, &udp4OutSet)
 		msg = udp4OutSet.Msg
 	default:
@@ -494,30 +500,77 @@ func (c *AcmeIPFIXconn) handleSIPudp4(setID uint16, buf []byte) error {
 	}
 
 	// get ipv4 && udp headers
-	var ip4 layers.IPv4
-	var udp layers.UDP
+	var ipPayload []byte
+	var srcIP, dstIP net.IP
 
-	err = ip4.DecodeFromBytes(msg, gopacket.NilDecodeFeedback)
-	if err != nil {
-		ERR("acme ipfix: sip udp4: bad ipv4 header: %s\n", err)
-		return err
+	// try to handle IPv6 too (hopefully the same format is used as
+	// for IPv4)
+	ipVersion := uint8(msg[0]) >> 4
+	switch ipVersion {
+	case 4:
+		if setID == AcmeIPFIXsipUDP4In {
+			c.gStats.cnts.Inc(c.gStats.hSIPudp4In)
+		} else {
+			c.gStats.cnts.Inc(c.gStats.hSIPudp4Out)
+		}
+		var ip4 layers.IPv4
+		err = ip4.DecodeFromBytes(msg, gopacket.NilDecodeFeedback)
+		if err != nil {
+			ERR("acme ipfix: sip udp4: bad ipv4 header: %s\n", err)
+			return err
+		}
+		if ip4.Version != 4 {
+			ERR("acme ipfix: sip udp4: invalid ipv4 header version: %d\n",
+				ip4.Version)
+			return ErrAcmeIPFIXbadIPhdrVer
+		}
+		srcIP = ip4.SrcIP
+		dstIP = ip4.DstIP
+		ipPayload = ip4.Payload
+	case 6:
+		if setID == AcmeIPFIXsipUDP4In { // suppose the same template is used
+			c.gStats.cnts.Inc(c.gStats.hSIPudp6In)
+		} else {
+			c.gStats.cnts.Inc(c.gStats.hSIPudp6Out)
+		}
+		var ip6 layers.IPv6
+		err = ip6.DecodeFromBytes(msg, gopacket.NilDecodeFeedback)
+		if err != nil {
+			ERR("acme ipfix: sip udp6: bad ipv6 header: %s\n", err)
+			return err
+		}
+		if ip6.Version != 6 {
+			ERR("acme ipfix: sip udp6: invalid ipv6 header version: %d\n",
+				ip6.Version)
+			return ErrAcmeIPFIXbadIPhdrVer
+		}
+		srcIP = ip6.SrcIP
+		dstIP = ip6.DstIP
+		ipPayload = ip6.Payload
+	default:
+		ERR("acme ipfix: sip udp: invalid ip header version: %d\n",
+			ipVersion)
+		return ErrAcmeIPFIXbadIPhdrVer
 	}
-	err = udp.DecodeFromBytes(ip4.Payload, gopacket.NilDecodeFeedback)
+
+	// parse udp header
+	var udp layers.UDP
+	err = udp.DecodeFromBytes(ipPayload, gopacket.NilDecodeFeedback)
 	if err != nil {
 		ERR("acme ipfix: sip udp4: bad udp header: %s\n", err)
 		return err
 	}
-	if !nonSIP(udp.Payload, ip4.SrcIP, int(udp.SrcPort),
-		ip4.DstIP, int(udp.DstPort)) {
+	if !nonSIP(udp.Payload, srcIP, int(udp.SrcPort),
+		dstIP, int(udp.DstPort)) {
 
 		udpSIPMsg(ioutil.Discard, &c.sipmsg, udp.Payload, c.pktNo.Load(),
-			ip4.SrcIP, int(udp.SrcPort),
-			ip4.DstIP, int(udp.DstPort), false)
+			srcIP, int(udp.SrcPort),
+			dstIP, int(udp.DstPort), false)
 	} else {
 		// not sip -> probe
 		pktErrEvHandler(calltr.EvNonSIPprobe,
-			ip4.SrcIP, int(udp.SrcPort),
-			ip4.DstIP, int(udp.DstPort),
+			srcIP, int(udp.SrcPort),
+			dstIP, int(udp.DstPort),
 			calltr.NProtoUDP, nil, nil)
 	}
 	return nil

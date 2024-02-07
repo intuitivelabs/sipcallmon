@@ -149,8 +149,9 @@ func (c *AcmeIPFIXconn) run() {
 	if timeout <= 0 {
 		timeout = c.Cfg.TimeoutMin
 	}
+	c.timeout.Store(int32(timeout))
+	// negative timeout == disabled timeout
 	if timeout > 0 {
-		c.timeout.Store(int32(timeout))
 		if e := c.conn.SetDeadline(
 			time.Now().Add(time.Duration(timeout) * time.Second)); e != nil {
 			ERR("SetDeadline (%s) failed with %q\n",
@@ -330,17 +331,25 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 		c.gStats.cnts.Inc(c.gStats.hPaddedSets)
 	}
 	DBG("acme ipfix: connect open request: %v\n", cSet)
-	timeout := 2 * int(cSet.KeepAliveT) // new I/O timeout, 2* req. keepalive
-	if c.Cfg.TimeoutMin > 0 && timeout < c.Cfg.TimeoutMin {
-		timeout = c.Cfg.TimeoutMin
-	}
-	if c.Cfg.TimeoutMax > 0 && timeout > c.Cfg.TimeoutMax {
-		timeout = c.Cfg.TimeoutMax
-	}
-	keepAlive := timeout / 2
-	if keepAlive == 0 && timeout != 0 {
-		keepAlive = 1           // timeout < 2, but 2 is min.
-		timeout = 2 * keepAlive // min. timeout
+	keepAlive := int(cSet.KeepAliveT)
+	timeout := 2 * keepAlive // new I/O timeout, 2* req. keepalive
+	if c.Cfg.TimeoutMin < 0 && c.Cfg.TimeoutMax < 0 {
+		// timeout disabled
+		timeout = -1
+	} else {
+		// adjust timeout computed from the keepalive interval
+		if c.Cfg.TimeoutMin > 0 && timeout < c.Cfg.TimeoutMin {
+			timeout = c.Cfg.TimeoutMin
+		}
+		if c.Cfg.TimeoutMax > 0 && timeout > c.Cfg.TimeoutMax {
+			timeout = c.Cfg.TimeoutMax
+		}
+		// compute new keepAlive
+		keepAlive = timeout / 2
+		if keepAlive == 0 && timeout != 0 {
+			keepAlive = 1           // timeout < 2, but 2 is min.
+			timeout = 2 * keepAlive // min. timeout
+		}
 	}
 	oldTimeout := c.timeout.Swap(int32(timeout))
 
@@ -380,6 +389,7 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 				c.gStats.cnts.Inc(c.gStats.hErrOther)
 			}
 		}
+		// else timeout disabled (<= 0) -> no deadline
 	}
 
 	if (int(sHdr.Length) - IPFIXsetHdrLen) > len(buf) {

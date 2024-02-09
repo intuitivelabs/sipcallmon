@@ -15,6 +15,12 @@ const (
 	AcmeIPFIXsipTCP4Out  uint16 = 261
 	AcmeIPFIXsipSCTP4In  uint16 = 262
 	AcmeIPFIXsipSCTP4Out uint16 = 263
+	// missing/unknown  AcmeIPFIXsipUDP6In
+	// missing/unknown  AcmeIPFIXsipUDP6Out
+	// missing/unknown  AcmeIPFIXsipTCP6In
+	// missing/unknown  AcmeIPFIXsipTCP6Out
+	// missing/unknown  AcmeIPFIXsipSCTP6In
+	// missing/unknown  AcmeIPFIXsipSCTP6Out
 )
 
 // flags used in the connect and connect ack messages / data sets
@@ -354,6 +360,148 @@ func ParseAcmeIPFIXsipTCP4OutSet(buf []byte, offs int,
 		return offs, (nxt + 1) - len(data), ErrIPFIXmoreBytes
 	}
 	s.CallId = data[29:nxt]
+	s.Length1 = data[nxt]
+	msgStart := nxt + 1
+	msgLen := int(s.Length1)
+	if s.Length1 == 0xff {
+		if len(data) < (msgStart + 2) {
+			return offs, (msgStart + 2) - len(data), ErrIPFIXmoreBytes
+		}
+		s.Length2 = binary.BigEndian.Uint16(data[msgStart : msgStart+2])
+		msgLen = int(s.Length2)
+		msgStart += 2
+	} else {
+		s.Length2 = 0
+	}
+	if len(data) < (msgStart + msgLen) {
+		return offs, msgStart + msgLen - len(data),
+			ErrIPFIXmoreBytes
+	}
+	s.SipMsg = data[msgStart : msgStart+msgLen]
+	return offs + msgStart + msgLen, 0, nil
+}
+
+const AcmeIPFIXsipTCP6InSetMinLen int = 12 + 40 + 1 // 0-length message
+
+// placeholder for TCP over IPv6 (so far no confirmation that
+// the SBCs support reporting IPv6 packet, so the format here is just
+// an extrapolation of the IPv4 one)
+type AcmeIPFIXsipTCP6InSet struct {
+	TimeS  uint32
+	TimeUS uint32
+	IfSlot uint8 // interface slot
+	IfPort uint8 // interface port
+	VlanID uint16
+
+	DstIP   net.IP // IPv6
+	SrcIP   net.IP // IPv6
+	DstPort uint16
+	SrcPort uint16
+	Context uint32
+
+	Length1 uint8  // first by of lenght, 0xff if length in length2
+	Length2 uint16 // 0 if length1 < 0xff (length is in Length1)
+	SipMsg  []byte // SIP message, points inside the parsed data
+}
+
+func ParseAcmeIPFIXsipTCP6InSet(buf []byte, offs int,
+	s *AcmeIPFIXsipTCP6InSet) (int, int, error) {
+
+	data := buf[offs:]
+	if len(data) < AcmeIPFIXsipTCP6InSetMinLen {
+		return offs,
+			AcmeIPFIXsipTCP6InSetMinLen - len(data), ErrIPFIXmoreBytes
+	}
+
+	s.TimeS = binary.BigEndian.Uint32(data[0:4])
+	s.TimeUS = binary.BigEndian.Uint32(data[4:8])
+	s.IfSlot = data[8]
+	s.IfPort = data[9]
+	s.VlanID = binary.BigEndian.Uint16(data[10:12])
+
+	s.DstIP = data[12:28]
+	s.SrcIP = data[28:44]
+	s.DstPort = binary.BigEndian.Uint16(data[44:46])
+	s.SrcPort = binary.BigEndian.Uint16(data[46:48])
+	s.Context = binary.BigEndian.Uint32(data[48:52])
+
+	s.Length1 = data[52]
+	msgStart := 53
+	msgLen := int(s.Length1)
+	if s.Length1 == 0xff {
+		if len(data) < (msgStart + 2) {
+			return offs, (msgStart + 2) - len(data), ErrIPFIXmoreBytes
+		}
+		s.Length2 = binary.BigEndian.Uint16(data[msgStart : msgStart+2])
+		msgLen = int(s.Length2)
+		msgStart += 2
+	} else {
+		s.Length2 = 0
+	}
+	if len(data) < (msgStart + msgLen) {
+		return offs, msgStart + msgLen - len(data),
+			ErrIPFIXmoreBytes
+	}
+	s.SipMsg = data[msgStart : msgStart+msgLen]
+	return offs + msgStart + msgLen, 0, nil
+}
+
+const AcmeIPFIXsipTCP6OutSetMinLen int = 12 + 40 + 1 + 1 // 0-len & callid msg.
+
+// placeholder for TCP egress sip msg over IPv6 (so far no confirmation that
+// the SBCs support reporting IPv6 packet, so the format here is just
+// an extrapolation of the IPv4 one)
+type AcmeIPFIXsipTCP6OutSet struct {
+	TimeS  uint32
+	TimeUS uint32
+	IfSlot uint8 // interface slot
+	IfPort uint8 // interface port
+	VlanID uint16
+
+	DstIP   net.IP // IPv6
+	SrcIP   net.IP // IPv6
+	DstPort uint16
+	SrcPort uint16
+	Context uint32
+
+	CallIdLen uint8  // call-id, variable length, <= 255
+	Length1   uint8  // first by of lenght, 0xff if length in length2
+	Length2   uint16 // 0 if length1 < 0xff (length is in Length1)
+
+	CallId []byte // incoming call-id, points inside the parsed data
+	SipMsg []byte // SIP message, points inside the parsed data
+}
+
+func ParseAcmeIPFIXsipTCP6OutSet(buf []byte, offs int,
+	s *AcmeIPFIXsipTCP6OutSet) (int, int, error) {
+
+	data := buf[offs:]
+	if len(data) < AcmeIPFIXsipTCP6OutSetMinLen {
+		return offs,
+			AcmeIPFIXsipTCP6OutSetMinLen - len(data), ErrIPFIXmoreBytes
+	}
+
+	s.TimeS = binary.BigEndian.Uint32(data[0:4])
+	s.TimeUS = binary.BigEndian.Uint32(data[4:8])
+	s.IfSlot = data[8]
+	s.IfPort = data[9]
+	s.VlanID = binary.BigEndian.Uint16(data[10:12])
+
+	s.DstIP = data[12:28]
+	s.SrcIP = data[28:44]
+	s.DstPort = binary.BigEndian.Uint16(data[44:46])
+	s.SrcPort = binary.BigEndian.Uint16(data[46:48])
+	s.Context = binary.BigEndian.Uint32(data[48:52])
+
+	s.CallIdLen = data[52]
+	if s.CallIdLen == 0xff {
+		return offs, 0, ErrIPFIXinvLen
+	}
+	nxt := 53 + int(s.CallIdLen)
+	if (nxt + 1) > len(data) {
+		return offs, (nxt + 1) - len(data), ErrIPFIXmoreBytes
+	}
+	s.CallId = data[53:nxt]
 	s.Length1 = data[nxt]
 	msgStart := nxt + 1
 	msgLen := int(s.Length1)

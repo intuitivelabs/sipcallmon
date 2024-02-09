@@ -278,11 +278,11 @@ func (c *AcmeIPFIXconn) handlePkt(pktHdr IPFIXmsgHdr, buf []byte) error {
 		case AcmeIPFIXconnectReq:
 			err = c.handleConnReq(pktHdr, setHdr, set)
 		case AcmeIPFIXsipUDP4In, AcmeIPFIXsipUDP4Out:
+			// missing: UDP6In, UDP6Out (same as ID & format as UPD4?)
 			err = c.handleSIPudp(setHdr.SetID, set)
 		case AcmeIPFIXsipTCP4In, AcmeIPFIXsipTCP4Out:
-			err = c.handleSIPtcp4(setHdr.SetID, set)
-		// missing: UDP6In, UDP6Out (same as ID & format as UPD4?)
-		// missing: TCP6In & TCP6Out (unknown ID & format)
+			// missing: TCP6In & TCP6Out (unknown ID & format)
+			err = c.handleSIPtcp(setHdr.SetID, set)
 		case IPFIXtemplateID:
 			WARN("acme ipfix: unexpected template set (%d)\n", setHdr.SetID)
 			c.gStats.cnts.Inc(c.gStats.hTemplateSet)
@@ -586,7 +586,7 @@ func (c *AcmeIPFIXconn) handleSIPudp(setID uint16, buf []byte) error {
 	return nil
 }
 
-func (c *AcmeIPFIXconn) handleSIPtcp4(setID uint16, buf []byte) error {
+func (c *AcmeIPFIXconn) handleSIPtcp(setID uint16, buf []byte) error {
 	var tcp4InSet AcmeIPFIXsipTCP4InSet
 	var tcp4OutSet AcmeIPFIXsipTCP4OutSet
 	var smsg []byte
@@ -613,6 +613,24 @@ func (c *AcmeIPFIXconn) handleSIPtcp4(setID uint16, buf []byte) error {
 		srcPort = tcp4OutSet.SrcPort
 		dstIP = tcp4OutSet.DstIP
 		dstPort = tcp4OutSet.DstPort
+	/* missing /unknown IPv6 template IDs:
+	case AcmeIPFIXsipTCP6In:
+		c.gStats.cnts.Inc(c.gStats.hSIPtcp6In)
+		nxt, missing, err = ParseAcmeIPFIXsipTCP6InSet(buf, 0, &tcp6InSet)
+		smsg = tcp6InSet.SipMsg
+		srcIP = tcp6InSet.SrcIP
+		srcPort = tcp6InSet.SrcPort
+		dstIP = tcp6InSet.DstIP
+		dstPort = tcp6InSet.DstPort
+	case AcmeIPFIXsipTCP6Out:
+		c.gStats.cnts.Inc(c.gStats.hSIPtcp6Out)
+		nxt, missing, err = ParseAcmeIPFIXsipTCP6OutSet(buf, 0, &tcp6OutSet)
+		smsg = tcp6OutSet.SipMsg
+		srcIP = tcp6OutSet.SrcIP
+		srcPort = tcp6OutSet.SrcPort
+		dstIP = tcp6OutSet.DstIP
+		dstPort = tcp6OutSet.DstPort
+	*/
 	default:
 		BUG("acme ipfix: handle sip tcp template called with %d\n", setID)
 		c.gStats.cnts.Inc(c.gStats.hBUG)

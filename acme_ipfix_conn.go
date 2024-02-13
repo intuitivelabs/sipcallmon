@@ -48,8 +48,10 @@ func (c *AcmeIPFIXconnInfo) String() string {
 }
 
 type AcmeIPFIXconnCfg struct {
-	TimeoutMin int
-	TimeoutMax int
+	TimeoutMin    int
+	TimeoutMax    int
+	IgnoreIngress bool // ignore incoming sip over IPFIX
+	IgnoreEgress  bool // ignore outgoing sip over IPFIX
 }
 
 type AcmeIPFIXconn struct {
@@ -277,11 +279,33 @@ func (c *AcmeIPFIXconn) handlePkt(pktHdr IPFIXmsgHdr, buf []byte) error {
 
 		case AcmeIPFIXconnectReq:
 			err = c.handleConnReq(pktHdr, setHdr, set)
-		case AcmeIPFIXsipUDP4In, AcmeIPFIXsipUDP4Out:
-			// missing: UDP6In, UDP6Out (same as ID & format as UPD4?)
+		case AcmeIPFIXsipUDP4In:
+			// missing: UDP6In (same as ID & format as UPD4?)
+			if c.Cfg.IgnoreIngress {
+				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
+				break
+			}
 			err = c.handleSIPudp(setHdr.SetID, set)
-		case AcmeIPFIXsipTCP4In, AcmeIPFIXsipTCP4Out:
-			// missing: TCP6In & TCP6Out (unknown ID & format)
+		case AcmeIPFIXsipUDP4Out:
+			// missing: UDP6Out (same as ID & format as UPD4?)
+			if c.Cfg.IgnoreEgress {
+				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
+				break
+			}
+			err = c.handleSIPudp(setHdr.SetID, set)
+		case AcmeIPFIXsipTCP4In:
+			// missing: TCP6In (unknown ID & format)
+			if c.Cfg.IgnoreIngress {
+				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
+				break
+			}
+			err = c.handleSIPtcp(setHdr.SetID, set)
+		case AcmeIPFIXsipTCP4Out:
+			// missing: TCP6Out (unknown ID & format)
+			if c.Cfg.IgnoreEgress {
+				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
+				break
+			}
 			err = c.handleSIPtcp(setHdr.SetID, set)
 		case IPFIXtemplateID:
 			WARN("acme ipfix: unexpected template set (%d)\n", setHdr.SetID)

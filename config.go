@@ -45,6 +45,8 @@ type Config struct {
 	IPFIXport      int           `config:"ipfix_port"`
 	IPFIXminTo     int           `config:"ipfix_timeout_min"`
 	IPFIXmaxTo     int           `config:"ipfix_timeout_max"`
+	IPFIXignIn     bool          `config:"ipfix_ignore_ingress"`
+	IPFIXignOut    bool          `config:"ipfix_ignore_egress"`
 	HTTPport       int           `config:"http_port"`
 	HTTPaddr       string        `config:"http_addr"`
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
@@ -339,6 +341,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"minimum ipfix IO timeout, 0 == disable")
 	flag.IntVar(&cfg.IPFIXmaxTo, "ipfix_timeout_max", c.IPFIXmaxTo,
 		"maximum ipfix IO timeout, 0 == disable")
+	flag.BoolVar(&cfg.IPFIXignIn, "ipfix_ignore_ingress", c.IPFIXignIn,
+		"ignore sip-ingress IPFIX messages")
+	flag.BoolVar(&cfg.IPFIXignOut, "ipfix_ignore_egress", c.IPFIXignOut,
+		"ignore sip-egress IPFIX messages")
 
 	flag.IntVar(&cfg.HTTPport, "http_port", c.HTTPport,
 		"port for the internal http server, 0 == disable")

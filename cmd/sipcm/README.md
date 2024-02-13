@@ -67,6 +67,10 @@ It can either capture live packets or replay pcap files.
     	minimum ipfix IO timeout, 0 == disable
   -ipfix_timeout_max
     	maxmimum ipfix IO timeout, 0 == disable
+  -ipfix_ignore_ingress
+    	ignore sip-ingress IPFIX messages
+  -ipfix_ignore_egress
+    	ignore sip-egress IPFIX messages
   -log_level int
     	log level (default 2)
   -log_opt uint

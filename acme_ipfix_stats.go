@@ -19,6 +19,7 @@ type acmeIPFIXstatsT struct {
 	hTemplateSet        counters.Handle
 	hOptionsTemplateSet counters.Handle
 	hUnknownSet         counters.Handle
+	hIgnoredSet         counters.Handle
 
 	hKeepAlive   counters.Handle
 	hConnReq     counters.Handle
@@ -66,6 +67,8 @@ func (s *acmeIPFIXstatsT) Init() bool {
 			"total option template sets received"},
 		{&s.hUnknownSet, 0, nil, nil, "unknown_sets",
 			"unknown sets received"},
+		{&s.hIgnoredSet, 0, nil, nil, "ignored_sets",
+			"ignored data sets due to config options"},
 
 		{&s.hKeepAlive, 0, nil, nil, "keepalives",
 			"number of KeepAlives received"},

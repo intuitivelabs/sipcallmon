@@ -128,7 +128,7 @@ It can either capture live packets or replay pcap files.
 | /calls/list | list 100 calls (add ?n=NNN to change the number) |
 | /calls/list/query | list only calls matching a query (form) |
 | /calls/timeout | call tracking per state timeouts |
-| /counters | list statistics counters (params: group, counter, short, flags) |
+| /counters | list statistics counters (params: group, counter, short, nonzero, flags) |
 | /debug/options | logging and debugging options |
 | /debug/forcetimeout | force timeout for all the tracked calls (params: timeout=duration , default 100ms)|
 | /events | list first 100 events (add ?n=NNN to change the number) |

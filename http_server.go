@@ -1296,8 +1296,9 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
-	groups := r.URL.Query()["group"]
-	cntrs := r.URL.Query()["counter"]
+	query := r.URL.Query()
+	groups := query["group"]
+	cntrs := query["counter"]
 	short := false
 	s := r.FormValue("short")
 
@@ -1325,6 +1326,8 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 				"val":      counters.PrVal,
 				"desc":     counters.PrDesc,
 				"rec":      counters.PrRec,
+				"nz":       counters.PrHideZero,
+				"nonzero":  counters.PrHideZero,
 			}
 			for _, f := range strings.Split(flgs, "|") {
 				if v, ok := fvals[f]; ok {
@@ -1340,6 +1343,14 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 		if !short {
 			flags |= counters.PrDesc
 		}
+	}
+
+	_, nonzero := query["nonzero"]
+	if !nonzero {
+		_, nonzero = query["nz"]
+	}
+	if nonzero {
+		flags |= counters.PrHideZero
 	}
 
 	if len(groups) == 0 && len(cntrs) == 0 {

@@ -10,6 +10,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
+	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
 )
 
@@ -45,13 +46,18 @@ func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
 	pflags := (*PcapWrMsgFlags)(unsafe.Pointer(&buf[offsFlags]))
 	*pflags = flags
 	copy(buf[offs:], msg)
+	pcapStats.cnts.Inc(pcapStats.hAllocMsgs)
+	pcapStats.cnts.Add(pcapStats.hAllocBytes, counters.Val(sz))
 	return PcapWrMsg(buf)
 }
 
 func FreePcapWrMsg(pwm *PcapWrMsg) {
 	// TODO: counters
 	// TODO: put back into pool (after switching to bytespool)
+	sz := len(*pwm)
 	*pwm = []byte{}
+	pcapStats.cnts.Dec(pcapStats.hAllocMsgs)
+	pcapStats.cnts.Sub(pcapStats.hAllocBytes, counters.Val(sz))
 }
 
 // Format: key offs (2 bytes), key len (2 bytes), message ...
@@ -107,16 +113,18 @@ type PcapWrWorker struct {
 	stop     chan struct{} // internal strop (via Strop())
 	wg       sync.WaitGroup
 	initLock sync.Mutex // avoid running Stop() in parallel
-
+	stats    *pcapStatsT
 }
 
-func (pwr *PcapWrWorker) Init(name string, cfg *PcapWriterCfg) error {
+func (pwr *PcapWrWorker) Init(name string, cfg *PcapWriterCfg,
+	stats *pcapStatsT) error {
 	pwr.initLock.Lock()
 	pwr.name = name
 	pwr.msgs = make(chan PcapWrMsg, cfg.QueueLen)
 	pwr.stop = make(chan struct{}, 1)
 	pwr.init = true
 	pwr.cfg = cfg
+	pwr.stats = stats
 	pwr.initLock.Unlock()
 	return nil
 }
@@ -152,12 +160,13 @@ func (pwr *PcapWrWorker) QueueMsg(m PcapWrMsg) bool {
 	}
 	select {
 	case pwr.msgs <- m:
-		// TODO: inc a queued counter
+		pwr.stats.cnts.Inc(pwr.stats.hTQueuedMsgs)
+		pwr.stats.cnts.Inc(pwr.stats.hQueuedMsgs)
 		//DBG("message queued to %q\n", pwr.name)
 		break
 	default:
 		// message capacity exceeded
-		// inc some counter
+		pwr.stats.cnts.Inc(pwr.stats.hDroppedQueue)
 		DBG("queue exceeded for %q\n", pwr.name)
 		return false
 	}
@@ -173,9 +182,9 @@ loop:
 			if !ok { // channel closed
 				break loop
 			}
-			// TODO: dec a queued counter
+			pwr.stats.cnts.Dec(pwr.stats.hQueuedMsgs)
 			pwr.writeMsg(m)
-			// TODO: free msg
+			FreePcapWrMsg(&m)
 			continue
 		case <-pwr.stop:
 			break loop
@@ -222,14 +231,23 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 				err = os.MkdirAll(dirname, 0700)
 				if err != nil && !errors.Is(err, os.ErrExist) {
 					DBG("error creating dir %q: %v (%T)\n", dirname, err)
+					pwr.stats.cnts.Inc(pwr.stats.hErrMkSubdir)
 					goto err_cleanup
 				}
 				DBG("PCAP Dumper %s: created dir %q for %q (file %q)\n",
 					pwr.name, dirname, key, fname)
+				pwr.stats.cnts.Inc(pwr.stats.hNewSubdir)
 				continue // retry OpenFile
 			} else {
 				DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
 					pwr.name, key, err, err)
+				if (flags & PcapDumpAppendOnlyF) == 0 {
+					// if not in append only mode => new file error
+					pwr.stats.cnts.Inc(pwr.stats.hErrNewFile)
+				} else {
+					// non-existing file
+					pwr.stats.cnts.Inc(pwr.stats.hErrNoFile)
+				}
 				goto err_cleanup
 			}
 		}
@@ -243,10 +261,12 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	pcapDump = pcapgo.NewWriter(f)
 	if offs == 0 {
 		// new file -> write pcap header
+		pwr.stats.cnts.Inc(pwr.stats.hNewFile)
 		err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
 		if err != nil {
 			DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
 				pwr.name, key, err, err)
+			pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
 			goto err_cleanup
 		}
 	}
@@ -254,18 +274,22 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	if err != nil {
 		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
 			pwr.name, key, err, err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrWrMsg)
 		goto err_cleanup
 	}
+	pwr.stats.cnts.Inc(pwr.stats.hWrittenMsgs)
+	pwr.stats.cnts.Add(pwr.stats.hWrittenBytes,
+		counters.Val(len(content)))
 
 	// TODO: add to cache if new
 	// TODO: don't open/close file every time
 err_cleanup:
-	FreePcapWrMsg(&m)
 	if f != nil {
 		f.Close()
 	}
 
 	if err != nil {
+		pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)
 		DBG("PCAP Dumper %s: ERROR for message %q flags 0x%0x  len %d type %T"+
 			": %v\n",
 			pwr.name, key, flags, len(content), err, err)

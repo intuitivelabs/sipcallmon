@@ -94,16 +94,23 @@ type PcapWriter struct {
 	wrWorkers []PcapWrWorker // internal workers
 	running   int            // number of running workers
 	init      bool
+	stats     *pcapStatsT
 }
 
 func (pw *PcapWriter) Init(cfg PcapWriterCfg) bool {
 
+	if err, gstats := pcapGlobalStatsInit(); err != nil || gstats == nil {
+		ERR("failed to init pcap writer stats: %s\n", err)
+		return false
+	} else {
+		pw.stats = gstats
+	}
 	pw.cfg = cfg
 	pw.wrWorkers = make([]PcapWrWorker, pw.cfg.NWorkers)
 	pw.init = true
 	for i := 0; i < len(pw.wrWorkers); i++ {
 		name := fmt.Sprintf("pcap_writer_%03d", i)
-		if err := pw.wrWorkers[i].Init(name, &pw.cfg); err != nil {
+		if err := pw.wrWorkers[i].Init(name, &pw.cfg, pw.stats); err != nil {
 			pw.wrWorkers = pw.wrWorkers[0:i]
 			return false // some init error
 		}
@@ -135,6 +142,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 	msg []byte) error {
 
 	if pw.running < 1 {
+		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWrite::WriteRawMsg: BUG: not initialized")
 	}
 	h := calltr.GetHash2(msg, int(key.Offs), int(key.Len))
@@ -144,9 +152,11 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 		if !pw.wrWorkers[i].QueueMsg(m) {
 			ERR("queue size exceeded for %q size %d worker %d\n",
 				key.Get(msg), len(msg), i)
+			FreePcapWrMsg(&m)
 			return errorPcapWQueueFull
 		}
 	} else {
+		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWrite::WriteRawMsg new msg failed for key %s",
 			key.Get(msg))
 		return errorPcapWNewMsgFailed
@@ -165,6 +175,7 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 
 	if key.Len < 8 || len(payload) < int(uint(key.Len)) {
 		// key or payload too small
+		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWriter::WriteUDPmsg:"+
 			" payload or key too small (%d, %d)", len(payload), key.Len)
 	}
@@ -172,6 +183,7 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 	isIPv4 := sip.To4() != nil
 	if isIPv4 != (dip.To4() != nil) {
 		// error: mismatched address families
+		pw.stats.cnts.Inc(pw.stats.hBUG)
 		return fmt.Errorf("PcapWriter:WriteUDPmsg: mismatched AF for %s %s",
 			sip, dip)
 	}
@@ -231,6 +243,7 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 			gopacket.Payload(payload))
 	}
 	if err != nil {
+		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return err
 	}
 	k := key

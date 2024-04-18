@@ -42,6 +42,8 @@ type pcapStatsT struct {
 	hDroppedQueue counters.Handle
 	hDroppedWr    counters.Handle
 
+	hMaxMsgsWorker counters.Handle
+
 	hNewSubdir counters.Handle
 	hNewFile   counters.Handle
 
@@ -59,21 +61,28 @@ func (s *pcapStatsT) Init() bool {
 
 		{&s.hTQueuedMsgs, 0, nil, nil, "total_queued_msgs",
 			"total number of messages queued for write"},
-		{&s.hQueuedMsgs, counters.CntMaxF, nil, nil, "crt_queued_msgs",
+		{&s.hQueuedMsgs, counters.CntNonMonoF | counters.CntMaxF,
+			nil, nil, "crt_queued_msgs",
 			"current number of messages queued for write"},
 		{&s.hWrittenMsgs, 0, nil, nil, "written_msgs",
 			"total number of messages written to pcap files"},
 		{&s.hWrittenBytes, 0, nil, nil, "bytes_written",
 			"total bytes written to pcap files"},
-		{&s.hAllocMsgs, counters.CntMaxF, nil, nil, "crt_alloc_msgs",
+		{&s.hAllocMsgs, counters.CntNonMonoF | counters.CntMaxF,
+			nil, nil, "crt_alloc_msgs",
 			"currently allocated messages"},
-		{&s.hAllocBytes, counters.CntMaxF, nil, nil, "crt_alloc_bytes",
+		{&s.hAllocBytes, counters.CntNonMonoF | counters.CntMaxF,
+			nil, nil, "crt_alloc_bytes",
 			"currently allocated total size"},
 
 		{&s.hDroppedQueue, 0, nil, nil, "dropped_queue",
 			"number of messages dropped due to full write queue"},
 		{&s.hDroppedWr, 0, nil, nil, "dropped_write",
 			"number of messages dropped due file write errors"},
+
+		{&s.hMaxMsgsWorker, counters.CntNonMonoF,
+			nil, nil, "max_msgs_wrk",
+			"maximum number of messages handled by a worker"},
 
 		{&s.hNewSubdir, 0, nil, nil, "new_subdirs",
 			"number of created subdirectories"},

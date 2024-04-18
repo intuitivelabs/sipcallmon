@@ -55,7 +55,7 @@ func (pcfg *PcapWriterCfg) InitSubDirs(flags int, no int) error {
 		}
 		n[l] = '/'
 		pcfg.subDirs[i] = string(n)
-		DBG("pcap dump config: subdir[%05d] = %q\n", i, pcfg.subDirs[i])
+		// DBG("pcap dump config: subdir[%05d] = %q\n", i, pcfg.subDirs[i])
 	}
 	return nil
 }
@@ -148,6 +148,8 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 	h := calltr.GetHash2(msg, int(key.Offs), int(key.Len))
 	i := int(h) % pw.running
 	m := NewPcapWrMsg(key, flags, msg)
+	// DBG("msg key: %q h: %d i: %d (running %d)\n", key.Get(msg), h, i, pw.running)
+	// DBG("worker queued0: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)
 	if m != nil {
 		if !pw.wrWorkers[i].QueueMsg(m) {
 			ERR("queue size exceeded for %q size %d worker %d\n",
@@ -155,6 +157,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 			FreePcapWrMsg(&m)
 			return errorPcapWQueueFull
 		}
+		// DBG("worker queued: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)
 	} else {
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWrite::WriteRawMsg new msg failed for key %s",

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -114,6 +115,7 @@ type PcapWrWorker struct {
 	wg       sync.WaitGroup
 	initLock sync.Mutex // avoid running Stop() in parallel
 	stats    *pcapStatsT
+	tmsgs    atomic.Uint64 // total messages handled
 }
 
 func (pwr *PcapWrWorker) Init(name string, cfg *PcapWriterCfg,
@@ -161,6 +163,7 @@ func (pwr *PcapWrWorker) QueueMsg(m PcapWrMsg) bool {
 	select {
 	case pwr.msgs <- m:
 		pwr.stats.cnts.Inc(pwr.stats.hTQueuedMsgs)
+
 		pwr.stats.cnts.Inc(pwr.stats.hQueuedMsgs)
 		//DBG("message queued to %q\n", pwr.name)
 		break
@@ -183,6 +186,9 @@ loop:
 				break loop
 			}
 			pwr.stats.cnts.Dec(pwr.stats.hQueuedMsgs)
+			v := pwr.tmsgs.Add(1)
+			// DBG("worker %s  tmsg: %d\n", pwr.name, v)
+			pwr.stats.cnts.Max(pwr.stats.hMaxMsgsWorker, counters.Val(v))
 			pwr.writeMsg(m)
 			FreePcapWrMsg(&m)
 			continue

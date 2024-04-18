@@ -736,6 +736,8 @@ skip_crlf:
 		ok := CallTrack(smsg, endPoints)
 		if ok {
 			stats.Inc(sCnts.callTrWS)
+			// TODO: if WpcapPerCall ->
+			//           queue(wsock..., callid, s.buf[s.mstart:s.mstart+o], CreateIfNotExisting)
 		} else {
 			if c.cfg.Verbose &&
 				(Plog.L(slog.LERR) || c.cfg.W != ioutil.Discard) {
@@ -743,6 +745,8 @@ skip_crlf:
 					"ERROR: ws CallTrack failed\n")
 			}
 			stats.Inc(sCnts.callTrErrWS)
+			// TODO: if WpcapPerCall ->
+			//           queue(wsock..., callid, s.buf[s.mstart:s.mstart+o], AppendOnly)
 		}
 
 	default:
@@ -791,6 +795,10 @@ skip_crlf:
 			calltr.NProtoWS,
 			smsg.PV.GetCallID().CallID.Get(b),
 			b[:rep])
+		// TODO: if o+s.mstart < s.bused { mend = o+mstart }
+		//        else mend = s.mused
+		// TODO: if WpcapPerCall && callid-&& o>
+		//           queue(wsock..., callid, s.buf[s.mstart:s.mend], AppendOnly)
 	}
 	return err
 }

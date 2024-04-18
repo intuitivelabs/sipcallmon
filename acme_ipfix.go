@@ -108,7 +108,7 @@ func WriteAcmeIPFIXconnectSet(s *AcmeIPFIXconnectSet, dstBuf []byte, offs int) (
 	if tlen > len(dst) {
 		return 0, ErrIPFIXmoreBytes
 	}
-	if len(s.HostName) <= 0xff {
+	if len(s.HostName) >= 0xff {
 		return 0, ErrIPFIXinvLen
 	}
 	binary.BigEndian.PutUint16(dst[0:], s.MajorVer)

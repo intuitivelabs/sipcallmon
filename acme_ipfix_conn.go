@@ -444,7 +444,7 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 
 	// write response data set
 	var n, start, end int
-	end, err = WriteAcmeIPFIXconnectSet(&cSet, pkt[:], 21)
+	end, err = WriteAcmeIPFIXconnectSet(&cSet, pkt[:], 20)
 	if err != nil {
 		BUG("acme ipfix: failed to create probe response header: %s\n", err)
 		c.gStats.cnts.Inc(c.gStats.hBUG)

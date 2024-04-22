@@ -1,6 +1,6 @@
 module github.com/intuitivelabs/sipcallmon
 
-go 1.15
+go 1.19
 
 require (
 	github.com/google/gopacket v1.1.19
@@ -13,5 +13,10 @@ require (
 	github.com/intuitivelabs/timestamp v0.0.3
 	github.com/intuitivelabs/websocket v0.0.1
 	github.com/intuitivelabs/wtimer v0.0.2
-	golang.org/x/sys v0.0.0-20200217220822-9197077df867 // indirect
+)
+
+require (
+	github.com/intuitivelabs/bytespool v0.0.2 // indirect
+	github.com/intuitivelabs/mallocs/qmalloc v0.0.3 // indirect
+	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect
 )

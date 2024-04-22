@@ -59,6 +59,18 @@ It can either capture live packets or replay pcap files.
     	port for the internal http server, 0 == disable
   -iface string
     	interface to capture packets from
+  -ipfix_addr string
+    	listen address for the acme/oracle ipfix collector
+  -ipfix_port int
+    	port for the internal ipfix collector, 0 == disable
+  -ipfix_timeout_min
+    	minimum ipfix IO timeout, 0 == disable
+  -ipfix_timeout_max
+    	maxmimum ipfix IO timeout, 0 == disable
+  -ipfix_ignore_ingress
+    	ignore sip-ingress IPFIX messages
+  -ipfix_ignore_egress
+    	ignore sip-egress IPFIX messages
   -log_level int
     	log level (default 2)
   -log_opt uint
@@ -116,7 +128,7 @@ It can either capture live packets or replay pcap files.
 | /calls/list | list 100 calls (add ?n=NNN to change the number) |
 | /calls/list/query | list only calls matching a query (form) |
 | /calls/timeout | call tracking per state timeouts |
-| /counters | list statistics counters (params: group, counter, short, flags) |
+| /counters | list statistics counters (params: group, counter, short, nonzero, flags) |
 | /debug/options | logging and debugging options |
 | /debug/forcetimeout | force timeout for all the tracked calls (params: timeout=duration , default 100ms)|
 | /events | list first 100 events (add ?n=NNN to change the number) |
@@ -130,6 +142,7 @@ It can either capture live packets or replay pcap files.
 | /evrateblst/gccfg1 | periodic GC config for event rates entries |
 | /evrateblst/gccfg2 | memory pressure GC config and strategies for event rates entries |
 | /inject | inject a sip message (via web form) |
+| /ipfix/list | list all the IPFIX probes connections (params: n, s)
 | /regs | registration bindings hash table statistics |
 | /regs/list | list 100 register bindings (add ?n=NNN to change) |
 | /regs/list/query | list registration bindings matching query (form) |

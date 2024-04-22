@@ -59,6 +59,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/evrateblst/gccfg1", "", httpEvRateBlstGCcfg1},
 	{"/evrateblst/gccfg2", "", httpEvRateBlstGCcfg2},
 	{"/inject", "", httpInjectMsg},
+	{"/ipfix/list", "", httpIPFIXconnList},
 	{"/regs", "", httpRegStats},
 	{"/regs/cfg", "", httpRegCfg},
 	{"/regs/list", "", httpRegBindingsList},
@@ -1295,8 +1296,9 @@ func httpEventsBlst(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
-	groups := r.URL.Query()["group"]
-	cntrs := r.URL.Query()["counter"]
+	query := r.URL.Query()
+	groups := query["group"]
+	cntrs := query["counter"]
 	short := false
 	s := r.FormValue("short")
 
@@ -1324,6 +1326,8 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 				"val":      counters.PrVal,
 				"desc":     counters.PrDesc,
 				"rec":      counters.PrRec,
+				"nz":       counters.PrHideZero,
+				"nonzero":  counters.PrHideZero,
 			}
 			for _, f := range strings.Split(flgs, "|") {
 				if v, ok := fvals[f]; ok {
@@ -1339,6 +1343,14 @@ func httpPrintCounters(w http.ResponseWriter, r *http.Request) {
 		if !short {
 			flags |= counters.PrDesc
 		}
+	}
+
+	_, nonzero := query["nonzero"]
+	if !nonzero {
+		_, nonzero = query["nz"]
+	}
+	if nonzero {
+		flags |= counters.PrHideZero
 	}
 
 	if len(groups) == 0 && len(cntrs) == 0 {
@@ -1751,6 +1763,87 @@ func httpEventsRatesSet(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, httpFooter)
 }
 */
+
+func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
+	n := 1000 // default
+	s := 0
+
+	paramN := r.URL.Query()["n"] // max entries
+	paramS := r.URL.Query()["s"] // start
+
+	cfg := RunningCfg
+	if acmeIPFIXsrv == nil {
+		fmt.Fprintf(w, "Error: IPFIX disabled (addr: %q port:%p)\n",
+			cfg.IPFIXaddr, cfg.IPFIXport)
+		return
+	}
+
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+			if n > 100000 {
+				fmt.Fprintf(w, "Error: n value too big (%d), truncating\n", n)
+				n = 100000
+			}
+			if n < 0 {
+				n = 0
+			}
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+	if len(paramS) > 0 && len(paramS[0]) > 0 {
+		if i, err := strconv.Atoi(paramS[0]); err == nil {
+			s = i
+		} else {
+			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
+		}
+	}
+
+	connsInfo := make([]AcmeIPFIXconnInfo, n)
+	retNo, totalConns := acmeIPFIXsrv.GetConnInfo(connsInfo, s, n)
+	fmt.Fprintf(w, "IPFIX connections on %s (%d/%d) :\n\n",
+		acmeIPFIXsrv.Addr(), retNo, totalConns)
+	now := timestamp.Now()
+	for i, c := range connsInfo[:retNo] {
+		fmt.Fprintf(w,
+			"%5d. (%d) %s\n",
+			i+s, i, c.String())
+		fmt.Fprintf(w,
+			"       started   : %s (%ds ago)\n"+
+				"       last io   : %s (%ds ago)\n"+
+				"       timeout   : %ds (keepalive : %ds)\n",
+			c.StartTS, now.Sub(c.StartTS)/time.Second,
+			c.LastIO, now.Sub(c.LastIO)/time.Second,
+			c.Timeout, c.KeepAlive)
+
+		if c.HandshakeNo > 0 {
+			fmt.Fprintf(w,
+				"       handshake : no %d\n"+
+					"                   protocol ver %d.%d"+
+					" cfg flags %04x %04x"+
+					" sys flags %04x"+
+					" system id: %d\n"+
+					"                   keepalive %ds\n"+
+					"                   product   0x%02x%02x ver %d.%d.%d\n"+
+					"                   host      %q\n\n",
+				c.HandshakeNo,
+				c.Handshake.MajorVer, c.Handshake.MinorVer,
+				c.Handshake.CfgFlags, c.Handshake.CfgFlags2,
+				c.Handshake.SysFlags,
+				c.Handshake.SysID,
+				c.Handshake.KeepAliveT,
+				c.Handshake.ProdCode1, c.Handshake.ProdCode2,
+				c.Handshake.ProdMajorVer, c.Handshake.ProdMinorVer,
+				c.Handshake.Revision,
+				c.Handshake.HostName,
+			)
+		} else {
+			fmt.Fprintf(w, "       handshake : no %d\n\n", c.HandshakeNo)
+		}
+
+	}
+}
 
 func unescapeMsg(msg string, format string) ([]byte, error) {
 	m := []byte(msg)

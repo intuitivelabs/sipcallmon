@@ -53,7 +53,7 @@ func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
 	}
 	//  "github.com/intuitivelabs/bytespool"
 	// (uses multiple pools for different block sizes)
-	buf, _ := pcapWrMsgPool.Get(sz, true)
+	buf, hit := pcapWrMsgPool.Get(sz, true)
 
 	pkey := (*sipsp.PField)(unsafe.Pointer(&buf[0]))
 	*pkey = Key
@@ -62,6 +62,9 @@ func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
 	copy(buf[offs:], msg)
 	pcapStats.cnts.Inc(pcapStats.hAllocMsgs)
 	pcapStats.cnts.Add(pcapStats.hAllocBytes, counters.Val(sz))
+	if hit {
+		pcapStats.cnts.Inc(pcapStats.hAllocHits)
+	}
 	return PcapWrMsg(buf)
 }
 
@@ -187,6 +190,10 @@ func (pwr *PcapWrWorker) QueueMsg(m PcapWrMsg) bool {
 	}
 	//DBG("%q returning true\n", pwr.name)
 	return true
+}
+
+func (pwr *PcapWrWorker) TotalMsgs() uint64 {
+	return pwr.tmsgs.Load()
 }
 
 func (pwr *PcapWrWorker) run() bool {

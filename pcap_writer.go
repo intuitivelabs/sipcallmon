@@ -138,6 +138,25 @@ func (pw *PcapWriter) Stop() bool {
 	return true
 }
 
+func (pw *PcapWriter) WorkersNo() int {
+	return pw.running
+}
+
+// MinMsgWorkers returns the minimum number of messages processed by a worker.
+func (pw *PcapWriter) MinMsgWorker() uint64 {
+	if pw.running < 1 {
+		return 0
+	}
+	min := pw.wrWorkers[0].TotalMsgs()
+	for i := 1; i < pw.running; i++ {
+		no := pw.wrWorkers[i].TotalMsgs()
+		if no < min {
+			min = no
+		}
+	}
+	return min
+}
+
 func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 	msg []byte) error {
 

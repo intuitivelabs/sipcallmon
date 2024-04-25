@@ -15,10 +15,10 @@ func pcapGlobalStatsInit() (error, *pcapStatsT) {
 	pcapStatsLock.Lock()
 	{
 		if pcapStats == nil {
-			pcapStats = &pcapStatsT{}
-			ok = pcapStats.Init()
-			if !ok {
-				pcapStats = nil
+			stats := &pcapStatsT{}
+			ok = stats.Init()
+			if ok {
+				pcapStats = stats
 			}
 		}
 	}
@@ -38,11 +38,14 @@ type pcapStatsT struct {
 	hWrittenBytes counters.Handle
 	hAllocMsgs    counters.Handle
 	hAllocBytes   counters.Handle
+	hAllocHits    counters.Handle
 
 	hDroppedQueue counters.Handle
 	hDroppedWr    counters.Handle
 
 	hMaxMsgsWorker counters.Handle
+	hMinMsgsWorker counters.Handle
+	hAvgMsgsWorker counters.Handle
 
 	hNewSubdir counters.Handle
 	hNewFile   counters.Handle
@@ -74,6 +77,9 @@ func (s *pcapStatsT) Init() bool {
 		{&s.hAllocBytes, counters.CntNonMonoF | counters.CntMaxF,
 			nil, nil, "crt_alloc_bytes",
 			"currently allocated total size"},
+		{&s.hAllocHits, counters.CntNonMonoF,
+			nil, nil, "alloc_pool_hits",
+			"allocs cached in the pool"},
 
 		{&s.hDroppedQueue, 0, nil, nil, "dropped_queue",
 			"number of messages dropped due to full write queue"},
@@ -83,6 +89,12 @@ func (s *pcapStatsT) Init() bool {
 		{&s.hMaxMsgsWorker, counters.CntNonMonoF,
 			nil, nil, "max_msgs_wrk",
 			"maximum number of messages handled by a worker"},
+		{&s.hMinMsgsWorker, counters.CntNonMonoF,
+			minMsgsWorker, &pcapDumper, "min_msgs_wrk",
+			"minimum number of messages handled by a worker"},
+		{&s.hAvgMsgsWorker, counters.CntNonMonoF,
+			avgMsgsWorker, &pcapDumper, "avg_msgs_wrk",
+			"average messages handled by a worker (rounded down to int)"},
 
 		{&s.hNewSubdir, 0, nil, nil, "new_subdirs",
 			"number of created subdirectories"},
@@ -116,4 +128,26 @@ func (s *pcapStatsT) Init() bool {
 		return false
 	}
 	return true
+}
+
+func minMsgsWorker(g *counters.Group, h counters.Handle, v counters.Val,
+	p interface{}) counters.Val {
+	pcapWriter := p.(*PcapWriter)
+	if pcapWriter != nil {
+		return counters.Val(pcapWriter.MinMsgWorker())
+	}
+	return counters.Val(0)
+}
+
+func avgMsgsWorker(g *counters.Group, h counters.Handle, v counters.Val,
+	p interface{}) counters.Val {
+	tmsgs := g.Get(pcapStats.hTQueuedMsgs)
+	pcapWriter := p.(*PcapWriter)
+	if pcapWriter != nil {
+		workers := pcapWriter.WorkersNo()
+		if workers > 0 {
+			return tmsgs / counters.Val(workers)
+		}
+	}
+	return counters.Val(0)
 }

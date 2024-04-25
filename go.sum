@@ -2,10 +2,10 @@ github.com/google/gopacket v1.1.19 h1:ves8RnFZPGiFnTS0uPQStjwru6uO6h+nlr9j6fL7kF
 github.com/google/gopacket v1.1.19/go.mod h1:iJ8V8n6KS+z2U1A8pUwu8bW5SyEMkXJB8Yo/Vo+TKTo=
 github.com/intuitivelabs/bytescase v1.0.2 h1:Yz2aO9cw3Erdnyb9k7/SS/ckFkOG8KWr4UcgUxWjnqE=
 github.com/intuitivelabs/bytescase v1.0.2/go.mod h1:Gr+B79bV8+mDKvYr4hja6qPVHtYG4Knem0K8gzZKHHU=
-github.com/intuitivelabs/bytespool v0.0.2 h1:rR7scHWuZBrqpRQvSOaHCfldo4QmQhlu7N4S779ETxc=
-github.com/intuitivelabs/bytespool v0.0.2/go.mod h1:LoAZMZ/ztsXMI5dZx5Qy3tLAh6kte54BBOJN931GRew=
-github.com/intuitivelabs/calltr v1.1.12 h1:cvgH1ySL8fpKdxR8n4S68fw5yhVGYcoDhTs1t4FcHjA=
-github.com/intuitivelabs/calltr v1.1.12/go.mod h1:euzcksaZNzPx0x+M1LieXZSbP4ffYjnniMW27r5H78k=
+github.com/intuitivelabs/bytespool v0.0.3 h1:sPR8Y3ipOgLUtfLVlgXlJ4AsYIC+z2Rzwe/KSUm+tCc=
+github.com/intuitivelabs/bytespool v0.0.3/go.mod h1:LoAZMZ/ztsXMI5dZx5Qy3tLAh6kte54BBOJN931GRew=
+github.com/intuitivelabs/calltr v1.1.13 h1:M3ixMmkXAkZZ/L4CJfpPeq7Pf5tywDcGbVbn56NLaro=
+github.com/intuitivelabs/calltr v1.1.13/go.mod h1:lZJlD1k9LY7wPmqQ6JRnSY+SqDcmiDN+6S93fGmwaD4=
 github.com/intuitivelabs/counters v0.3.1 h1:jfyTWCJdHNjzIjJ3O8ydLkFZcxI/QbL0zWaEysfw30E=
 github.com/intuitivelabs/counters v0.3.1/go.mod h1:gg2mPscHiatkLfDWF7bSuUeHcmsiTazGQx1pW62uJ0w=
 github.com/intuitivelabs/httpsp v0.0.9 h1:QNiIGg3u+7jBRbHbPxuPGb6r9viziaOMqKeNRwn8uZQ=

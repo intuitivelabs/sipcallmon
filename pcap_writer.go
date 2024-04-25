@@ -232,8 +232,11 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 	hlen += 14
 
 	// build packet
-	// TODO: use a fixed per PcapWriter gopacket serialize buffer
-	sbuf := gopacket.NewSerializeBuffer()
+	//sbuf := gopacket.NewSerializeBuffer()
+	// we expect only prepend, hlen is max 62 , payload max
+	// alternative: create a pool of SerializeBuffer of max size
+	// (65535) and use it.
+	sbuf := gopacket.NewSerializeBufferExpectedSize(hlen+len(payload), 0)
 	opts := gopacket.SerializeOptions{
 		ComputeChecksums: true,
 		FixLengths:       true,

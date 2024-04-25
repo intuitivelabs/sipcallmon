@@ -154,7 +154,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 		if !pw.wrWorkers[i].QueueMsg(m) {
 			ERR("queue size exceeded for %q size %d worker %d\n",
 				key.Get(msg), len(msg), i)
-			FreePcapWrMsg(&m)
+			FreePcapWrMsg(m)
 			return errorPcapWQueueFull
 		}
 		// DBG("worker queued: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)

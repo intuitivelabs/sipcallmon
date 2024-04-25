@@ -11,6 +11,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
+	"github.com/intuitivelabs/bytespool"
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
 )
@@ -20,6 +21,8 @@ const (
 	PcapDumpAppendOnlyF PcapWrMsgFlags = 1
 )
 
+var pcapWrMsgPool bytespool.Bpool
+
 type PcapWrMsgFlags uint32
 
 // internal format:
@@ -28,6 +31,15 @@ type PcapWrMsgFlags uint32
 //	flags - uint32
 //	msg - bytes array
 type PcapWrMsg []byte
+
+func init() {
+	// init the pcap write msg pool with a minimum size of 0,
+	// a maximum size of 64kb and allocations in multiples of
+	// 512 bytes.
+	if !pcapWrMsgPool.Init(0, 65536, 512) {
+		Log.PANIC("pcap write msg pool init failed\n")
+	}
+}
 
 func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
 	msg []byte) PcapWrMsg {
@@ -39,8 +51,9 @@ func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
 		// invalid key or msg
 		return nil
 	}
-	// TODO: switch to "github.com/intuitivelabs/bytespool"
-	buf := make([]byte, sz)
+	//  "github.com/intuitivelabs/bytespool"
+	// (uses multiple pools for different block sizes)
+	buf, _ := pcapWrMsgPool.Get(sz, true)
 
 	pkey := (*sipsp.PField)(unsafe.Pointer(&buf[0]))
 	*pkey = Key
@@ -52,11 +65,10 @@ func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
 	return PcapWrMsg(buf)
 }
 
-func FreePcapWrMsg(pwm *PcapWrMsg) {
-	// TODO: counters
-	// TODO: put back into pool (after switching to bytespool)
-	sz := len(*pwm)
-	*pwm = []byte{}
+func FreePcapWrMsg(pwm PcapWrMsg) {
+	sz := len(pwm)
+	// put back into pool (free)
+	pcapWrMsgPool.Put(pwm)
 	pcapStats.cnts.Dec(pcapStats.hAllocMsgs)
 	pcapStats.cnts.Sub(pcapStats.hAllocBytes, counters.Val(sz))
 }
@@ -190,7 +202,7 @@ loop:
 			// DBG("worker %s  tmsg: %d\n", pwr.name, v)
 			pwr.stats.cnts.Max(pwr.stats.hMaxMsgsWorker, counters.Val(v))
 			pwr.writeMsg(m)
-			FreePcapWrMsg(&m)
+			FreePcapWrMsg(m)
 			continue
 		case <-pwr.stop:
 			break loop

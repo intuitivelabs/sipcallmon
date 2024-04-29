@@ -24,6 +24,11 @@ github.com/intuitivelabs/websocket v0.0.1 h1:whA+XSRGdtQ2St1Od6rKO3D86GspsDdxW6h
 github.com/intuitivelabs/websocket v0.0.1/go.mod h1:WnxiNaoclkJ3PP+iQKE/LBlHCX74OQMO/2frDOJHksU=
 github.com/intuitivelabs/wtimer v0.0.2 h1:cow+iYQCww021YeMPY+nsYVQv/W4Igsc3PRG3CWNAxQ=
 github.com/intuitivelabs/wtimer v0.0.2/go.mod h1:69mqpDr+n8bmUUMPT2IES/bSZSFdg5kR4aENUrLNS3s=
+github.com/klauspost/cpuid/v2 v2.0.9 h1:lgaqFMSdTdQYdZ04uHyN2d/eKdOMyi2YLSvlQIBFYa4=
+github.com/klauspost/cpuid/v2 v2.0.9/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
+github.com/zeebo/assert v1.3.0 h1:g7C04CbJuIDKNPFHmsk4hwZDO5O+kntRxzaUoNXj+IQ=
+github.com/zeebo/xxh3 v1.0.2 h1:xZmwmqxHZA8AI603jOQ0tMqmBr9lPeFwGg6d+xy9DC0=
+github.com/zeebo/xxh3 v1.0.2/go.mod h1:5NWz9Sef7zIDm2JHfFlcQvNekmcEl9ekUZQQKCYaDcA=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
 golang.org/x/lint v0.0.0-20200302205851-738671d3881b/go.mod h1:3xt1FjdF8hUf6vQPIChWIBhFzV8gjjsPE/fR3IyQdNY=

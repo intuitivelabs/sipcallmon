@@ -3,14 +3,16 @@ package sipcallmon
 import (
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"net"
 	"net/url"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/intuitivelabs/calltr" // GetHash
+	//"github.com/intuitivelabs/calltr" // GetHash
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/unsafeconv"
+	"github.com/zeebo/xxh3"
 )
 
 // ethernet addresses used in generated pcaps (local)
@@ -29,7 +31,15 @@ type PcapWriterCfg struct {
 	Prefix   string // should contain a file prefix (optional)
 	Suffix   string // should contain file suffix + extension
 
-	subDirs []string // array of subdirs for spreading the pcap files
+	init    bool
+	wSeed   maphash.Seed // seed for workers dist.: init to random hash seed
+	subDirs []string     // array of subdirs for spreading the pcap files
+}
+
+func (pcfg *PcapWriterCfg) Init() {
+	pcfg.wSeed = maphash.MakeSeed()
+
+	pcfg.init = true
 }
 
 // InitSubDirs will fill the subdirectory names used for spreading the
@@ -81,10 +91,26 @@ func (pcfg PcapWriterCfg) PcapFileFullPath(key []byte) (fpath, dirpath string) {
 // the file specified by "key".
 func (pcfg PcapWriterCfg) PcapFileSubDir(key []byte) string {
 	if len(pcfg.subDirs) != 0 {
-		h := calltr.GetHash2(key, 0, len(key))
-		return pcfg.subDirs[h%uint32(len(pcfg.subDirs))]
+		h := pcfg.Hash(key)
+		return pcfg.subDirs[h%uint64(len(pcfg.subDirs))]
 	}
 	return ""
+}
+
+// Hash function used for mapping call-ids (keys) to directories
+func (pcfg PcapWriterCfg) Hash(key []byte) uint64 {
+	/* maphash is the fastest, but it always uses a random seed
+	   vector initialised at start-up (even if called with the same seed)
+	   so it cannot be used if the pcap files subdir. distribution needs
+	   to be consistent across runs (same call-id ends in the same subdir)
+	   xxh3 is the second best option in terms of speed.
+	   GetHash is faster then GetHash2 and for call-ids the distribution
+	   is similar. It's about 2.5x slower then the native maphash version
+	   (that uses amd64 aes instructions).
+	*/
+	//return uint64(calltr.GetHash2(key, 0, len(key)))
+	//return maphash.Bytes(dirSeed, key)
+	return xxh3.Hash(key)
 }
 
 // PcapWriter writes messages into pcap files.
@@ -106,6 +132,9 @@ func (pw *PcapWriter) Init(cfg PcapWriterCfg) bool {
 		pw.stats = gstats
 	}
 	pw.cfg = cfg
+	if !pw.cfg.init {
+		pw.cfg.Init()
+	}
 	pw.wrWorkers = make([]PcapWrWorker, pw.cfg.NWorkers)
 	pw.init = true
 	for i := 0; i < len(pw.wrWorkers); i++ {
@@ -164,8 +193,9 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWrite::WriteRawMsg: BUG: not initialized")
 	}
-	h := calltr.GetHash2(msg, int(key.Offs), int(key.Len))
-	i := int(h) % pw.running
+	h := maphash.Bytes(pw.cfg.wSeed, key.Get(msg))
+	//h := calltr.GetHash2(msg, int(key.Offs), int(key.Len))
+	i := uint64(h) % uint64(pw.running)
 	m := NewPcapWrMsg(key, flags, msg)
 	// DBG("msg key: %q h: %d i: %d (running %d)\n", key.Get(msg), h, i, pw.running)
 	// DBG("worker queued0: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)

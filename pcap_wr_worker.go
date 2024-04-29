@@ -231,8 +231,8 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	content := m.RawMsg()
 	flags := m.Flags()
 
-	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d\n",
-		pwr.name, key, flags, len(content))
+	//	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d\n",
+	//		pwr.name, key, flags, len(content))
 	ci := gopacket.CaptureInfo{
 		Timestamp:      time.Now(), // TODO: get if from packet when available
 		CaptureLength:  len(content),
@@ -242,8 +242,14 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	// TODO: search if fd & name cached, based on m.key
 	// if not, create or open/append file
 	fname, dirname := pwr.cfg.PcapFileFullPath(key)
-	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d: open file %q (%q)\n",
-		pwr.name, key, flags, len(content), fname, dirname)
+	/*
+		DBG("PCAP Dumper %s: message %q (l: %d) (h: %d seed: %d , %d) flags 0x%0x  len %d:"+
+			" open file %q (%q subdir %q (%d))\n",
+			pwr.name, key, len(key), pwr.cfg.Hash(key), dirSeed, pwr.cfg.Hash(nil),
+			flags, len(content),
+			fname, dirname, pwr.cfg.PcapFileSubDir(key),
+			pwr.cfg.Hash(key)%uint64(len(pwr.cfg.subDirs)))
+	*/
 	for tries := 0; tries < 2; tries++ {
 		if (flags & PcapDumpAppendOnlyF) != 0 {
 			f, err = os.OpenFile(fname, os.O_WRONLY, 0644)

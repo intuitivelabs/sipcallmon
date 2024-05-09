@@ -791,7 +791,7 @@ nextpkt:
 				var payload []byte = tl.LayerPayload()
 				if !nonSIP(payload, sip, sport, dip, dport) {
 					udpSIPMsg(ioutil.Discard, &sipmsg, payload, n, sip, sport,
-						dip, dport, cfg.Verbose)
+						dip, dport, cfg)
 				} else {
 					// not sip -> probe
 					pktErrEvHandler(calltr.EvNonSIPprobe,
@@ -905,23 +905,26 @@ nextpkt:
 
 // parse & process (calltrack) an udp message
 // Parameters:
-//   w - extra logging done here (use ioutil.Discard to disable it)
-//   sipmsg - will be filled with the parsed sipmsg (must be avalid
-//            pointer). It's a hack to avoid extra allocs (if it would
-//            be declared locally it would escape => extra allocs)
-//   buf     - buffer containing a SIP message (parse source)
-//   n       - packet id / number (for log messages)
-//   sip     - source ip
-//   sport   - source port
-//   dip     - destination ip
-//   dport   - destination port
-//   verbose - if set, extra information will be logged (both to w & to
-//             the log)
+//
+//	w - extra logging done here (use ioutil.Discard to disable it)
+//	sipmsg - will be filled with the parsed sipmsg (must be a valid
+//	         pointer). It's a hack to avoid extra allocs (if it would
+//	         be declared locally it would escape => extra allocs)
+//	buf     - buffer containing a SIP message (parse source)
+//	n       - packet id / number (for log messages)
+//	sip     - source ip
+//	sport   - source port
+//	dip     - destination ip
+//	dport   - destination port
+//	cfg     - Config pointer (Verbose, WpcapDumpOn, WpcapOnErr used)
+//	          the log)
+//
 // return: true on success
 func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 	n uint64, sip net.IP, sport int,
-	dip net.IP, dport int, verbose bool) bool {
+	dip net.IP, dport int, cfg *Config) bool {
 	ret := true
+	verbose := cfg.Verbose
 	if verbose && (Plog.DBGon() || w != ioutil.Discard) {
 		Plog.LogMux(w, verbose, slog.LDBG, "udp pkt: %q\n", buf)
 	}
@@ -971,6 +974,17 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 				sip, sport, dip, dport, calltr.NProtoUDP,
 				sipmsg.PV.GetCallID().CallID.Get(buf),
 				buf[:rep])
+			if cfg.WpcapDumpOn && cfg.WpcapOnErr &&
+				sipmsg.PV.GetCallID().CallID.Len > 4 {
+				e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
+					sipmsg.PV.GetCallID().CallID,
+					PcapDumpAppendOnlyF, buf)
+				if e != nil {
+					ERR("pcapDumper WriteUDPmsg error %v: "+
+						"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
+						e, n, sip, sport, dip, dport, len(buf))
+				}
+			}
 			ret = false
 		} else {
 			stats.Inc(sCnts.ok)
@@ -995,8 +1009,30 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 			ret = CallTrack(sipmsg, endPoints)
 			if ret {
 				stats.Inc(sCnts.callTrUDP)
+				if cfg.WpcapDumpOn &&
+					sipmsg.PV.GetCallID().CallID.Len > 4 {
+					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
+						sipmsg.PV.GetCallID().CallID,
+						0, buf)
+					if e != nil {
+						ERR("pcapDumper WriteUDPmsg error %v: "+
+							"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
+							e, n, sip, sport, dip, dport, len(buf))
+					}
+				}
 			} else {
 				stats.Inc(sCnts.callTrErrUDP)
+				if cfg.WpcapDumpOn && cfg.WpcapOnErr &&
+					sipmsg.PV.GetCallID().CallID.Len > 4 {
+					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
+						sipmsg.PV.GetCallID().CallID,
+						PcapDumpAppendOnlyF, buf)
+					if e != nil {
+						ERR("pcapDumper WriteUDPmsg error %v: "+
+							"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
+							e, n, sip, sport, dip, dport, len(buf))
+					}
+				}
 			}
 
 		}
@@ -1041,18 +1077,24 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 // ignored, using minr (min repeat count report) and  maxr (max ...).
 // A fresh new blst ev should have count == 1.
 // Note: it should be called with count >= 1. Behaviour is undefined
-//       for count == 0 (for now it returns true, but it might change
-//       since count == 0 means not blacklisted)
+//
+//	for count == 0 (for now it returns true, but it might change
+//	since count == 0 means not blacklisted)
+//
 // A blacklist event should be reported if:
-//  - repeat count is 1 (this is the first blacklisted event)
-//  - repeat count is a multiple of maxr
-//  - repeat count is less then maxr and a multiple of minr * 2^k
-//   (exponential backoff starting at minr and limited at maxr).
+//   - repeat count is 1 (this is the first blacklisted event)
+//   - repeat count is a multiple of maxr
+//   - repeat count is less then maxr and a multiple of minr * 2^k
+//     (exponential backoff starting at minr and limited at maxr).
+//
 // Returns true if an event should be reported, false otherwise and the
-//  computed difference from last count for each the function would have
-//  returned true (usefull for adding  "N ignored since last time").
+//
+//	computed difference from last count for each the function would have
+//	returned true (usefull for adding  "N ignored since last time").
+//
 // Note: the difference is valid only if minr & maxr _did_ not change
-//       between the calls.
+//
+//	between the calls.
 func reportBlstEv(count uint64, minr uint64, maxr uint64) (bool, uint64) {
 	// diff from previous  report, assuming minr & maxr did not change
 	var diff uint64

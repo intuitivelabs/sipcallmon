@@ -40,6 +40,10 @@ var httpSrv *http.Server
 var acmeIPFIXsrv *AcmeIPFIXcollector
 var stopLock sync.Mutex // avoid running Stop() in parallel
 
+// pcap per call-id dump
+var pcapDumper PcapWriter
+var PcapDumperCfg PcapWriterCfg
+
 // global counters / stats
 
 type evrGCcounters struct {
@@ -101,6 +105,7 @@ func Stop() {
 	stopCh = nil
 	gcTicker = nil
 	httpSrv = nil
+	pcapDumper.Stop()
 	stopLock.Unlock()
 }
 
@@ -415,6 +420,37 @@ func Init(cfg *Config) error {
 		return fmt.Errorf("failed to init pcap counters")
 	}
 
+	// pcap dumper init
+	if cfg.WpcapDumpOn {
+		PcapDumperCfg = PcapWriterCfg{
+			NWorkers: cfg.WpcapWorkers,
+			QueueLen: cfg.WpcapQueueLen,
+		}
+		// fix dir
+		if len(cfg.WpcapDir) > 0 && cfg.WpcapDir[len(cfg.WpcapDir)-1] != '/' {
+			PcapDumperCfg.Dir = cfg.WpcapDir + "/"
+		} else {
+			PcapDumperCfg.Dir = cfg.WpcapDir
+		}
+		PcapDumperCfg.Prefix = cfg.WpcapPrefix
+		// fix extension
+		PcapDumperCfg.Suffix = cfg.WpcapSuffix
+		if len(cfg.WpcapExt) > 0 {
+			if cfg.WpcapExt[0] != '.' {
+				PcapDumperCfg.Suffix += "." + cfg.WpcapExt
+			} else {
+				PcapDumperCfg.Suffix += cfg.WpcapExt
+			}
+		}
+		err = PcapDumperCfg.InitSubDirs(cfg.WpcapFlags, cfg.WpcapSubDirs)
+		if err != nil {
+			return err
+		}
+		if !pcapDumper.Init(PcapDumperCfg) {
+			return fmt.Errorf("failed to init pcap dumper")
+		}
+	}
+
 	return nil
 }
 
@@ -476,7 +512,7 @@ func Run(cfg *Config) error {
 		// TODO: add a channel for reporting back pkts no and ipfix runtime
 		// start IPFIX listener
 		DBG("ipfix start on port %d\n", cfg.IPFIXport)
-		err = acmeIPFIXsrv.Start(waitgrp)
+		err = acmeIPFIXsrv.Start(waitgrp, cfg)
 		if err != nil {
 			stopLock.Unlock()
 			DBG("starting IPFIX server error: %s\n", err)
@@ -485,6 +521,15 @@ func Run(cfg *Config) error {
 		}
 	}
 
+	// start pcap dumper
+	if cfg.WpcapDumpOn {
+		if !pcapDumper.Start() {
+			stopLock.Unlock()
+			waitgrp.Done()
+			Stop()
+			return fmt.Errorf("Run: failed to start pcap dumper")
+		}
+	}
 	stopLock.Unlock()
 
 	var runTime time.Duration

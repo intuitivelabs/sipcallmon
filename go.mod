@@ -5,18 +5,22 @@ go 1.19
 require (
 	github.com/google/gopacket v1.1.19
 	github.com/intuitivelabs/bytescase v1.0.2
-	github.com/intuitivelabs/calltr v1.1.12
+	github.com/intuitivelabs/bytespool v0.0.3
+	github.com/intuitivelabs/calltr v1.1.13
 	github.com/intuitivelabs/counters v0.3.1
 	github.com/intuitivelabs/httpsp v0.0.9
 	github.com/intuitivelabs/sipsp v1.1.5
 	github.com/intuitivelabs/slog v0.0.2
 	github.com/intuitivelabs/timestamp v0.0.3
+	github.com/intuitivelabs/unsafeconv v0.0.1
 	github.com/intuitivelabs/websocket v0.0.1
 	github.com/intuitivelabs/wtimer v0.0.2
+	github.com/zeebo/xxh3 v1.0.2
 )
 
 require (
-	github.com/intuitivelabs/bytespool v0.0.2 // indirect
 	github.com/intuitivelabs/mallocs/qmalloc v0.0.3 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
+	golang.org/x/net v0.0.0-20190620200207-3b0461eec859 // indirect
 	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect
 )

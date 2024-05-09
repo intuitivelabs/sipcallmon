@@ -155,7 +155,13 @@ func (s *AcmeIPFIXcollector) IsInit() bool {
 	return ret
 }
 
-func (s *AcmeIPFIXcollector) Start(wg *sync.WaitGroup) error {
+// Start will start the listeneres go routines for ipfix.
+// The parameters are a WaitGroup used for keeping track of the running
+// go routines and a config for processing the encapsulated packets
+// (e.g. pointer to global sipcallmon config).
+func (s *AcmeIPFIXcollector) Start(
+	wg *sync.WaitGroup,
+	processPktCfg *Config) error {
 	if !s.init {
 		return fmt.Errorf("acme ipfix: failed to start: not initialised")
 	}
@@ -167,7 +173,7 @@ func (s *AcmeIPFIXcollector) Start(wg *sync.WaitGroup) error {
 		if wg != nil {
 			defer wg.Done()
 		}
-		s.acceptConns(wg)
+		s.acceptConns(wg, processPktCfg)
 		s.Stop()
 		s.wg.Done() // acceptConns go routine
 		s.Wait()    // wait for all the conns go routines
@@ -255,7 +261,9 @@ func (s *AcmeIPFIXcollector) GetConnInfo(info []AcmeIPFIXconnInfo,
 }
 
 // NOTE: supposed to run in a go-routine, with s.wg.Add(1)
-func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
+func (s *AcmeIPFIXcollector) acceptConns(
+	wg *sync.WaitGroup,
+	processPktCfg *Config) {
 
 	connId := uint64(0)
 	for {
@@ -288,7 +296,7 @@ func (s *AcmeIPFIXcollector) acceptConns(wg *sync.WaitGroup) {
 				DBG("AcmeIPFIX: conn.run() start\n")
 				s.gStats.cnts.Inc(s.gStats.hActiveConns)
 				s.gStats.cnts.Inc(s.gStats.hTotalConns)
-				conn.run()
+				conn.run(processPktCfg)
 				DBG("AcmeIPFIX: conn.run() exit\n")
 				conn.conn.Close()
 				lifetime := timestamp.Now().Sub(conn.startTS) / time.Second

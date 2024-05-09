@@ -134,7 +134,7 @@ func (c *AcmeIPFIXconn) handleIOdeadline(e error) error {
 	return e
 }
 
-func (c *AcmeIPFIXconn) run() {
+func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 
 	var buf [65536]byte
 	var rpos int
@@ -230,7 +230,7 @@ func (c *AcmeIPFIXconn) run() {
 			// read at least a whole packet
 			c.gStats.cnts.Inc(c.gStats.hRdPkts)
 			c.pktNo.Add(1)
-			err = c.handlePkt(mHdr, buf[:end])
+			err = c.handlePkt(mHdr, buf[:end], processPktCfg)
 			// check error and close connection if needed
 			if err != nil {
 				ERR("acme ipfix: parsing error on %s %s: %s\n",
@@ -251,7 +251,11 @@ func (c *AcmeIPFIXconn) run() {
 	} // for
 }
 
-func (c *AcmeIPFIXconn) handlePkt(pktHdr IPFIXmsgHdr, buf []byte) error {
+func (c *AcmeIPFIXconn) handlePkt(
+	pktHdr IPFIXmsgHdr,
+	buf []byte,
+	processPktCfg *Config) error {
+
 	pos := IPFIXmsgHdrLen
 	setsNo := 0
 
@@ -285,28 +289,28 @@ func (c *AcmeIPFIXconn) handlePkt(pktHdr IPFIXmsgHdr, buf []byte) error {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPudp(setHdr.SetID, set)
+			err = c.handleSIPudp(setHdr.SetID, set, processPktCfg)
 		case AcmeIPFIXsipUDP4Out:
 			// missing: UDP6Out (same as ID & format as UPD4?)
 			if c.Cfg.IgnoreEgress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPudp(setHdr.SetID, set)
+			err = c.handleSIPudp(setHdr.SetID, set, processPktCfg)
 		case AcmeIPFIXsipTCP4In:
 			// missing: TCP6In (unknown ID & format)
 			if c.Cfg.IgnoreIngress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPtcp(setHdr.SetID, set)
+			err = c.handleSIPtcp(setHdr.SetID, set, processPktCfg)
 		case AcmeIPFIXsipTCP4Out:
 			// missing: TCP6Out (unknown ID & format)
 			if c.Cfg.IgnoreEgress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPtcp(setHdr.SetID, set)
+			err = c.handleSIPtcp(setHdr.SetID, set, processPktCfg)
 		case IPFIXtemplateID:
 			WARN("acme ipfix: unexpected template set (%d)\n", setHdr.SetID)
 			c.gStats.cnts.Inc(c.gStats.hTemplateSet)
@@ -491,7 +495,10 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 // Note: we suppose the IPv6 UDP is the same format as IPv4, but
 //
 //	there is no confirmation for that.
-func (c *AcmeIPFIXconn) handleSIPudp(setID uint16, buf []byte) error {
+func (c *AcmeIPFIXconn) handleSIPudp(
+	setID uint16,
+	buf []byte,
+	processPktCfg *Config) error {
 
 	var udp4InSet AcmeIPFIXsipUDP4InSet
 	var udp4OutSet AcmeIPFIXsipUDP4OutSet
@@ -599,7 +606,7 @@ func (c *AcmeIPFIXconn) handleSIPudp(setID uint16, buf []byte) error {
 
 		udpSIPMsg(ioutil.Discard, &c.sipmsg, udp.Payload, c.pktNo.Load(),
 			srcIP, int(udp.SrcPort),
-			dstIP, int(udp.DstPort), false)
+			dstIP, int(udp.DstPort), processPktCfg)
 	} else {
 		// not sip -> probe
 		pktErrEvHandler(calltr.EvNonSIPprobe,
@@ -610,7 +617,11 @@ func (c *AcmeIPFIXconn) handleSIPudp(setID uint16, buf []byte) error {
 	return nil
 }
 
-func (c *AcmeIPFIXconn) handleSIPtcp(setID uint16, buf []byte) error {
+func (c *AcmeIPFIXconn) handleSIPtcp(
+	setID uint16,
+	buf []byte,
+	processPktCfg *Config) error {
+
 	var tcp4InSet AcmeIPFIXsipTCP4InSet
 	var tcp4OutSet AcmeIPFIXsipTCP4OutSet
 	var smsg []byte

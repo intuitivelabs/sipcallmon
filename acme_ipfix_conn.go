@@ -175,7 +175,7 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 					continue
 				}
 				// else timeout exceeded
-				ERR("acme ipfix: connection io timeout exceeded (%d/%d)"+
+				DBG("acme ipfix: connection io timeout exceeded (%d/%d)"+
 					" on read\n",
 					timestamp.Now().Sub(
 						timestamp.AtomicLoad(&c.lastIO))/time.Second,

@@ -73,6 +73,26 @@ It can either capture live packets or replay pcap files.
     	read packets from pcap files
   -pcap_loop uint
     	loop through pcap files multiple times
+  -pcap_dump_on
+    	enable/disable writing a pcap file for every call (pcap_dump_dir must also be set)
+  -pcap_dump_dir string 
+    	write directory for generated pcap per call files
+  -pcap_dump_extension string
+    	extension for the generated pcap per call files (default "pcap")
+  -pcap_dump_flags int
+    	pcap dump flags (future use)
+  -pcap_dump_onerr
+    	enable/disable appending error/bad messages to pcap per call files (pcap_dump_on must also be set)
+  -pcap_dump_prefix string
+    	prefix added to the name of the generated pcap per call files (default "callid_")
+  -pcap_dump_suffix string
+    	suffix added to the name of the generated pcap per call files
+  -pcap_dump_queue_len int
+    	message queue length for each of the pcap dump worker threads (default 10000)
+  -pcap_dump_subdirs int
+    	number of subdirectories for spreading the pcap dump files
+  -pcap_dump_workers int
+    	number of pcap dump worker threads (default 16)
   -reg_del_delay int
     	RegDel event generation delay to work around quick reg.del re-reg
   -reg_exp_delta uint

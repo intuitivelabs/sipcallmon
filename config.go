@@ -173,8 +173,8 @@ var defaultConfigVals = Config{
 	WpcapSuffix:   "",
 	WpcapExt:      "pcap",
 	WpcapOnErr:    false,
-	WpcapWorkers:  1,
-	WpcapQueueLen: 10, // TODO: replace with higher value after testing
+	WpcapWorkers:  16,
+	WpcapQueueLen: 10000, // TODO: replace with higher value after testing
 
 	ReplayMinDelay: 250 * time.Millisecond,
 	ReplayMaxDelay: 0,
@@ -343,10 +343,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"pcap dump flags (future use)")
 	flag.BoolVar(&cfg.WpcapDumpOn, "pcap_dump_on", c.WpcapDumpOn,
 		"enable/disable writing a pcap file for every call"+
-			" (pcap_dump_dir must also be set")
+			" (pcap_dump_dir must also be set)")
 	flag.BoolVar(&cfg.WpcapOnErr, "pcap_dump_onerr", c.WpcapOnErr,
 		"enable/disable appending error/bad messages to pcap per call files"+
-			" (pcap_dump_on must also be set")
+			" (pcap_dump_on must also be set)")
 	flag.IntVar(&cfg.WpcapWorkers, "pcap_dump_workers", c.WpcapWorkers,
 		"number of pcap dump worker threads")
 	flag.IntVar(&cfg.WpcapQueueLen, "pcap_dump_queue_len", c.WpcapQueueLen,

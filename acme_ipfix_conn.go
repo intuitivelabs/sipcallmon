@@ -730,6 +730,18 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 		ok := CallTrack(&c.sipmsg, endPoints)
 		if ok {
 			stats.Inc(sCnts.callTrTCP)
+			if processPktCfg.WpcapDumpOn &&
+				c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+					dstIP, int(dstPort),
+					c.sipmsg.PV.GetCallID().CallID,
+					0, smsg)
+				if e != nil {
+					ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+						"%s:%d -> %s:%d payload len: %d\n",
+						e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+				}
+			}
 		} else {
 			/*
 			   if s.Verbose &&
@@ -740,6 +752,18 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			*/
 			ERR("ipfix tcp: CallTrack failed\n")
 			stats.Inc(sCnts.callTrErrTCP)
+			if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
+				c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+					dstIP, int(dstPort),
+					c.sipmsg.PV.GetCallID().CallID,
+					PcapDumpAppendOnlyF, smsg)
+				if e != nil {
+					ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+						"%s:%d -> %s:%d payload len: %d\n",
+						e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+				}
+			}
 		}
 		if o != len(smsg) {
 			stats.Inc(sCnts.offsetErr)
@@ -770,6 +794,18 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			calltr.NProtoTCP,
 			c.sipmsg.PV.GetCallID().CallID.Get(smsg),
 			[]byte("missing Content-Length"))
+		if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
+			c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+				dstIP, int(dstPort),
+				c.sipmsg.PV.GetCallID().CallID,
+				PcapDumpAppendOnlyF, smsg)
+			if e != nil {
+				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+					"%s:%d -> %s:%d payload len: %d\n",
+					e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			}
+		}
 
 	default: /* handles sipsp.ErrHdrMoreBytes too */
 		// stats + dbg
@@ -820,6 +856,18 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			calltr.NProtoTCP,
 			c.sipmsg.PV.GetCallID().CallID.Get(smsg),
 			smsg[:rep])
+		if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
+			c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+				dstIP, int(dstPort),
+				c.sipmsg.PV.GetCallID().CallID,
+				PcapDumpAppendOnlyF, smsg)
+			if e != nil {
+				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+					"%s:%d -> %s:%d payload len: %d\n",
+					e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			}
+		}
 	}
 	/* don't return err here: if it's a sip message parsing error
 	   we can just ignore the ipfix set, we don't need to close the

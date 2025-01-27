@@ -262,7 +262,7 @@ func (er *EvRing) addSafeCallEntry(evt calltr.EventType, ce *calltr.CallEntry,
 	ret := n > 0
 	if lock {
 		if !calltr.UnlockCallEntry(ce) {
-			BUG("unlocking call entry %p failed\n")
+			BUG("unlocking call entry %p failed\n", ce)
 		}
 	}
 	er.releaseEntry(i, ret)

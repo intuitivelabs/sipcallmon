@@ -261,7 +261,7 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 				// try to create subdir
 				err = os.MkdirAll(dirname, 0700)
 				if err != nil && !errors.Is(err, os.ErrExist) {
-					DBG("error creating dir %q: %v (%T)\n", dirname, err)
+					DBG("error creating dir %q: %v (%T)\n", dirname, err, err)
 					pwr.stats.cnts.Inc(pwr.stats.hErrMkSubdir)
 					goto err_cleanup
 				}

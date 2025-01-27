@@ -1,9 +1,5 @@
 github.com/google/gopacket v1.1.19 h1:ves8RnFZPGiFnTS0uPQStjwru6uO6h+nlr9j6fL7kF8=
 github.com/google/gopacket v1.1.19/go.mod h1:iJ8V8n6KS+z2U1A8pUwu8bW5SyEMkXJB8Yo/Vo+TKTo=
-github.com/intuitivelabs/bytescase v1.0.2 h1:Yz2aO9cw3Erdnyb9k7/SS/ckFkOG8KWr4UcgUxWjnqE=
-github.com/intuitivelabs/bytescase v1.0.2/go.mod h1:Gr+B79bV8+mDKvYr4hja6qPVHtYG4Knem0K8gzZKHHU=
-github.com/intuitivelabs/httpsp v0.0.9 h1:QNiIGg3u+7jBRbHbPxuPGb6r9viziaOMqKeNRwn8uZQ=
-github.com/intuitivelabs/httpsp v0.0.9/go.mod h1:hO16uPAfO2hOZtseOStT95MLe/0efqNz51kiEq1x3w4=
 github.com/klauspost/cpuid/v2 v2.0.9 h1:lgaqFMSdTdQYdZ04uHyN2d/eKdOMyi2YLSvlQIBFYa4=
 github.com/klauspost/cpuid/v2 v2.0.9/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
 github.com/zeebo/assert v1.3.0 h1:g7C04CbJuIDKNPFHmsk4hwZDO5O+kntRxzaUoNXj+IQ=
@@ -29,8 +25,8 @@ github.com/intuitivelabs/timestamp v0.0.4 h1:R8a9g6W9anHu8uX/FE+Xd2/2pQYtiVJgFUr
 github.com/intuitivelabs/timestamp v0.0.4/go.mod h1:g6iXgcaQTyNvYhRewLj5li0dhUBrlm0ibApJTklqoXU=
 github.com/intuitivelabs/unsafeconv v0.0.1 h1:vVd4BsepyJz9eqNWqh8cVrZt1Aj21ucphP2k7wr/vX0=
 github.com/intuitivelabs/unsafeconv v0.0.1/go.mod h1:QK7AOVbwVRbhdxEwAT8BsUvLqliEHETqqF9r74ICb8g=
-github.com/intuitivelabs/websocket v0.0.1 h1:whA+XSRGdtQ2St1Od6rKO3D86GspsDdxW6h1ccy62oc=
-github.com/intuitivelabs/websocket v0.0.1/go.mod h1:WnxiNaoclkJ3PP+iQKE/LBlHCX74OQMO/2frDOJHksU=
+github.com/intuitivelabs/websocket v0.0.2 h1:EiQF0jQQMIJn15T8wVD4f4Qlv+eoFyJp2YeDeg9gRgg=
+github.com/intuitivelabs/websocket v0.0.2/go.mod h1:WnxiNaoclkJ3PP+iQKE/LBlHCX74OQMO/2frDOJHksU=
 github.com/intuitivelabs/wtimer v0.0.3 h1:1ziVNpwuWNaD6tXw74LA9VAvrCpTlMd84FGsw9E/x/A=
 github.com/intuitivelabs/wtimer v0.0.3/go.mod h1:WrrvfXJ1yBcbsxvfwmRGBS1uzuUV5EDATUh619lEaMI=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

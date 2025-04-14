@@ -456,34 +456,42 @@ func httpEvRateBlstStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
-	fmt.Fprintf(w, "Memory Stats:\n"+
+	fmt.Fprintf(w, "Memory Stats (%s):\n"+
 		"	TotalSize: %d NewCalls: %d FreeCalls: %d Failures: %d\n",
+		ms.Name,
 		atomic.LoadUint64((*uint64)(&ms.TotalSize)),
 		atomic.LoadUint64((*uint64)(&ms.NewCalls)),
 		atomic.LoadUint64((*uint64)(&ms.FreeCalls)),
 		atomic.LoadUint64((*uint64)(&ms.Failures)),
 	)
-	v := atomic.LoadUint64((*uint64)(&ms.ZeroSize))
-	if v != 0 {
-		fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: 0!\n",
-			v,
-			v*100/(calltr.AllocCallsPerEntry*
-				atomic.LoadUint64((*uint64)(&ms.NewCalls))))
-	}
-	for i := 0; i < len(ms.Sizes); i++ {
-		v := atomic.LoadUint64((*uint64)(&ms.Sizes[i]))
+	// for now all alloc count as only one call
+	// even if the alloc 2 blocks -- calltr alloc FIXME
+	allocCallsPerEntry := 1
+	allocsNo := atomic.LoadUint64((*uint64)(&ms.NewCalls)) -
+		atomic.LoadUint64((*uint64)(&ms.Failures))
+	if allocsNo > 0 {
+		v := atomic.LoadUint64((*uint64)(&ms.ZeroSize))
 		if v != 0 {
-			if i < (len(ms.Sizes) - 1) {
-				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: %6d -%6d\n",
-					v,
-					v*100/(calltr.AllocCallsPerEntry*
-						atomic.LoadUint64((*uint64)(&ms.NewCalls))),
-					i*calltr.AllocRoundTo+1,
-					(i+1)*calltr.AllocRoundTo)
-			} else {
-				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: >=   %6d\n",
-					v, v*100/2*atomic.LoadUint64((*uint64)(&ms.NewCalls)),
-					i*calltr.AllocRoundTo+1)
+			fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: 0!\n",
+				v,
+				v*100/(uint64(allocCallsPerEntry)*allocsNo))
+		}
+		for i := 0; i < len(ms.Sizes); i++ {
+			v := atomic.LoadUint64((*uint64)(&ms.Sizes[i]))
+			if v != 0 {
+				if i < (len(ms.Sizes) - 1) {
+					fmt.Fprintf(w,
+						"	%9d allocs (%3d%%)     size: %6d -%6d\n",
+						v,
+						v*100/(uint64(allocCallsPerEntry)*allocsNo),
+						i*int(ms.AllocRoundTo)+1,
+						(i+1)*int(ms.AllocRoundTo))
+				} else {
+					fmt.Fprintf(w,
+						"	%9d allocs (%3d%%)     size: >=   %6d\n",
+						v, v*100/(uint64(allocCallsPerEntry)*allocsNo),
+						i*int(ms.AllocRoundTo)+1)
+				}
 			}
 		}
 	}
@@ -498,7 +506,7 @@ func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 			fmt.Fprintf(w, "	%9d / %9d pool hits/miss (%3d%% / %3d%%)"+
 				" size: %6d\n",
 				h, m, h*100/(h+m), m*100/(h+m),
-				(i+1)*calltr.AllocRoundTo)
+				(i+1)*int(ms.AllocRoundTo))
 		}
 	}
 	if (tHits + tMiss) > 0 {

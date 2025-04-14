@@ -51,6 +51,8 @@ type Config struct {
 	Iface          string        `config:"iface"`
 	PCAPBufKb      int           `config:"pcap_buf_kb"` // pcap cap buf in kb
 	BPF            string        `config:"bpf"`         // packet filter
+	// sip ports (packets to this ports are treated as sip)
+	SIPports       []uint16      `config:"sip_ports"`
 	IPFIXaddr      string        `config:"ipfix_addr"`
 	IPFIXport      int           `config:"ipfix_port"`
 	IPFIXminTo     int           `config:"ipfix_timeout_min"`
@@ -166,6 +168,11 @@ type Config struct {
 
 	GeoIPdb     string `config:"geo_ip_db"`
 	GeoIPLookup bool   `config:"geo_ip_on"`
+
+	// SDP config
+	SDPparse       bool   `config:"sdp"`
+	SDPtotalMem    uint64 `config:"sdp_total_mem"`
+	SDPmaxEntryMem uint64 `config:"sdp_max_entry_mem"`
 }
 
 var defaultConfigVals = Config{
@@ -184,6 +191,7 @@ var defaultConfigVals = Config{
 
 	ReplayMinDelay: 250 * time.Millisecond,
 	ReplayMaxDelay: 0,
+	SIPports:       nil, // empty by default, everything is SIP
 	TCPGcInt:       30 * time.Second,
 	TCPReorderTo:   60 * time.Second,
 	TCPConnTo:      3600 * time.Second,
@@ -213,6 +221,9 @@ var defaultConfigVals = Config{
 	EncryptUA:          false,
 	ClearTxtCountryISO: false,
 	ClearTxtCityID:     false,
+	SDPparse:           false,
+	SDPtotalMem:        0,
+	SDPmaxEntryMem:     65535,
 }
 
 func (cfg Config) UseIPAnonymization() bool {
@@ -270,6 +281,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	var evTblst string
 	var evRmaxVals string
 	var evRIntvls string
+	var sipPorts string
 	var vxlanPorts string
 	var wsPorts string
 	var statsGrps string
@@ -289,6 +301,14 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			defaultEvRIntvls += ","
 		}
 		defaultEvRIntvls += v.String()
+	}
+
+	defaultSIPPorts := "" // format "port1[,port2]*", e.g.: "5060,5061"
+	for i, v := range c.SIPports {
+		if i != 0 {
+			defaultSIPPorts += ","
+		}
+		defaultSIPPorts += strconv.FormatUint(uint64(v), 10)
 	}
 
 	defaultVXLANPorts := "" // format "port1[,port2]*", e.g.: "4789,4790"
@@ -374,6 +394,10 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.IntVar(&cfg.PCAPBufKb, "pcap_buf_kb", c.PCAPBufKb,
 		"size for pcap buffer in kb")
 	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
+
+	flag.StringVar(&sipPorts, "sip_ports", defaultSIPPorts,
+		"sip ports list, comma or space separated"+
+			" (if empty everything is treated as SIP)")
 
 	flag.IntVar(&cfg.IPFIXport, "ipfix_port", c.IPFIXport,
 		"port for receiving oracle/acme sbc IPFIX messages, 0 == disable")
@@ -469,11 +493,50 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.StringVar(&statsGrps, "stats_groups", defaultStatsGrps,
 		"counter groups reported on exit, comma or space separated")
 
+	flag.BoolVar(&cfg.SDPparse, "sdp", c.SDPparse, "turn on sdp support")
+	flag.Uint64Var(&cfg.SDPtotalMem, "sdp_total_mem", c.SDPtotalMem,
+		"total memory reserved for keeping SDP state in Mb")
+	flag.Uint64Var(&cfg.SDPmaxEntryMem, "sdp_max_entry_mem", c.SDPmaxEntryMem,
+		"maximum memory for one SDP state entry (offer or answer)")
+
 	flag.Parse()
 	// fix cmd line params
 	{
 		var perr error
 		errs := 0
+
+		// parse the port lists, ev rate blacklist max and intervals lists
+		// function to check for valid separators
+		checkSep := func(r rune) bool {
+			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
+				r == rune('[') || r == rune(']') {
+				return true
+			}
+			return false
+		}
+
+		cfg.SIPports = c.SIPports
+		portsStr := strings.FieldsFunc(sipPorts, checkSep)
+		k := 0
+		portsNum := make([]uint16, 0, 10)
+		for _, s := range portsStr {
+			if len(s) == 0 {
+				continue
+			}
+			if v, perr := strconv.ParseUint(s, 10, 16); perr == nil {
+				portsNum = append(portsNum, uint16(v))
+			} else {
+				e := fmt.Errorf("invalid sip port %q in %q (pos %d)",
+					s, sipPorts, k)
+				errs++
+				return cfg, e
+			}
+			k++
+		}
+		if len(portsNum) > 0 {
+			cfg.SIPports = portsNum
+		}
+
 		cfg.ReplayMinDelay, perr = time.ParseDuration(*replMinDelayS)
 		if perr != nil {
 			e := fmt.Errorf("invalid minimum replay delay: %s: %v",
@@ -529,15 +592,6 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			cfg.CallStTo[nt.Name] = nt.Intvl
 		}
 
-		// parse the ev rate blacklist max and intervals lists
-		// function to check for valid separators
-		checkSep := func(r rune) bool {
-			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
-				r == rune('[') || r == rune(']') {
-				return true
-			}
-			return false
-		}
 		cfg.EvTblst = c.EvTblst
 		blst_types := strings.FieldsFunc(evTblst, checkSep)
 		blst_vals := make([]string, 0, 10)
@@ -553,7 +607,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 		cfg.EvRblstMaxVals = c.EvRblstMaxVals
 		rate_vals := strings.FieldsFunc(evRmaxVals, checkSep)
-		k := 0
+		k = 0
 		for _, s := range rate_vals {
 			if len(s) == 0 {
 				continue
@@ -624,9 +678,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		}
 
 		cfg.VXLANports = c.VXLANports
-		portsStr := strings.FieldsFunc(vxlanPorts, checkSep)
+		portsStr = strings.FieldsFunc(vxlanPorts, checkSep)
 		k = 0
-		portsNum := make([]uint16, 0, 10)
+		portsNum = make([]uint16, 0, 10)
 		for _, s := range portsStr {
 			if len(s) == 0 {
 				continue

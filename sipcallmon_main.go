@@ -317,6 +317,9 @@ func Init(cfg *Config) error {
 	calltrCfg.Mem.MaxRegEntries = uint64(cfg.RegsMax)
 	calltrCfg.Mem.MaxRegEntriesMem = cfg.RegsMaxMem
 	calltrCfg.Dbg = calltr.DbgFlags(cfg.DbgCalltr)
+	calltrCfg.SDP = cfg.SDPparse
+	calltrCfg.Mem.SDPtotalMem = cfg.SDPtotalMem * 1024 * 1024
+	calltrCfg.Mem.SDPmaxEntryMem = cfg.SDPmaxEntryMem
 
 	for callst, to := range cfg.CallStTo {
 		cs, perr := parseCallStateName(callst)
@@ -342,6 +345,14 @@ func Init(cfg *Config) error {
 		}
 	}
 	calltr.SetCfg(&calltrCfg)
+	if !calltr.InitSDPsupport() {
+		if cfg.SDPparse {
+			return fmt.Errorf("failed to init calltr sdp support (%d bytes)\n",
+				calltrCfg.Mem.SDPtotalMem)
+		}
+		// else do nothing (allow starting without memory for sdp if sdp
+		// support is disabled
+	}
 
 	// init evr GC counters
 	evrGCcntDefs := [...]counters.Def{

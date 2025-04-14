@@ -29,6 +29,7 @@ import (
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
 	"github.com/intuitivelabs/timestamp"
+	"github.com/intuitivelabs/unsafeconv"
 )
 
 const (
@@ -390,6 +391,17 @@ func printTLPacket(w io.Writer, cfg *Config, n uint64,
 			ipl.NetworkFlow().Dst(), trl.TransportFlow().Dst(),
 			trl.LayerType(), len(trl.LayerPayload()))
 	}
+}
+
+// return true if one of the ports is listed in the provided  list
+
+func checkPortsList(sport, dport int, lst []uint16) bool {
+	for _, v := range lst {
+		if v != 0 && (dport == int(v) || sport == int(v)) {
+			return true
+		}
+	}
+	return false
 }
 
 // return true if buf content is for sure not a SIP packet
@@ -787,8 +799,45 @@ nextpkt:
 						fmt.Printf("udp packet %d truncated\n", n)
 					}
 				*/
-				stats.Inc(sCnts.seen)
+
 				var payload []byte = tl.LayerPayload()
+
+				// check if configured sip port
+				if len(cfg.SIPports) != 0 &&
+					!checkPortsList(sport, dport, cfg.SIPports) {
+					// non sip
+					// process as RTP
+					// TODO:  cleanup
+					rtpH := calltr.GetRTPStreamHash()
+					var endPoints [2]calltr.NetInfo
+					endPoints[0].SetIP(sip)
+					endPoints[0].Port = uint16(sport)
+					endPoints[0].SetProto(calltr.NProtoUDP)
+					endPoints[1].SetIP(dip)
+					endPoints[1].Port = uint16(dport)
+					endPoints[1].SetProto(calltr.NProtoUDP)
+					match, rtpS := rtpH.GetBestMatchStream(endPoints[0],
+						endPoints[1])
+					/*
+						DBG("XXX: RTP: packet %s:%d -> %s:%d result: %d\n",
+							endPoints[0].IP().String(),
+							endPoints[0].Port,
+							endPoints[1].IP().String(),
+							endPoints[1].Port,
+							match)
+					*/
+					if rtpS != nil {
+						if match != calltr.RTPNoMatch {
+							rtpS.Stream.Stats.AddPkt(uint64(len(payload)))
+							crtT := timestamp.Timestamp(now)
+							rtpS.Stream.Stats.UpdateRate(crtT)
+						}
+						rtpH.PutStream(rtpS)
+					}
+					break nextlayer // exit loop
+				}
+				// sport or dport listed in SIPports or no SIPports configured
+				stats.Inc(sCnts.seen)
 				if !nonSIP(payload, sip, sport, dip, dport) {
 					udpSIPMsg(ioutil.Discard, &sipmsg, payload, n, sip, sport,
 						dip, dport, cfg)
@@ -804,6 +853,7 @@ nextpkt:
 				tl = &tcp
 				sport = int(tcp.SrcPort)
 				dport = int(tcp.DstPort)
+				ws := false
 				// websocket port/ports are configurable:
 				if len(cfg.WSports) != 0 {
 					for _, v := range cfg.WSports {
@@ -826,6 +876,7 @@ nextpkt:
 								stats.Inc(sCnts.decodeErrs)
 								continue nextpkt
 							}
+							ws = true
 							break
 						}
 					}
@@ -845,6 +896,14 @@ nextpkt:
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
 				//DBG("DBG: %q\n", tcp.Payload)
+
+				// check if configured sip port
+				if len(cfg.SIPports) != 0 && !ws &&
+					!checkPortsList(sport, dport, cfg.SIPports) {
+					// non sip and not webscoket
+					// => ignore
+					break nextlayer // exit loop
+				}
 				// tcp reassembly
 				ts := ci.Timestamp
 				if replay {

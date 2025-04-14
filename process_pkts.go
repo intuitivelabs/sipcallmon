@@ -431,6 +431,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	// allocs)
 	var sipmsg sipsp.PSIPMsg
 	var siphdrs [100]sipsp.Hdr // parse max. 100 headers by default
+	var callid [80]byte        // temporary callid buffer (rtp pcap)
 	/* needed layers */
 	// link layers
 	var sll layers.LinuxSLL // e.g.: pcap files captured on any interface
@@ -833,6 +834,36 @@ nextpkt:
 							rtpS.Stream.Stats.UpdateRate(crtT)
 						}
 						rtpH.PutStream(rtpS)
+					}
+					// TODO: update stats & get CallID in one call
+					match, clen, needed := rtpH.GetBestMatchCallid(
+						endPoints[0],
+						endPoints[1],
+						callid[:])
+					if needed > clen {
+						DBG("returned call-id too big: %d, copied %d\n",
+							needed, clen)
+					} else {
+						DBG("rtp packet matches call: %s\n",
+							unsafeconv.Str(callid[:clen]))
+
+						if cfg.WpcapDumpOn {
+							/* in the RTP Stream case the CallID is not
+							   part of the message (as for SIP) =>
+							   path separate key buffer */
+							key :=
+								sipsp.PField{Offs: 0, Len: sipsp.OffsT(clen)}
+							e := pcapDumper.WriteUDPmsg(
+								sip, sport,
+								dip, dport,
+								key, callid[:clen],
+								PcapDumpAppendOnlyF, payload)
+							if e != nil {
+								ERR("pcapDumper WriteUDPmsg error %v: "+
+									"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
+									e, n, sip, sport, dip, dport, len(buf))
+							}
+						}
 					}
 					break nextlayer // exit loop
 				}

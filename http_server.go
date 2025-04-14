@@ -64,6 +64,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/regs/cfg", "", httpRegCfg},
 	{"/regs/list", "", httpRegBindingsList},
 	{"/regs/list/query", "", httpRegBindingsListQuery},
+	{"/sdp/mem", "", httpSDPstats},
 	{"/stats", "", httpPrintStats},
 	{"/stats/avg", "", httpPrintStatsAvg},
 	{"/stats/avg?d=10s", "/stats/avg 10s", httpPrintStatsAvg},
@@ -1853,6 +1854,12 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
+}
+
+func httpSDPstats(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "SDP Entries Mem Stats:\n")
+	fmt.Fprintln(w)
+	memStats(w, r, &calltr.SDPsessAllocStats)
 }
 
 func unescapeMsg(msg string, format string) ([]byte, error) {

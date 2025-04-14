@@ -843,9 +843,9 @@ nextpkt:
 					if needed > clen {
 						DBG("returned call-id too big: %d, copied %d\n",
 							needed, clen)
-					} else {
-						DBG("rtp packet matches call: %s\n",
-							unsafeconv.Str(callid[:clen]))
+					} else if match != calltr.RTPNoMatch {
+						DBG("rtp packet match %d call: %s\n",
+							match, unsafeconv.Str(callid[:clen]))
 
 						if cfg.WpcapDumpOn {
 							/* in the RTP Stream case the CallID is not

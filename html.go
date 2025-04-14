@@ -447,10 +447,11 @@ func htmlEvRatePerGCparams(w http.ResponseWriter, cfg *Config) {
 
 // print a form input field.
 // Parameters: n - name,
-//             nAlign - allign to this many chars
-//             defVal - default value (pre-filled)
-//             fSize  - field size
-//             comment - optional comment (printed after the input field)
+//
+//	nAlign - allign to this many chars
+//	defVal - default value (pre-filled)
+//	fSize  - field size
+//	comment - optional comment (printed after the input field)
 func htmlInputField(w http.ResponseWriter, n string, nAlign int,
 	defVal string, fSize int, comment string) {
 	align := ""
@@ -468,13 +469,14 @@ func htmlInputField(w http.ResponseWriter, n string, nAlign int,
 
 // print a form composed of 1 input field.
 // Parameters:
-//            actionUrl
-//             n       - name,
-//             nAlign  - allign to this many chars
-//             defVal  - default value (pre-filled)
-//             fSize   - field size
-//             comment - optional comment (printed after the input field)
-//             submit  - name for the submit button
+//
+//	actionUrl
+//	 n       - name,
+//	 nAlign  - allign to this many chars
+//	 defVal  - default value (pre-filled)
+//	 fSize   - field size
+//	 comment - optional comment (printed after the input field)
+//	 submit  - name for the submit button
 func htmlInputForm1V(w http.ResponseWriter, actionUrl, n string,
 	nAlign int, defVal string, fSize int, comment string, submit string) {
 

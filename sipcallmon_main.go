@@ -420,7 +420,7 @@ func Init(cfg *Config) error {
 			if evt, perr := parseEvType(t); perr == nil {
 				EventsRing.Ignore(evt)
 			} else {
-				return fmt.Errorf("invalid event type in even_type_blst: %q",
+				return fmt.Errorf("invalid event type in event_type_blst: %q",
 					t)
 			}
 		}

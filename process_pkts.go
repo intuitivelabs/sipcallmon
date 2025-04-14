@@ -29,6 +29,7 @@ import (
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
 	"github.com/intuitivelabs/timestamp"
+	"github.com/intuitivelabs/unsafeconv"
 )
 
 const (

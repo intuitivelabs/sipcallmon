@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+
 	//"github.com/intuitivelabs/calltr" // GetHash
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/unsafeconv"
@@ -186,23 +187,30 @@ func (pw *PcapWriter) MinMsgWorker() uint64 {
 	return min
 }
 
-func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
-	msg []byte) error {
+// key points inside keyBuf or inside msg (if keyBuf == nil)
+func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
+	flags PcapWrMsgFlags, msg []byte) error {
+	var keyVal []byte
 
 	if pw.running < 1 {
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWrite::WriteRawMsg: BUG: not initialized")
 	}
-	h := maphash.Bytes(pw.cfg.wSeed, key.Get(msg))
-	//h := calltr.GetHash2(msg, int(key.Offs), int(key.Len))
+	if keyBuf != nil {
+		keyVal = key.Get(keyBuf)
+	} else {
+		keyVal = key.Get(msg)
+	}
+	h := maphash.Bytes(pw.cfg.wSeed, keyVal)
+	//h := calltr.GetHash2(keyVal, int(key.Offs), int(key.Len))
 	i := uint64(h) % uint64(pw.running)
-	m := NewPcapWrMsg(key, flags, msg)
-	// DBG("msg key: %q h: %d i: %d (running %d)\n", key.Get(msg), h, i, pw.running)
+	m := NewPcapWrMsg(key, keyBuf, flags, msg)
+	// DBG("msg key: %q h: %d i: %d (running %d)\n", keyVal, h, i, pw.running)
 	// DBG("worker queued0: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)
 	if m != nil {
 		if !pw.wrWorkers[i].QueueMsg(m) {
 			ERR("queue size exceeded for %q size %d worker %d\n",
-				key.Get(msg), len(msg), i)
+				keyVal, len(msg), i)
 			FreePcapWrMsg(m)
 			return errorPcapWQueueFull
 		}
@@ -210,7 +218,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 	} else {
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWrite::WriteRawMsg new msg failed for key %s",
-			key.Get(msg))
+			keyVal)
 		return errorPcapWNewMsgFailed
 	}
 	return nil
@@ -218,18 +226,27 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, flags PcapWrMsgFlags,
 
 // WriteUDPmsg takes the payload adds and UDP, IP and eth. header
 // and then it queues the message for writing.
-// key points inside the payload.
+// key points inside keyBuf or inside payload (if keyBuf == nil)
 func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 	dip net.IP, dport int,
-	key sipsp.PField, flags PcapWrMsgFlags, payload []byte) error {
+	key sipsp.PField, keyBuf []byte,
+	flags PcapWrMsgFlags, payload []byte) error {
 
 	var err error
+	var keySrc []byte
 
-	if key.Len < 8 || len(payload) < int(uint(key.Len)) {
+	if keyBuf != nil {
+		keySrc = keyBuf
+	} else {
+		keySrc = payload
+	}
+
+	if key.Len < 8 || len(keySrc) < int(uint(key.Len)) {
 		// key or payload too small
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWriter::WriteUDPmsg:"+
-			" payload or key too small (%d, %d)", len(payload), key.Len)
+			" payload or key too small (%d, %d, %d)",
+			len(payload), len(keySrc), key.Len)
 	}
 
 	isIPv4 := sip.To4() != nil
@@ -302,6 +319,9 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 		return err
 	}
 	k := key
-	k.Offs += sipsp.OffsT(hlen) // adjust offset
-	return pw.WriteRawMsg(k, flags, sbuf.Bytes())
+	if keyBuf == nil {
+		// adjust key offset, but only if it points inside the payload
+		k.Offs += sipsp.OffsT(hlen)
+	}
+	return pw.WriteRawMsg(k, keyBuf, flags, sbuf.Bytes())
 }

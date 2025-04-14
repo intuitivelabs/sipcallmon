@@ -17,19 +17,24 @@ import (
 )
 
 const (
-	PcapDumpAppendDefF  PcapWrMsgFlags = 0
-	PcapDumpAppendOnlyF PcapWrMsgFlags = 1
+	PcapDumpAppendDefF   PcapWrMsgFlags = 0
+	PcapDumpAppendOnlyF  PcapWrMsgFlags = 1
+	PcapMsgHdrKeyFieldF  PcapWrMsgFlags = 0x010000 // key in header and not in msg
+	PcapMsgHdrKeyPaddedF PcapWrMsgFlags = 0x020000
 )
 
 var pcapWrMsgPool bytespool.Bpool
 
 type PcapWrMsgFlags uint32
 
+// PcapWrMsg contains the message that will be sent to the writer goroutine.
+// It encapsulates the message key, some flags and the original message.
 // internal format:
 //
-//	key - sipsp.PField (offs & len for the key)
-//	flags - uint32
-//	msg - bytes array
+//		key - sipsp.PField (offs & len for the key)
+//		flags - uint32  (PcapMsgHdrKeyFieldF  set if key is in header and not in msg)
+//	     [ key space if key is not contained in msg and PcapMsgHdrKeyFieldF is set ]
+//		msg - bytes array
 type PcapWrMsg []byte
 
 func init() {
@@ -41,13 +46,32 @@ func init() {
 	}
 }
 
-func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
+// NewPcapWrMsg builds a new message for pcap writer. If KeyBuf is nil
+//
+//	the Key will be assumed to point inside msg and the key will not be
+//	added to the PcapWrMsg header.
+func NewPcapWrMsg(Key sipsp.PField, KeyBuf []byte, flags PcapWrMsgFlags,
 	msg []byte) PcapWrMsg {
+
 	offsFlags := int(unsafe.Sizeof(Key))
-	// offset to start of message
-	offs := int(unsafe.Sizeof(Key) + unsafe.Sizeof(flags))
+	// offset to start of message or key
+	offsKey := int(unsafe.Sizeof(Key) + unsafe.Sizeof(flags))
+	offs := offsKey
+	if KeyBuf != nil {
+		// separate key (not contained in msg)
+		flags |= PcapMsgHdrKeyFieldF
+	} else {
+		KeyBuf = msg // key inside msg
+	}
+	if flags&PcapMsgHdrKeyFieldF != 0 {
+		offs += int(Key.Len)
+		if flags&PcapMsgHdrKeyPaddedF != 0 {
+			// pad to 4 bytes
+			offs = padOffs(offs)
+		}
+	}
 	sz := offs + len(msg)
-	if Key.Len == 0 || (int(uint(Key.Offs)+uint(Key.Len)) > len(msg)) {
+	if Key.Len == 0 || (int(uint(Key.Offs)+uint(Key.Len)) > len(KeyBuf)) {
 		// invalid key or msg
 		return nil
 	}
@@ -59,6 +83,10 @@ func NewPcapWrMsg(Key sipsp.PField, flags PcapWrMsgFlags,
 	*pkey = Key
 	pflags := (*PcapWrMsgFlags)(unsafe.Pointer(&buf[offsFlags]))
 	*pflags = flags
+	if flags&PcapMsgHdrKeyFieldF != 0 {
+		copy(buf[offsKey:], Key.Get(KeyBuf))
+		(*pkey).Offs = 0 // starts at begining (copied only the key)
+	}
 	copy(buf[offs:], msg)
 	pcapStats.cnts.Inc(pcapStats.hAllocMsgs)
 	pcapStats.cnts.Add(pcapStats.hAllocBytes, counters.Val(sz))
@@ -76,30 +104,60 @@ func FreePcapWrMsg(pwm PcapWrMsg) {
 	pcapStats.cnts.Sub(pcapStats.hAllocBytes, counters.Val(sz))
 }
 
-// Format: key offs (2 bytes), key len (2 bytes), message ...
+// Format:
+//     key offs (2 bytes), key len (2 bytes),
+//     flags (4 byteS)
+//     [optional key value if iPcapMsgHdrKeyFieldF  is set]
+//     message ...
 //Key     sipsp.PField
 //Content []byte
 
 func (pwm PcapWrMsg) RawKey() []byte {
 	var k sipsp.PField
+	var f PcapWrMsgFlags
 
-	if len(pwm) < (int(unsafe.Sizeof(k)) + 10) {
-		// too small, no key
+	offsFlags := int(unsafe.Sizeof(k))
+	// keyBuf starts after the flags in both cases:
+	// 1. key val is stored in the optional field after the header
+	//    (in this case k.Offs = 0)
+	// 2. key val is inside the message (k.Offs will point to right place)
+	offsKeyBuf := offsFlags + int(unsafe.Sizeof(f))
+	if len(pwm) < offsKeyBuf {
+		// too small
 		return nil
 	}
 	k = *(*sipsp.PField)(unsafe.Pointer(&pwm[0]))
-	buf := pwm.RawMsg()
-	return k.Get(buf)
+	if len(pwm) < (int(k.Offs) + int(k.Len) + offsKeyBuf) {
+		// too small
+		return nil
+	}
+	return k.Get(pwm[offsKeyBuf:])
 }
 
 func (pwm PcapWrMsg) RawMsg() []byte {
 	var k sipsp.PField
 	var f PcapWrMsgFlags
 
+	offsFlags := int(unsafe.Sizeof(k))
 	offs := int(unsafe.Sizeof(k) + unsafe.Sizeof(f))
 	if len(pwm) < offs {
 		// too small
 		return nil
+	}
+	k = *(*sipsp.PField)(unsafe.Pointer(&pwm[0]))
+	f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offsFlags]))
+	if f&PcapMsgHdrKeyFieldF != 0 {
+		// key is stored in the "header" and does not point
+		// inside the msg
+		// (in this case k.Offset should always be 0)
+		offs += int(k.Offs) + int(k.Len)
+		if f&PcapMsgHdrKeyPaddedF != 0 {
+			offs = padOffs(offs)
+		}
+		if len(pwm) < offs {
+			// too small
+			return nil
+		}
 	}
 	b := pwm[offs:]
 	return b
@@ -116,6 +174,11 @@ func (pwm PcapWrMsg) Flags() PcapWrMsgFlags {
 	}
 	f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offs]))
 	return f
+}
+
+// return the padded value
+func padOffs(offs int) int {
+	return (offs + 3) & (^3)
 }
 
 type PcapWrWorker struct {

@@ -29,7 +29,6 @@ import (
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/slog"
 	"github.com/intuitivelabs/timestamp"
-	"github.com/intuitivelabs/unsafeconv"
 )
 
 const (
@@ -453,6 +452,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 
 	// init sipmsg
 	sipmsg.Init(nil, siphdrs[:], nil)
+	rtpHash := calltr.GetRTPStreamHash()
 
 	//var appl gopacket.Payload
 	// space for decoded layers:
@@ -808,8 +808,6 @@ nextpkt:
 					!checkPortsList(sport, dport, cfg.SIPports) {
 					// non sip
 					// process as RTP
-					// TODO:  cleanup
-					rtpH := calltr.GetRTPStreamHash()
 					var endPoints [2]calltr.NetInfo
 					endPoints[0].SetIP(sip)
 					endPoints[0].Port = uint16(sport)
@@ -817,8 +815,10 @@ nextpkt:
 					endPoints[1].SetIP(dip)
 					endPoints[1].Port = uint16(dport)
 					endPoints[1].SetProto(calltr.NProtoUDP)
-					match, rtpS := rtpH.GetBestMatchStream(endPoints[0],
-						endPoints[1])
+					match, clen, needed := rtpHash.ProcessPkt(
+						endPoints[0], endPoints[1],
+						timestamp.Timestamp(now), payload,
+						callid[:])
 					/*
 						DBG("XXX: RTP: packet %s:%d -> %s:%d result: %d\n",
 							endPoints[0].IP().String(),
@@ -827,25 +827,41 @@ nextpkt:
 							endPoints[1].Port,
 							match)
 					*/
-					if rtpS != nil {
-						if match != calltr.RTPNoMatch {
-							rtpS.Stream.Stats.AddPkt(uint64(len(payload)))
-							crtT := timestamp.Timestamp(now)
-							rtpS.Stream.Stats.UpdateRate(crtT)
+
+					// TODO:  cleanup
+					/*
+						rtpH := calltr.GetRTPStreamHash()
+						var endPoints [2]calltr.NetInfo
+						endPoints[0].SetIP(sip)
+						endPoints[0].Port = uint16(sport)
+						endPoints[0].SetProto(calltr.NProtoUDP)
+						endPoints[1].SetIP(dip)
+						endPoints[1].Port = uint16(dport)
+						endPoints[1].SetProto(calltr.NProtoUDP)
+						match, rtpS := rtpH.GetBestMatchStream(endPoints[0],
+							endPoints[1])
+						if rtpS != nil {
+							if match != calltr.RTPNoMatch {
+								crtT := timestamp.Timestamp(now)
+								rtpS.Stream.AddPkt(payload, crtT)
+								rtpS.Stream.Stats.UpdateRate(crtT)
+							}
+							rtpH.PutStream(rtpS)
 						}
-						rtpH.PutStream(rtpS)
-					}
-					// TODO: update stats & get CallID in one call
-					match, clen, needed := rtpH.GetBestMatchCallid(
-						endPoints[0],
-						endPoints[1],
-						callid[:])
+						// TODO: update stats & get CallID in one call
+						match, clen, needed := rtpH.GetBestMatchCallid(
+							endPoints[0],
+							endPoints[1],
+							callid[:])
+					*/
 					if needed > clen {
 						DBG("returned call-id too big: %d, copied %d\n",
 							needed, clen)
 					} else if match != calltr.RTPNoMatch {
-						DBG("rtp packet match %d call: %s\n",
-							match, unsafeconv.Str(callid[:clen]))
+						/*
+							DBG("rtp packet match %d call: %s\n",
+								match, unsafeconv.Str(callid[:clen]))
+						*/
 
 						if cfg.WpcapDumpOn {
 							/* in the RTP Stream case the CallID is not

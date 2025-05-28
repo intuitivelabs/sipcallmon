@@ -236,6 +236,12 @@ func processPCAP(fname string, cfg *Config) (uint64,
 	pcapInfo.lock.Unlock()
 
 	defer func() {
+		// stats update not possible for pcap files
+		/*
+			pcapStatsRecvd(statsGrp, statsCnts.recv, 0, &pcapInfo)
+			pcapStatsDropped(statsGrp, statsCnts.drop, 0, &pcapInfo)
+			pcapStatsIfDropped(statsGrp, statsCnts.drop, 0, &pcapInfo)
+		*/
 		// mark pcap handler as invalid for parallel running statistics cbks
 		pcapInfo.lock.Lock()
 		{
@@ -359,9 +365,9 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 
 	defer func() {
 		// force final stats update (record last value)
-		pcapStatsRecvd(statsGrp, statsCnts.recv, 0, pcapInfo)
-		pcapStatsDropped(statsGrp, statsCnts.drop, 0, pcapInfo)
-		pcapStatsIfDropped(statsGrp, statsCnts.drop, 0, pcapInfo)
+		pcapStatsRecvd(statsGrp, statsCnts.recv, 0, &pcapInfo)
+		pcapStatsDropped(statsGrp, statsCnts.drop, 0, &pcapInfo)
+		pcapStatsIfDropped(statsGrp, statsCnts.drop, 0, &pcapInfo)
 		// mark pcap handler as invalid for parallel running statistics cbks
 		pcapInfo.lock.Lock()
 		{

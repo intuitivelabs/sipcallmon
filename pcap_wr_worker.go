@@ -222,7 +222,6 @@ func (pwr *PcapWrWorker) Start() bool {
 }
 
 func (pwr *PcapWrWorker) Stop() bool {
-	DBG("PcapWrWorker Stop() called: init %v\n", pwr.init)
 	pwr.initLock.Lock()
 	if pwr.init {
 		close(pwr.stop)

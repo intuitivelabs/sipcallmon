@@ -825,41 +825,6 @@ nextpkt:
 						endPoints[0], endPoints[1],
 						timestamp.Timestamp(now), payload,
 						callid[:])
-					/*
-						DBG("XXX: RTP: packet %s:%d -> %s:%d result: %d\n",
-							endPoints[0].IP().String(),
-							endPoints[0].Port,
-							endPoints[1].IP().String(),
-							endPoints[1].Port,
-							match)
-					*/
-
-					// TODO:  cleanup
-					/*
-						rtpH := calltr.GetRTPStreamHash()
-						var endPoints [2]calltr.NetInfo
-						endPoints[0].SetIP(sip)
-						endPoints[0].Port = uint16(sport)
-						endPoints[0].SetProto(calltr.NProtoUDP)
-						endPoints[1].SetIP(dip)
-						endPoints[1].Port = uint16(dport)
-						endPoints[1].SetProto(calltr.NProtoUDP)
-						match, rtpS := rtpH.GetBestMatchStream(endPoints[0],
-							endPoints[1])
-						if rtpS != nil {
-							if match != calltr.RTPNoMatch {
-								crtT := timestamp.Timestamp(now)
-								rtpS.Stream.AddPkt(payload, crtT)
-								rtpS.Stream.Stats.UpdateRate(crtT)
-							}
-							rtpH.PutStream(rtpS)
-						}
-						// TODO: update stats & get CallID in one call
-						match, clen, needed := rtpH.GetBestMatchCallid(
-							endPoints[0],
-							endPoints[1],
-							callid[:])
-					*/
 					if needed > clen {
 						DBG("returned call-id too big: %d, copied %d\n",
 							needed, clen)

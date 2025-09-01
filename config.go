@@ -48,6 +48,7 @@ type Config struct {
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
 	ReplayScale    float64       `config:"replay_scale"`
 	RunForever     bool          `config:"run_forever"`
+	NoPromisc      bool          `config:"no_promiscuous_mode"`
 	Iface          string        `config:"iface"`
 	PCAPBufKb      int           `config:"pcap_buf_kb"` // pcap cap buf in kb
 	BPF            string        `config:"bpf"`         // packet filter
@@ -181,6 +182,8 @@ var defaultConfigVals = Config{
 	ParseLogLev: int64(slog.LNOTICE),
 	ParseLogOpt: uint64(slog.LOptNone),
 	DbgCalltr:   uint64(calltr.DefaultConfig.Dbg),
+
+	NoPromisc: false,
 
 	WpcapPrefix:   "callid_",
 	WpcapSuffix:   "",
@@ -389,6 +392,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.BoolVar(&cfg.RunForever, "run_forever", c.RunForever,
 		"keep web server running")
 
+	flag.BoolVar(&cfg.NoPromisc, "no_promiscuous_mode", c.NoPromisc,
+		"do not put the interface into promiscuous mode")
 	flag.StringVar(&cfg.Iface, "iface", c.Iface,
 		"interface to capture packets from")
 	flag.IntVar(&cfg.PCAPBufKb, "pcap_buf_kb", c.PCAPBufKb,

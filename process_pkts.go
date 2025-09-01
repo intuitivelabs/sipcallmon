@@ -321,11 +321,14 @@ func processLive(iface, bpf string, cfg *Config) (uint64,
 		err = fmt.Errorf("processLive: failed  setting pcap snap len: %w", err)
 		return 0, 0, 0, err
 	}
-	if err = ih.SetPromisc(true); err != nil {
-		ERR("processLive: failed setting promisc mode on %q: %s\n",
-			iface, err)
-		err = fmt.Errorf("processLive: failed  setting promisc mode: %w", err)
-		return 0, 0, 0, err
+	if cfg.NoPromisc == false {
+		if err = ih.SetPromisc(true); err != nil {
+			ERR("processLive: failed setting promisc mode on %q: %s\n",
+				iface, err)
+			err = fmt.Errorf("processLive: failed  setting promisc mode: %w",
+				err)
+			return 0, 0, 0, err
+		}
 	}
 	if err = ih.SetTimeout(timeout); err != nil {
 		ERR("processLive: failed setting timeout %v on %q: %s\n",

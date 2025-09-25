@@ -41,6 +41,7 @@ type Config struct {
 	WpcapFlags     int           `config:"pcap_dump_flags"`
 	WpcapDumpOn    bool          `config:"pcap_dump_on"`
 	WpcapOnErr     bool          `config:"pcap_dump_onerr"`
+	WpcapDumpRTP   bool          `config:"pcap_dump_rtp"`
 	WpcapWorkers   int           `config:"pcap_dump_workers"`
 	WpcapQueueLen  int           `config:"pcap_dump_queue_len"`
 	Replay         bool          `config:"replay"`
@@ -189,6 +190,7 @@ var defaultConfigVals = Config{
 	WpcapSuffix:   "",
 	WpcapExt:      "pcap",
 	WpcapOnErr:    false,
+	WpcapDumpRTP:  true,
 	WpcapWorkers:  16,
 	WpcapQueueLen: 10000, // TODO: replace with higher value after testing
 
@@ -375,6 +377,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			" (pcap_dump_dir must also be set)")
 	flag.BoolVar(&cfg.WpcapOnErr, "pcap_dump_onerr", c.WpcapOnErr,
 		"enable/disable appending error/bad messages to pcap per call files"+
+			" (pcap_dump_on must also be set)")
+	flag.BoolVar(&cfg.WpcapDumpRTP, "pcap_dump_rtp", c.WpcapDumpRTP,
+		"enable/disable appending RTP messages to pcap per call files"+
 			" (pcap_dump_on must also be set)")
 	flag.IntVar(&cfg.WpcapWorkers, "pcap_dump_workers", c.WpcapWorkers,
 		"number of pcap dump worker threads")

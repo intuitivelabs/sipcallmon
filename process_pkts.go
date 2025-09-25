@@ -842,7 +842,7 @@ nextpkt:
 								match, unsafeconv.Str(callid[:clen]))
 						*/
 
-						if cfg.WpcapDumpOn {
+						if cfg.WpcapDumpOn && cfg.WpcapDumpRTP {
 							/* in the RTP Stream case the CallID is not
 							   part of the message (as for SIP) =>
 							   path separate key buffer */

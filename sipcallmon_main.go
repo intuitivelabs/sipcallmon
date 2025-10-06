@@ -320,6 +320,7 @@ func Init(cfg *Config) error {
 	calltrCfg.SDP = cfg.SDPparse
 	calltrCfg.Mem.SDPtotalMem = cfg.SDPtotalMem * 1024 * 1024
 	calltrCfg.Mem.SDPmaxEntryMem = cfg.SDPmaxEntryMem
+	calltrCfg.RTP = cfg.RTP
 
 	for callst, to := range cfg.CallStTo {
 		cs, perr := parseCallStateName(callst)

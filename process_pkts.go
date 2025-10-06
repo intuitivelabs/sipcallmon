@@ -818,7 +818,7 @@ nextpkt:
 				var payload []byte = tl.LayerPayload()
 
 				// check if configured sip port
-				if len(cfg.SIPports) != 0 &&
+				if cfg.RTP && len(cfg.SIPports) != 0 &&
 					!checkPortsList(sport, dport, cfg.SIPports) {
 					// non sip
 					// process as RTP

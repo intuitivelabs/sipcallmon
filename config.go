@@ -175,6 +175,7 @@ type Config struct {
 	SDPparse       bool   `config:"sdp"`
 	SDPtotalMem    uint64 `config:"sdp_total_mem"`
 	SDPmaxEntryMem uint64 `config:"sdp_max_entry_mem"`
+	RTP            bool   `config:"rtp"` // RTP enable/ disable
 }
 
 var defaultConfigVals = Config{
@@ -229,6 +230,7 @@ var defaultConfigVals = Config{
 	SDPparse:           false,
 	SDPtotalMem:        0,
 	SDPmaxEntryMem:     65535,
+	RTP:                true,
 }
 
 func (cfg Config) UseIPAnonymization() bool {
@@ -508,6 +510,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"total memory reserved for keeping SDP state in Mb")
 	flag.Uint64Var(&cfg.SDPmaxEntryMem, "sdp_max_entry_mem", c.SDPmaxEntryMem,
 		"maximum memory for one SDP state entry (offer or answer)")
+	flag.BoolVar(&cfg.RTP, "rtp", c.RTP, "turn on rtp support")
 
 	flag.Parse()
 	// fix cmd line params
@@ -951,6 +954,10 @@ func CfgFix(cfg *Config) error {
 	}
 	if cfg.IPFIXmaxTo > 65535 {
 		cfg.IPFIXmaxTo = 65535 // limit to 16 bits
+	}
+	if !cfg.SDPparse {
+		// no RTP tracking if SDP is disabled
+		cfg.RTP = false
 	}
 	return nil
 }

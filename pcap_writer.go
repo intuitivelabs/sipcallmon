@@ -242,7 +242,15 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 		keySrc = payload
 	}
 
-	if key.Len < 8 || len(keySrc) < int(uint(key.Len)) {
+	if key.Len < 4 || len(keySrc) < int(uint(key.Offs+key.Len)) {
+		if len(keySrc) < int(uint(key.Offs+key.Len)) {
+			BUG("PcapWriter::WriteUDPmsg: key outside payload: (%d, %d) len(p) = %d\n",
+				key.Offs, key.Len, len(payload))
+			pw.stats.cnts.Inc(pw.stats.hBUG)
+			return fmt.Errorf("BUG: PcapWriter::WriteUDPmsg:"+
+				" key (%d, %d) outside keybuf/payload (%d, %d, %d)",
+				key.Offs, key.Len, len(payload), len(keySrc), key.Len)
+		}
 		// key or payload too small
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWriter::WriteUDPmsg:"+

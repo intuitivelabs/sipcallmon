@@ -47,8 +47,10 @@ type pcapStatsT struct {
 	hMinMsgsWorker counters.Handle
 	hAvgMsgsWorker counters.Handle
 
-	hNewSubdir counters.Handle
-	hNewFile   counters.Handle
+	hNewSubdir      counters.Handle
+	hNewFile        counters.Handle
+	hFileExists     counters.Handle
+	hNewMissingFile counters.Handle
 
 	hErrMkSubdir counters.Handle
 	hErrNewFile  counters.Handle
@@ -100,6 +102,10 @@ func (s *pcapStatsT) Init() bool {
 			"number of created subdirectories"},
 		{&s.hNewFile, 0, nil, nil, "new_files",
 			"number of created pcap dump files"},
+		{&s.hFileExists, 0, nil, nil, "file_already_exists",
+			"number of create file attempts for which the file already exists"},
+		{&s.hNewMissingFile, 0, nil, nil, "new_missing_files",
+			"number of created pcap dump files when the target file is missing"},
 
 		{&s.hErrMkSubdir, 0, nil, nil, "err_subdirs",
 			"errors creating new subdirectories"},

@@ -24,6 +24,7 @@ type PcapWrMsgFlags uint32
 const (
 	PcapDumpAppendDefF   PcapWrMsgFlags = 0
 	PcapDumpAppendOnlyF  PcapWrMsgFlags = 1
+	PcapDumpNewFileF     PcapWrMsgFlags = 2        // new callid -> new file
 	PcapMsgHdrKeyFieldF  PcapWrMsgFlags = 0x010000 // key in header and not in msg
 	PcapMsgHdrKeyPaddedF PcapWrMsgFlags = 0x020000 // if set key size will be padded to 4b
 	PcapMsgHdrTimestampF PcapWrMsgFlags = 0x040000 // header contains a 64 bit timestamp
@@ -486,6 +487,12 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	pcapDump = pcapgo.NewWriter(f)
 	if offs == 0 {
 		// new file -> write pcap header
+		if flags&PcapDumpNewFileF == 0 {
+			// new file not set
+			DBG("PCAP Dumper %s: missing file %q -> created, writing pcap header.\n",
+				pwr.name, fname)
+			pwr.stats.cnts.Inc(pwr.stats.hNewMissingFile)
+		}
 		pwr.stats.cnts.Inc(pwr.stats.hNewFile)
 		err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
 		if err != nil {
@@ -494,6 +501,11 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 			pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
 			goto err_cleanup
 		}
+	} else if flags&PcapDumpNewFileF != 0 {
+		DBG("PCAP Dumper %s: new file requested (now %v ts %v ),"+
+			" but file %q already present\n",
+			time.Now(), ciTime, pwr.name, fname)
+		pwr.stats.cnts.Inc(pwr.stats.hFileExists)
 	}
 	err = pcapDump.WritePacket(ci, content)
 	if err != nil {

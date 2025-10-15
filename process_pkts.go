@@ -639,7 +639,7 @@ nextpkt:
 				}
 				// PDBG("replay: final %s\n", wait)
 				replayTS = replayTS.Add(wait)
-				now := time.Now()
+				now = time.Now() // update "now"
 				if replayTS.Before(now) {
 					wait = 0
 					diff := now.Sub(replayTS)
@@ -676,12 +676,17 @@ nextpkt:
 						}
 						break nextpkt
 					}
+					// update "now" to the real time after waiting (replay)
+					// (alternative set it to replayTS, the target time)
+					now = time.Now()
+
 				}
 			} else {
 				// initial, 0 ts => intialize replayTS
 				replayTS = time.Now()
 			}
-		}
+		} // end if replay
+
 		lastPCAPts = ci.Timestamp // pcap timestamp of the last packet
 		n++
 		stats.Inc(sCnts.n)

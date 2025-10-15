@@ -1024,6 +1024,13 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 	// sipmsg.Init(nil, siphdrs[:], nil)
 	o, err := sipsp.ParseSIPMsg(buf, 0, sipmsg, sipsp.SIPMsgNoMoreDataF)
 	if len(buf) > 12 || (len(buf) <= 12 && err != sipsp.ErrHdrTrunc) {
+		var endPoints [2]calltr.NetInfo
+		endPoints[0].SetIP(sip)
+		endPoints[0].Port = uint16(sport)
+		endPoints[0].SetProto(calltr.NProtoUDP)
+		endPoints[1].SetIP(dip)
+		endPoints[1].Port = uint16(dport)
+		endPoints[1].SetProto(calltr.NProtoUDP)
 		if !verbose && (err != 0 || o != len(buf)) &&
 			(Plog.L(slog.LNOTICE) || w != ioutil.Discard) {
 			Plog.LogMux(w, true, slog.LNOTICE,
@@ -1068,13 +1075,19 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 				buf[:rep])
 			if cfg.WpcapDumpOn && cfg.WpcapOnErr &&
 				sipmsg.PV.GetCallID().CallID.Len > 4 {
-				e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
-					sipmsg.PV.GetCallID().CallID, nil, /*callid part of buf*/
-					ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, buf)
-				if e != nil {
-					ERR("pcapDumper WriteUDPmsg error %v: "+
-						"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
-						e, n, sip, sport, dip, dport, len(buf))
+				if sipmsg.HL.PFlags.Test(sipsp.HdrCallID) {
+					sipmsg.Buf = buf // tmp. hack
+					callTracked, _ := calltr.TrackedMsg(sipmsg, endPoints)
+					if callTracked {
+						e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
+							sipmsg.PV.GetCallID().CallID, nil, /*callid part of buf*/
+							ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, buf)
+						if e != nil {
+							ERR("pcapDumper WriteUDPmsg error %v: "+
+								"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
+								e, n, sip, sport, dip, dport, len(buf))
+						}
+					}
 				}
 			}
 			ret = false
@@ -1090,13 +1103,6 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 					stats.Inc(sCnts.repl[sipmsg.FL.Status/100])
 				}
 			}
-			var endPoints [2]calltr.NetInfo
-			endPoints[0].SetIP(sip)
-			endPoints[0].Port = uint16(sport)
-			endPoints[0].SetProto(calltr.NProtoUDP)
-			endPoints[1].SetIP(dip)
-			endPoints[1].Port = uint16(dport)
-			endPoints[1].SetProto(calltr.NProtoUDP)
 
 			var newCall bool
 			ret, newCall, _ = CallTrack(sipmsg, endPoints)
@@ -1120,6 +1126,7 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 				}
 			} else {
 				stats.Inc(sCnts.callTrErrUDP)
+				/* (don't capture
 				if cfg.WpcapDumpOn && cfg.WpcapOnErr &&
 					sipmsg.PV.GetCallID().CallID.Len > 4 {
 					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
@@ -1131,6 +1138,7 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 							e, n, sip, sport, dip, dport, len(buf))
 					}
 				}
+				*/
 			}
 
 		}

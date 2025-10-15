@@ -706,6 +706,13 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 	}
 	// parse sip msg
 	c.sipmsg.Reset()
+	var endPoints [2]calltr.NetInfo
+	endPoints[0].SetProto(calltr.NProtoTCP)
+	endPoints[1].SetProto(calltr.NProtoTCP)
+	endPoints[0].SetIP(srcIP)
+	endPoints[0].Port = srcPort
+	endPoints[1].SetIP(dstIP)
+	endPoints[1].Port = dstPort
 	// don't allow messages without Content-Length?
 	o, errParse := sipsp.ParseSIPMsg(smsg, 0, &c.sipmsg,
 		sipsp.SIPMsgNoMoreDataF|sipsp.SIPMsgSkipBodyF|sipsp.SIPMsgCLenReqF)
@@ -724,13 +731,6 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			}
 		}
 
-		var endPoints [2]calltr.NetInfo
-		endPoints[0].SetProto(calltr.NProtoTCP)
-		endPoints[1].SetProto(calltr.NProtoTCP)
-		endPoints[0].SetIP(srcIP)
-		endPoints[0].Port = srcPort
-		endPoints[1].SetIP(dstIP)
-		endPoints[1].Port = dstPort
 		ok, newCall, _ := CallTrack(&c.sipmsg, endPoints)
 		if ok {
 			stats.Inc(sCnts.callTrTCP)
@@ -760,18 +760,20 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			*/
 			ERR("ipfix tcp: CallTrack failed\n")
 			stats.Inc(sCnts.callTrErrTCP)
-			if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
-				c.sipmsg.PV.GetCallID().CallID.Len > 4 {
-				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
-					dstIP, int(dstPort),
-					c.sipmsg.PV.GetCallID().CallID, nil,
-					ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
-				if e != nil {
-					ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
-						"%s:%d -> %s:%d payload len: %d\n",
-						e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			/*
+				if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
+					c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+					e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+						dstIP, int(dstPort),
+						c.sipmsg.PV.GetCallID().CallID, nil,
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
+					if e != nil {
+						ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+							"%s:%d -> %s:%d payload len: %d\n",
+							e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+					}
 				}
-			}
+			*/
 		}
 		if o != len(smsg) {
 			stats.Inc(sCnts.offsetErr)
@@ -804,14 +806,20 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			[]byte("missing Content-Length"))
 		if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
 			c.sipmsg.PV.GetCallID().CallID.Len > 4 {
-			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
-				dstIP, int(dstPort),
-				c.sipmsg.PV.GetCallID().CallID, nil,
-				ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
-			if e != nil {
-				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
-					"%s:%d -> %s:%d payload len: %d\n",
-					e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			if c.sipmsg.HL.PFlags.Test(sipsp.HdrCallID) {
+				c.sipmsg.Buf = smsg // tmp. hack
+				callTracked, _ := calltr.TrackedMsg(&c.sipmsg, endPoints)
+				if callTracked {
+					e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+						dstIP, int(dstPort),
+						c.sipmsg.PV.GetCallID().CallID, nil,
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
+					if e != nil {
+						ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+							"%s:%d -> %s:%d payload len: %d\n",
+							e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+					}
+				}
 			}
 		}
 
@@ -866,14 +874,20 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			smsg[:rep])
 		if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
 			c.sipmsg.PV.GetCallID().CallID.Len > 4 {
-			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
-				dstIP, int(dstPort),
-				c.sipmsg.PV.GetCallID().CallID, nil,
-				ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
-			if e != nil {
-				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
-					"%s:%d -> %s:%d payload len: %d\n",
-					e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			if c.sipmsg.HL.PFlags.Test(sipsp.HdrCallID) {
+				c.sipmsg.Buf = smsg // tmp. hack
+				callTracked, _ := calltr.TrackedMsg(&c.sipmsg, endPoints)
+				if callTracked {
+					e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+						dstIP, int(dstPort),
+						c.sipmsg.PV.GetCallID().CallID, nil,
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
+					if e != nil {
+						ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+							"%s:%d -> %s:%d payload len: %d\n",
+							e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+					}
+				}
 			}
 		}
 	}

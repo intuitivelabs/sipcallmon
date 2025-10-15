@@ -237,15 +237,16 @@ func (pwr *PcapWrWorker) QueueMsg(m PcapWrMsg) bool {
 	if !pwr.init || pwr.msgs == nil {
 		return false
 	}
+	pwr.stats.cnts.Inc(pwr.stats.hQueuedMsgs) // before send
 	select {
 	case pwr.msgs <- m:
 		pwr.stats.cnts.Inc(pwr.stats.hTQueuedMsgs)
 
-		pwr.stats.cnts.Inc(pwr.stats.hQueuedMsgs)
 		//DBG("message queued to %q\n", pwr.name)
 		break
 	default:
 		// message capacity exceeded
+		pwr.stats.cnts.Dec(pwr.stats.hQueuedMsgs) // send failed -> dec
 		pwr.stats.cnts.Inc(pwr.stats.hDroppedQueue)
 		DBG("queue exceeded for %q\n", pwr.name)
 		return false

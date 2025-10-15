@@ -196,7 +196,8 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 			DBG("connection EOF\n")
 			break
 		}
-		timestamp.AtomicStore(&c.lastIO, timestamp.Now())
+		ts := timestamp.Now()
+		timestamp.AtomicStore(&c.lastIO, ts)
 		c.gStats.cnts.Add(c.gStats.hRdBytes, counters.Val(n))
 
 	skip_read:
@@ -230,7 +231,7 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 			// read at least a whole packet
 			c.gStats.cnts.Inc(c.gStats.hRdPkts)
 			c.pktNo.Add(1)
-			err = c.handlePkt(mHdr, buf[:end], processPktCfg)
+			err = c.handlePkt(mHdr, buf[:end], ts, processPktCfg)
 			// check error and close connection if needed
 			if err != nil {
 				ERR("acme ipfix: parsing error on %s %s: %s\n",
@@ -254,6 +255,7 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 func (c *AcmeIPFIXconn) handlePkt(
 	pktHdr IPFIXmsgHdr,
 	buf []byte,
+	ts timestamp.TS, // receive time for the packet
 	processPktCfg *Config) error {
 
 	pos := IPFIXmsgHdrLen
@@ -289,28 +291,28 @@ func (c *AcmeIPFIXconn) handlePkt(
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPudp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPudp(setHdr.SetID, set, ts, processPktCfg)
 		case AcmeIPFIXsipUDP4Out:
 			// missing: UDP6Out (same as ID & format as UPD4?)
 			if c.Cfg.IgnoreEgress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPudp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPudp(setHdr.SetID, set, ts, processPktCfg)
 		case AcmeIPFIXsipTCP4In:
 			// missing: TCP6In (unknown ID & format)
 			if c.Cfg.IgnoreIngress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPtcp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPtcp(setHdr.SetID, set, ts, processPktCfg)
 		case AcmeIPFIXsipTCP4Out:
 			// missing: TCP6Out (unknown ID & format)
 			if c.Cfg.IgnoreEgress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPtcp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPtcp(setHdr.SetID, set, ts, processPktCfg)
 		case IPFIXtemplateID:
 			WARN("acme ipfix: unexpected template set (%d)\n", setHdr.SetID)
 			c.gStats.cnts.Inc(c.gStats.hTemplateSet)
@@ -498,6 +500,7 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 func (c *AcmeIPFIXconn) handleSIPudp(
 	setID uint16,
 	buf []byte,
+	ts timestamp.TS, // receive timestamp
 	processPktCfg *Config) error {
 
 	var udp4InSet AcmeIPFIXsipUDP4InSet
@@ -606,7 +609,7 @@ func (c *AcmeIPFIXconn) handleSIPudp(
 
 		udpSIPMsg(ioutil.Discard, &c.sipmsg, udp.Payload, c.pktNo.Load(),
 			srcIP, int(udp.SrcPort),
-			dstIP, int(udp.DstPort), processPktCfg)
+			dstIP, int(udp.DstPort), ts, processPktCfg)
 	} else {
 		// not sip -> probe
 		pktErrEvHandler(calltr.EvNonSIPprobe,
@@ -620,6 +623,7 @@ func (c *AcmeIPFIXconn) handleSIPudp(
 func (c *AcmeIPFIXconn) handleSIPtcp(
 	setID uint16,
 	buf []byte,
+	ts timestamp.TS,
 	processPktCfg *Config) error {
 
 	var tcp4InSet AcmeIPFIXsipTCP4InSet
@@ -732,10 +736,11 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			stats.Inc(sCnts.callTrTCP)
 			if processPktCfg.WpcapDumpOn &&
 				c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+				pcapFlags := PcapMsgHdrTimestampF
 				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
 					dstIP, int(dstPort),
 					c.sipmsg.PV.GetCallID().CallID, nil,
-					0, smsg)
+					ts, pcapFlags, smsg)
 				if e != nil {
 					ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
 						"%s:%d -> %s:%d payload len: %d\n",
@@ -757,7 +762,7 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
 					dstIP, int(dstPort),
 					c.sipmsg.PV.GetCallID().CallID, nil,
-					PcapDumpAppendOnlyF, smsg)
+					ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
 				if e != nil {
 					ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
 						"%s:%d -> %s:%d payload len: %d\n",
@@ -799,7 +804,7 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
 				dstIP, int(dstPort),
 				c.sipmsg.PV.GetCallID().CallID, nil,
-				PcapDumpAppendOnlyF, smsg)
+				ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
 			if e != nil {
 				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
 					"%s:%d -> %s:%d payload len: %d\n",
@@ -861,7 +866,7 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
 				dstIP, int(dstPort),
 				c.sipmsg.PV.GetCallID().CallID, nil,
-				PcapDumpAppendOnlyF, smsg)
+				ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
 			if e != nil {
 				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
 					"%s:%d -> %s:%d payload len: %d\n",

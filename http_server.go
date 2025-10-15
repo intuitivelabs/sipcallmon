@@ -1127,7 +1127,8 @@ func httpInjectMsg(w http.ResponseWriter, r *http.Request) {
 		ok := udpSIPMsg(w, &sipmsg, rawmsg,
 			uint64(stats.Get(sCnts.injected))-1,
 			ipLocalhost, 5060,
-			ipLocalhost, 5060, &tmpCfg)
+			ipLocalhost, 5060,
+			timestamp.Now(), &tmpCfg)
 		if !verbose {
 			fmt.Fprintf(w, "%q\n\n", rawmsg)
 		}

@@ -12,6 +12,7 @@ import (
 
 	//"github.com/intuitivelabs/calltr" // GetHash
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/timestamp"
 	"github.com/intuitivelabs/unsafeconv"
 
 	"github.com/zeebo/xxh3"
@@ -190,7 +191,7 @@ func (pw *PcapWriter) MinMsgWorker() uint64 {
 
 // key points inside keyBuf or inside msg (if keyBuf == nil)
 func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
-	flags PcapWrMsgFlags, msg []byte) error {
+	ts timestamp.TS, flags PcapWrMsgFlags, msg []byte) error {
 	var keyVal []byte
 
 	if pw.running < 1 {
@@ -205,7 +206,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
 	h := maphash.Bytes(pw.cfg.wSeed, keyVal)
 	//h := calltr.GetHash2(keyVal, int(key.Offs), int(key.Len))
 	i := uint64(h) % uint64(pw.running)
-	m := NewPcapWrMsg(key, keyBuf, flags, msg)
+	m := NewPcapWrMsg(key, keyBuf, ts, flags, msg)
 	// DBG("msg key: %q h: %d i: %d (running %d)\n", keyVal, h, i, pw.running)
 	// DBG("worker queued0: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)
 	if m != nil {
@@ -231,7 +232,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
 func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 	dip net.IP, dport int,
 	key sipsp.PField, keyBuf []byte,
-	flags PcapWrMsgFlags, payload []byte) error {
+	ts timestamp.TS, flags PcapWrMsgFlags, payload []byte) error {
 
 	var err error
 	var keySrc []byte
@@ -332,5 +333,5 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 		// adjust key offset, but only if it points inside the payload
 		k.Offs += sipsp.OffsT(hlen)
 	}
-	return pw.WriteRawMsg(k, keyBuf, flags, sbuf.Bytes())
+	return pw.WriteRawMsg(k, keyBuf, ts, flags, sbuf.Bytes())
 }

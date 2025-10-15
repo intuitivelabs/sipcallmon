@@ -857,7 +857,8 @@ nextpkt:
 								sip, sport,
 								dip, dport,
 								key, callid[:clen],
-								PcapDumpAppendOnlyF, payload)
+								timestamp.Timestamp(now),
+								PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, payload)
 							if e != nil {
 								ERR("pcapDumper WriteUDPmsg error %v: "+
 									"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
@@ -871,7 +872,7 @@ nextpkt:
 				stats.Inc(sCnts.seen)
 				if !nonSIP(payload, sip, sport, dip, dport) {
 					udpSIPMsg(ioutil.Discard, &sipmsg, payload, n, sip, sport,
-						dip, dport, cfg)
+						dip, dport, timestamp.Timestamp(now), cfg)
 				} else {
 					// not sip -> probe
 					pktErrEvHandler(calltr.EvNonSIPprobe,
@@ -1006,13 +1007,14 @@ nextpkt:
 //	sport   - source port
 //	dip     - destination ip
 //	dport   - destination port
+//	ts      - packet receive timestamp
 //	cfg     - Config pointer (Verbose, WpcapDumpOn, WpcapOnErr used)
 //	          the log)
 //
 // return: true on success
 func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 	n uint64, sip net.IP, sport int,
-	dip net.IP, dport int, cfg *Config) bool {
+	dip net.IP, dport int, ts timestamp.TS, cfg *Config) bool {
 	ret := true
 	verbose := cfg.Verbose
 	if verbose && (Plog.DBGon() || w != ioutil.Discard) {
@@ -1068,7 +1070,7 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 				sipmsg.PV.GetCallID().CallID.Len > 4 {
 				e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
 					sipmsg.PV.GetCallID().CallID, nil, /*callid part of buf*/
-					PcapDumpAppendOnlyF, buf)
+					ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, buf)
 				if e != nil {
 					ERR("pcapDumper WriteUDPmsg error %v: "+
 						"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
@@ -1101,9 +1103,10 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 				stats.Inc(sCnts.callTrUDP)
 				if cfg.WpcapDumpOn &&
 					sipmsg.PV.GetCallID().CallID.Len > 4 {
+					pcapFlags := PcapMsgHdrTimestampF
 					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
 						sipmsg.PV.GetCallID().CallID, nil, /* part of buf*/
-						0, buf)
+						ts, pcapFlags, buf)
 					if e != nil {
 						ERR("pcapDumper WriteUDPmsg error %v: "+
 							"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
@@ -1115,8 +1118,8 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 				if cfg.WpcapDumpOn && cfg.WpcapOnErr &&
 					sipmsg.PV.GetCallID().CallID.Len > 4 {
 					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
-						sipmsg.PV.GetCallID().CallID, nil, /* part of buf */
-						PcapDumpAppendOnlyF, buf)
+						sipmsg.PV.GetCallID().CallID, nil, // part of buf
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, buf)
 					if e != nil {
 						ERR("pcapDumper WriteUDPmsg error %v: "+
 							"%d. %s:%d -> %s:%d UDP	payload len: %d\n",

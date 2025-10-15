@@ -205,6 +205,7 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					endPoints[1].SetIP(s.dstIP)
 					endPoints[1].Port = s.dport
 					endPoints[1].SetProto(calltr.NProtoTCP)
+					rcvdTS := timestamp.Now()
 
 					ok := CallTrack(&s.pmsg, endPoints)
 					if ok {
@@ -212,10 +213,12 @@ func (s *SIPStreamData) Process(data []byte) bool {
 						// pcap dump
 						if RunningCfg.WpcapDumpOn &&
 							s.pmsg.PV.GetCallID().CallID.Len > 4 {
+							pcapFlags := PcapMsgHdrTimestampF
 							e := pcapDumper.WriteUDPmsg(s.srcIP, int(s.sport),
 								s.dstIP, int(s.dport),
 								s.pmsg.PV.GetCallID().CallID, nil,
-								0, s.buf[s.mstart:s.bused])
+								rcvdTS, pcapFlags,
+								s.buf[s.mstart:s.bused])
 							if e != nil {
 								ERR("pcapDumper WriteUDPmsg error %v: "+
 									"tcp %s:%d -> %s:%d UDP	payload len: %d\n",
@@ -236,7 +239,8 @@ func (s *SIPStreamData) Process(data []byte) bool {
 							e := pcapDumper.WriteUDPmsg(s.srcIP, int(s.sport),
 								s.dstIP, int(s.dport),
 								s.pmsg.PV.GetCallID().CallID, nil,
-								PcapDumpAppendOnlyF, s.buf[s.mstart:s.bused])
+								rcvdTS, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF,
+								s.buf[s.mstart:s.bused])
 							if e != nil {
 								ERR("pcapDumper WriteUDPmsg error %v: "+
 									"tcp %s:%d -> %s:%d UDP	payload len: %d\n",
@@ -268,6 +272,7 @@ func (s *SIPStreamData) Process(data []byte) bool {
 						Plog.LogMux(s.W, true, slog.LNOTICE,
 							"tcp: missing Content-Length Header: %s\n", err)
 					}
+					rcvdTS := timestamp.Now()
 					// parse error event
 					pktErrEvHandler(calltr.EvParseErr,
 						s.srcIP, int(s.sport), s.dstIP, int(s.dport),
@@ -280,7 +285,8 @@ func (s *SIPStreamData) Process(data []byte) bool {
 						e := pcapDumper.WriteUDPmsg(s.srcIP, int(s.sport),
 							s.dstIP, int(s.dport),
 							s.pmsg.PV.GetCallID().CallID, nil,
-							PcapDumpAppendOnlyF, s.buf[s.mstart:s.bused])
+							rcvdTS, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF,
+							s.buf[s.mstart:s.bused])
 						if e != nil {
 							ERR("pcapDumper WriteUDPmsg error %v: "+
 								"tcp %s:%d -> %s:%d UDP	payload len: %d\n",
@@ -334,6 +340,7 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					if rep > 60 {
 						rep = 60
 					}
+					rcvdTS := timestamp.Now()
 					pktErrEvHandler(calltr.EvParseErr,
 						s.srcIP, int(s.sport), s.dstIP, int(s.dport),
 						calltr.NProtoTCP,
@@ -347,7 +354,8 @@ func (s *SIPStreamData) Process(data []byte) bool {
 						e := pcapDumper.WriteUDPmsg(s.srcIP, int(s.sport),
 							s.dstIP, int(s.dport),
 							s.pmsg.PV.GetCallID().CallID, nil,
-							PcapDumpAppendOnlyF, s.buf[s.mstart:s.bused])
+							rcvdTS, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF,
+							s.buf[s.mstart:s.bused])
 						if e != nil {
 							ERR("pcapDumper WriteUDPmsg error %v: "+
 								"tcp %s:%d -> %s:%d UDP	payload len: %d\n",

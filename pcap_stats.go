@@ -52,7 +52,7 @@ type pcapStatsT struct {
 
 	hErrMkSubdir counters.Handle
 	hErrNewFile  counters.Handle
-	hErrNoFile   counters.Handle
+	hErrAppendOnly counters.Handle
 	hErrWrHdr    counters.Handle
 	hErrWrMsg    counters.Handle
 	hErrOther    counters.Handle
@@ -105,8 +105,8 @@ func (s *pcapStatsT) Init() bool {
 			"errors creating new subdirectories"},
 		{&s.hErrNewFile, 0, nil, nil, "err_new_file",
 			"errors creating new files"},
-		{&s.hErrNoFile, 0, nil, nil, "err_missing_file",
-			"errors opening existing files / append only mode"},
+		{&s.hErrAppendOnly, 0, nil, nil, "err_append_only",
+			"errors appending to existing files in append only mode"},
 		{&s.hErrWrHdr, 0, nil, nil, "err_wr_header",
 			"errors while writing initial pcap file header"},
 		{&s.hErrWrMsg, 0, nil, nil, "err_wr_msg",

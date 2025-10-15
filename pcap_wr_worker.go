@@ -340,7 +340,7 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 					pwr.stats.cnts.Inc(pwr.stats.hErrNewFile)
 				} else {
 					// non-existing file
-					pwr.stats.cnts.Inc(pwr.stats.hErrNoFile)
+					pwr.stats.cnts.Inc(pwr.stats.hErrAppendOnly)
 				}
 				goto err_cleanup
 			}

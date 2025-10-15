@@ -458,6 +458,10 @@ func Init(cfg *Config) error {
 		if err != nil {
 			return err
 		}
+		PcapDumperCfg.Upload = cfg.WpcapUpload
+		PcapDumperCfg.RestCfg.ReadTimeout = cfg.WpcapUpldRTO
+		PcapDumperCfg.RestCfg.WriteTimeout = cfg.WpcapUpldWTO
+		PcapDumperCfg.RestCfg.MaxRedirects = cfg.WpcapUpldRedir
 		if !pcapDumper.Init(PcapDumperCfg) {
 			return fmt.Errorf("failed to init pcap dumper")
 		}

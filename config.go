@@ -33,6 +33,10 @@ type Config struct {
 	DbgCalltr      uint64        `config:"debug_calltr"`
 	PCAPs          string        `config:"pcap"`
 	PCAPloop       uint64        `config:"pcap_loop"`
+	WpcapUpload    string        `config:"pcap_dump_upload"`
+	WpcapUpldRTO   time.Duration `config:"pcap_dump_upload_rd_timeout"`
+	WpcapUpldWTO   time.Duration `config:"pcap_dump_upload_wr_timeout"`
+	WpcapUpldRedir int           `config:"pcap_dump_upload_max_redir"`
 	WpcapDir       string        `config:"pcap_dump_dir"`
 	WpcapPrefix    string        `config:"pcap_dump_prefix"`
 	WpcapSuffix    string        `config:"pcap_dump_suffix"`
@@ -186,6 +190,10 @@ var defaultConfigVals = Config{
 	DbgCalltr:   uint64(calltr.DefaultConfig.Dbg),
 
 	NoPromisc: false,
+
+	WpcapUpldRTO:   10 * time.Second,
+	WpcapUpldWTO:   5 * time.Second,
+	WpcapUpldRedir: 2,
 
 	WpcapPrefix:   "callid_",
 	WpcapSuffix:   "",
@@ -362,8 +370,16 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.Uint64Var(&cfg.PCAPloop, "pcap_loop", c.PCAPloop,
 		"loop through pcap files multiple times")
 
+	flag.StringVar(&cfg.WpcapUpload, "pcap_dump_upload", c.WpcapUpload,
+		"upload url for dumping pcap packets (using pcap uploader api)")
+	pcapUpldRToS := flag.String("pcap_upload_rd_timeout", c.WpcapUpldRTO.String(),
+		"pcap uploader network read timeout")
+	pcapUpldWToS := flag.String("pcap_upload_wd_timeout", c.WpcapUpldWTO.String(),
+		"pcap uploader network write timeout")
+	flag.IntVar(&cfg.WpcapUpldRedir, "pcap_upload_max_redir", c.WpcapUpldRedir,
+		"maximum number of redirects followed when uploading pcap packets")
 	flag.StringVar(&cfg.WpcapDir, "pcap_dump_dir", c.WpcapDir,
-		"write directory for generated pcap per call files")
+		"write directory for the generated pcap per call files")
 	flag.StringVar(&cfg.WpcapPrefix, "pcap_dump_prefix", c.WpcapPrefix,
 		"prefix added to the name of the generated pcap per call files")
 	flag.StringVar(&cfg.WpcapSuffix, "pcap_dump_suffix", c.WpcapSuffix,
@@ -548,6 +564,21 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		}
 		if len(portsNum) > 0 {
 			cfg.SIPports = portsNum
+		}
+
+		cfg.WpcapUpldRTO, perr = time.ParseDuration(*pcapUpldRToS)
+		if perr != nil {
+			e := fmt.Errorf("invalid pcap_upload_rd_timeout interval: %s: %v\n",
+				*pcapUpldRToS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.WpcapUpldWTO, perr = time.ParseDuration(*pcapUpldWToS)
+		if perr != nil {
+			e := fmt.Errorf("invalid pcap_upload_wr_timeout interval: %s: %v\n",
+				*pcapUpldWToS, perr)
+			errs++
+			return cfg, e
 		}
 
 		cfg.ReplayMinDelay, perr = time.ParseDuration(*replMinDelayS)
@@ -970,9 +1001,10 @@ func CfgCheck(cfg *Config) error {
 			" a configured IPFIX collector required")
 	}
 	if cfg.WpcapDumpOn {
-		if len(cfg.WpcapDir) == 0 {
+		if len(cfg.WpcapDir) == 0 && len(cfg.WpcapUpload) == 0 {
 			return fmt.Errorf("if pcap write mode is enabled it requires a" +
-				" non-empty write directory: pcap_dump_dir")
+				" either a non-empty write directory (pcap_dump_dir) or" +
+				" upload url (pcap_dump_upload)")
 		}
 		if cfg.UseAnonymization() {
 			return fmt.Errorf("pcap write mode is incompatible with" +

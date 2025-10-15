@@ -214,16 +214,22 @@ func (s *SIPStreamData) Process(data []byte) bool {
 						if RunningCfg.WpcapDumpOn &&
 							s.pmsg.PV.GetCallID().CallID.Len > 4 {
 							pcapFlags := PcapMsgHdrTimestampF
+							adjCallID := s.pmsg.PV.GetCallID().CallID
+							// adjust callid offset so that is relative to s.pmsg.RawMsg
+							// and not s.pmsg.Buf
+							adjCallID.Offs -= sipsp.OffsT(len(s.pmsg.Buf) -
+								len(s.pmsg.RawMsg))
 							e := pcapDumper.WriteUDPmsg(s.srcIP, int(s.sport),
 								s.dstIP, int(s.dport),
-								s.pmsg.PV.GetCallID().CallID, nil,
+								/*s.pmsg.PV.GetCallID().CallID, s.pmsg.Buf,*/
+								adjCallID, nil,
 								rcvdTS, pcapFlags,
-								s.buf[s.mstart:s.bused])
+								s.pmsg.RawMsg /*s.buf[s.mstart:s.bused]*/)
 							if e != nil {
 								ERR("pcapDumper WriteUDPmsg error %v: "+
 									"tcp %s:%d -> %s:%d UDP	payload len: %d\n",
 									e, s.srcIP, s.sport, s.dstIP, s.dport,
-									len(s.buf[s.mstart:s.bused]))
+									len(s.pmsg.RawMsg) /*len(s.buf[s.mstart:s.bused])*/)
 							}
 						}
 					} else {

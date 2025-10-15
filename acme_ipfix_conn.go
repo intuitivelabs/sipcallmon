@@ -731,12 +731,15 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 		endPoints[0].Port = srcPort
 		endPoints[1].SetIP(dstIP)
 		endPoints[1].Port = dstPort
-		ok := CallTrack(&c.sipmsg, endPoints)
+		ok, newCall, _ := CallTrack(&c.sipmsg, endPoints)
 		if ok {
 			stats.Inc(sCnts.callTrTCP)
 			if processPktCfg.WpcapDumpOn &&
 				c.sipmsg.PV.GetCallID().CallID.Len > 4 {
 				pcapFlags := PcapMsgHdrTimestampF
+				if newCall {
+					pcapFlags |= PcapDumpNewFileF
+				}
 				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
 					dstIP, int(dstPort),
 					c.sipmsg.PV.GetCallID().CallID, nil,

@@ -1098,19 +1098,24 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 			endPoints[1].Port = uint16(dport)
 			endPoints[1].SetProto(calltr.NProtoUDP)
 
-			ret = CallTrack(sipmsg, endPoints)
+			var newCall bool
+			ret, newCall, _ = CallTrack(sipmsg, endPoints)
 			if ret {
 				stats.Inc(sCnts.callTrUDP)
 				if cfg.WpcapDumpOn &&
 					sipmsg.PV.GetCallID().CallID.Len > 4 {
 					pcapFlags := PcapMsgHdrTimestampF
+					if newCall {
+						pcapFlags |= PcapDumpNewFileF
+					}
 					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
 						sipmsg.PV.GetCallID().CallID, nil, /* part of buf*/
 						ts, pcapFlags, buf)
 					if e != nil {
 						ERR("pcapDumper WriteUDPmsg error %v: "+
-							"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
-							e, n, sip, sport, dip, dport, len(buf))
+							"%d. %s:%d -> %s:%d UDP	payload len: %d callid: %q\n",
+							e, n, sip, sport, dip, dport, len(buf),
+							sipmsg.PV.GetCallID().CallID.Get(buf))
 					}
 				}
 			} else {
@@ -1410,6 +1415,9 @@ func pktErrEvHandler(evt calltr.EventType,
 	}
 }
 
-func CallTrack(m *sipsp.PSIPMsg, n [2]calltr.NetInfo) bool {
-	return calltr.Track(m, n, nil /*evHandler*/)
+func CallTrack(m *sipsp.PSIPMsg, n [2]calltr.NetInfo) (ok bool, isNew bool,
+	match calltr.CallMatchType) {
+	ok, match = calltr.Track(m, n, nil /*evHandler*/)
+	isNew = (ok && match == calltr.CallNoMatch) // new call, call-id not seen before
+	return
 }

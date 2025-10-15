@@ -7,7 +7,7 @@ require (
 	github.com/zeebo/xxh3 v1.0.2
 	github.com/intuitivelabs/bytescase v1.0.3
 	github.com/intuitivelabs/bytespool v0.0.4
-	github.com/intuitivelabs/calltr v1.1.15-0.20251006131420-b70eb09c0831
+	github.com/intuitivelabs/calltr v1.1.15-0.20251015125106-85051cd8295b
 	github.com/intuitivelabs/counters v0.3.3
 	github.com/intuitivelabs/httpsp v0.0.10
 	github.com/intuitivelabs/sipsp v1.1.6

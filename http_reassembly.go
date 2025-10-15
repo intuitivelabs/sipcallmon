@@ -733,7 +733,7 @@ skip_crlf:
 		endPoints[1].SetIP(c.DstIP())
 		endPoints[1].Port = c.DstPort()
 		endPoints[1].SetProto(calltr.NProtoWS)
-		ok := CallTrack(smsg, endPoints)
+		ok, _, _ := CallTrack(smsg, endPoints)
 		if ok {
 			stats.Inc(sCnts.callTrWS)
 			// TODO: if WpcapPerCall ->

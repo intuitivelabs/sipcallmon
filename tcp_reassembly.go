@@ -207,13 +207,16 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					endPoints[1].SetProto(calltr.NProtoTCP)
 					rcvdTS := timestamp.Now()
 
-					ok := CallTrack(&s.pmsg, endPoints)
+					ok, newCall, _ := CallTrack(&s.pmsg, endPoints)
 					if ok {
 						stats.Inc(sCnts.callTrTCP)
 						// pcap dump
 						if RunningCfg.WpcapDumpOn &&
 							s.pmsg.PV.GetCallID().CallID.Len > 4 {
 							pcapFlags := PcapMsgHdrTimestampF
+							if newCall {
+								pcapFlags |= PcapDumpNewFileF
+							}
 							adjCallID := s.pmsg.PV.GetCallID().CallID
 							// adjust callid offset so that is relative to s.pmsg.RawMsg
 							// and not s.pmsg.Buf

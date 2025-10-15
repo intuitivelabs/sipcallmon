@@ -3,6 +3,7 @@ package sipcallmon
 import (
 	"encoding/binary"
 	"errors"
+	"net/url"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,16 @@ const (
 
 var pcapWrMsgPool bytespool.Bpool
 
+// pcap file header is 24 bytes
+// pcapng SHB block w/o options is 28 and IDB w/o options is 20 bytes
+// pcap per packet header is 16 bytes and pcapng EPB is min. 32 bytes
+// max  packet is 14 (eth) + 65535  (ip) + 40 (ip6)
+const maxWriterBufSize = 28 + 20 + 32 + 14 + 40 + 65535 + 3 /* round to 8 multiple */
+var pcapWriterBufPool = sync.Pool{
+	New: func() any {
+		return make([]byte, maxWriterBufSize)
+	},
+}
 
 // PcapWrMsg contains the message that will be sent to the writer goroutine.
 // It encapsulates the message key, some flags and the original message.
@@ -294,14 +305,25 @@ func padOffs(offs int) int {
 }
 
 var ErrBadPcapIntMsg = errors.New("bug: bad internal pcap wr message")
+var ErrBadPcapUloaderMsg = errors.New("bug: pcap upload client not initialised")
+
+type PcapWrWorkerFlags uint32 // worker type / behaviour flags
+
+const (
+	PcapWrWorkerEmptyF  PcapWrWorkerFlags = 0
+	PcapWrWorkerFileF   PcapWrWorkerFlags = 1 // write msgs to file(s)
+	PcapWrWorkerUploadF PcapWrWorkerFlags = 2 // upload msgs using the uploader API
+)
 
 type PcapWrWorker struct {
 	msgs chan PcapWrMsg
 
-	init    bool // true after Init()
-	running bool // true after Start()
-	name    string
-	cfg     *PcapWriterCfg
+	init       bool // true after Init()
+	running    bool // true after Start()
+	name       string
+	flags      PcapWrWorkerFlags
+	cfg        *PcapWriterCfg
+	restClient *RESTclient
 
 	stop     chan struct{} // internal strop (via Strop())
 	wg       sync.WaitGroup
@@ -310,15 +332,19 @@ type PcapWrWorker struct {
 	tmsgs    atomic.Uint64 // total messages handled
 }
 
-func (pwr *PcapWrWorker) Init(name string, cfg *PcapWriterCfg,
+func (pwr *PcapWrWorker) Init(name string, flags PcapWrWorkerFlags, cfg *PcapWriterCfg,
 	stats *pcapStatsT) error {
 	pwr.initLock.Lock()
 	pwr.name = name
 	pwr.msgs = make(chan PcapWrMsg, cfg.QueueLen)
 	pwr.stop = make(chan struct{}, 1)
 	pwr.init = true
+	pwr.flags = flags
 	pwr.cfg = cfg
 	pwr.stats = stats
+	if (flags&PcapWrWorkerUploadF != 0) && (len(cfg.Upload) != 0) {
+		pwr.restClient = NewRESTclient(cfg.RestCfg)
+	}
 	pwr.initLock.Unlock()
 	return nil
 }
@@ -385,7 +411,12 @@ loop:
 			v := pwr.tmsgs.Add(1)
 			// DBG("worker %s  tmsg: %d\n", pwr.name, v)
 			pwr.stats.cnts.Max(pwr.stats.hMaxMsgsWorker, counters.Val(v))
-			pwr.writeMsg(m)
+			if pwr.flags&PcapWrWorkerFileF != 0 {
+				pwr.writeMsg(m)
+			}
+			if pwr.flags&PcapWrWorkerUploadF != 0 {
+				pwr.uploadMsg(m)
+			}
 			FreePcapWrMsg(m)
 			continue
 		case <-pwr.stop:
@@ -523,6 +554,151 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 err_cleanup:
 	if f != nil {
 		f.Close()
+	}
+
+	if err != nil {
+		pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)
+		DBG("PCAP Dumper %s: ERROR for message %q flags 0x%0x  len %d type %T"+
+			": %v\n",
+			pwr.name, key, flags, len(content), err, err)
+	}
+	return err
+}
+
+func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
+
+	var err error
+	var pcapDump *pcapgo.Writer
+	var ciTime time.Time
+	var iowBuf FixedIOWriter
+	var rstatus int
+	var httpErr error
+	var fullURLbuf [256]byte // space for URL
+	var escTSstr string
+
+	if pwr.restClient == nil {
+		BUG("http pcap upload client not initialised for %q\n", pwr.name)
+		pwr.stats.cnts.Inc(pwr.stats.hBUG)
+		return ErrBadPcapUloaderMsg
+	}
+
+	// URL format: /api/upload/d9dd6620-e7f4-47c7-aa1b-ba8c55286640
+	// optional parameters: "?fromTS=2024-03-08T09%3a16%3a22Z&toTS=2024-03-08T09%3a16%3a22Z"
+	// optional headers:
+	//                   X-From-Timestamp: 2024-03-08T09:16:22Z
+	//                   X-To-Timestamp: 2024-03-08T09:16:22Z
+	uri := fullURLbuf[0:0]
+
+	key, flags, timestamp, content := m.Parse()
+	/*
+	 key := m.RawKey()
+	 content := m.RawMsg()
+	 flags := m.Flags()
+	 timestamp := m.Timestamp()
+	*/
+	if len(key) == 0 {
+		// error bad message
+		BUG("PCAP Dumper %s: bad message flags 0%0x len %d total %d\n",
+			pwr.name, flags, len(content), len(m))
+		pwr.stats.cnts.Inc(pwr.stats.hBUG)
+		return ErrBadPcapIntMsg
+	}
+
+	//	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d\n",
+	//		pwr.name, key, flags, len(content))
+	if flags&PcapMsgHdrTimestampF != 0 {
+		// timestamp in header
+		ciTime = timestamp.Time()
+	} else {
+		// no timestamp in header => use current time
+		ciTime = time.Now()
+	}
+	ci := gopacket.CaptureInfo{
+		Timestamp:      ciTime,
+		CaptureLength:  len(content),
+		Length:         len(content),
+		InterfaceIndex: 0,
+	}
+	id := pwr.cfg.PcapUploadId(key)
+	// TODO: escape unsupported chars
+	// uploader API supports only /^\w+([-_]?\w+)*$/ and max 64 chars
+	//  (a-z, A-Z, 0-9, _, - , not starting or terminating with -)
+	// or return the base64 or hex representation of a hash over the key
+	// (see also uuid.NewMD5(uuid.NameSpaceOID, key).String())
+	// or xxh3.Hash64(key), then base64 and then replace "+/=" with "-__"
+
+	iowBuf.Buf = pcapWriterBufPool.Get().([]byte)
+	iowBuf.Buf = iowBuf.Buf[0:0] // start with empty Buf (0 length)
+	pcapDump = pcapgo.NewWriter(&iowBuf)
+	if flags&PcapDumpNewFileF != 0 {
+		// new file -> write pcap header
+		pwr.stats.cnts.Inc(pwr.stats.hNewUpldFhdr)
+		err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
+		if err != nil {
+			DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+				pwr.name, key, err, err)
+			pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
+			goto err_cleanup
+		}
+	}
+	err = pcapDump.WritePacket(ci, content)
+	if err != nil {
+		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+			pwr.name, key, err, err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrWrMsg)
+		goto err_cleanup
+	}
+
+	// build full url
+	escTSstr = url.QueryEscape(timestamp.Format(time.RFC3339))
+	// initial url part: <host>/api/upload/
+	uri = append(uri, pwr.cfg.Upload...)
+	if len(uri) > 0 && uri[len(uri)-1] != '/' {
+		// add missing separator
+		uri = append(uri, '/')
+	}
+	// add id to url (e.g. d9dd6620-e7f4-47c7-aa1b-ba8c55286640)
+	uri = append(uri, id...)
+	//add : "?fromTS=<escaped_utc timestamp>"
+	uri = append(uri, "?fromTS="...)
+	uri = append(uri, escTSstr...)
+	//add:   "&toTS=<escaped_utc_timestamp>"
+	uri = append(uri, "&toTS="...)
+	uri = append(uri, escTSstr...)
+	if len(uri) == cap(fullURLbuf) {
+		ERR("PCAP dumper: space reserved for building http url too small: %d\n",
+			len(uri))
+		goto err_cleanup
+	}
+
+	// send packet
+	rstatus, httpErr = pwr.restClient.RESTsend(unsafeconv.Str(uri),
+		unsafeconv.Str(iowBuf.Buf))
+
+	if httpErr == nil && (rstatus >= 200 && rstatus < 300) {
+		// success
+		pwr.stats.cnts.Inc(pwr.stats.hUploadedMsgs)
+		pwr.stats.cnts.Add(pwr.stats.hUploadedBytes, counters.Val(len(iowBuf.Buf)))
+	} else {
+		if httpErr != nil {
+			// http request failed
+			pwr.stats.cnts.Inc(pwr.stats.hErrUpload)
+			ERR("%s: http %s failed: %s\n",
+				pwr.name, pwr.cfg.RestCfg.Method, httpErr)
+		} else {
+			// http request sent successfully, but got some non 2xx response
+			pwr.stats.cnts.Inc(pwr.stats.hRejUpload)
+			ERR("%s: http %s negative response:  %d\n",
+				pwr.name, pwr.cfg.RestCfg.Method, rstatus)
+		}
+		// TODO: if (httpErr != nil || isRetrStatus(rstatus, configed resty statuses))
+		//        retransmit/retry (queue)
+	}
+
+err_cleanup:
+	if cap(iowBuf.Buf) != 0 {
+		pcapWriterBufPool.Put(iowBuf.Buf)
+		iowBuf.Buf = nil
 	}
 
 	if err != nil {

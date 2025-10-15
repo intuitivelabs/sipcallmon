@@ -28,11 +28,13 @@ var errorPcapWNewMsgFailed = errors.New("pcap dumper message alloc failed")
 var pcapSubDirChrSet = []byte("0123456789abcdefghijklmnopqrstuvwxyz")
 
 type PcapWriterCfg struct {
-	NWorkers int    // number of worker threads started
-	QueueLen int    // queue size per worker
-	Dir      string // should contain the parent directory for the pcap files
-	Prefix   string // should contain a file prefix (optional)
-	Suffix   string // should contain file suffix + extension
+	NWorkers int     // number of worker threads started
+	QueueLen int     // queue size per worker
+	Dir      string  // should contain the parent directory for the pcap files
+	Prefix   string  // should contain a file prefix (optional)
+	Suffix   string  // should contain file suffix + extension
+	Upload   string  // upload URL
+	RestCfg  RESTcfg // config for pcap uploader over http
 
 	init    bool
 	wSeed   maphash.Seed // seed for workers dist.: init to random hash seed
@@ -41,6 +43,12 @@ type PcapWriterCfg struct {
 
 func (pcfg *PcapWriterCfg) Init() {
 	pcfg.wSeed = maphash.MakeSeed()
+	if pcfg.RestCfg.Method == "" {
+		pcfg.RestCfg.Method = "POST"
+	}
+	if pcfg.RestCfg.ContentType == "" {
+		pcfg.RestCfg.ContentType = "application/octet-stream"
+	}
 
 	pcfg.init = true
 }
@@ -76,6 +84,11 @@ func (pcfg *PcapWriterCfg) InitSubDirs(flags int, no int) error {
 func (pcfg PcapWriterCfg) PcapFileName(key []byte) string {
 	escKey := url.PathEscape(unsafeconv.Str(key))
 	return pcfg.Prefix + escKey + pcfg.Suffix
+}
+
+func (pcfg PcapWriterCfg) PcapUploadId(key []byte) string {
+	escKey := url.QueryEscape(unsafeconv.Str(key))
+	return escKey
 }
 
 // PcapFileRelPath returns the relative path to pcfg.Dir of the output
@@ -140,12 +153,25 @@ func (pw *PcapWriter) Init(cfg PcapWriterCfg) bool {
 	}
 	pw.wrWorkers = make([]PcapWrWorker, pw.cfg.NWorkers)
 	pw.init = true
+	wrFlags := PcapWrWorkerEmptyF
+	if len(cfg.Upload) != 0 {
+		wrFlags |= PcapWrWorkerUploadF
+	} else {
+		// no upload configured => to file
+		wrFlags |= PcapWrWorkerFileF
+	}
+	if len(cfg.Dir) != 0 {
+		// if dir configured force write also to file
+		wrFlags |= PcapWrWorkerFileF
+	}
 	for i := 0; i < len(pw.wrWorkers); i++ {
 		name := fmt.Sprintf("pcap_writer_%03d", i)
-		if err := pw.wrWorkers[i].Init(name, &pw.cfg, pw.stats); err != nil {
+		if err := pw.wrWorkers[i].Init(name, wrFlags, &pw.cfg, pw.stats); err != nil {
 			pw.wrWorkers = pw.wrWorkers[0:i]
 			return false // some init error
 		}
+		// TODO: if both PcapWrWorkerUploadF and PcapWrWorkerFileF are set start
+		//       separate workers and send a copy of the packet to both of them
 	}
 	return true
 }

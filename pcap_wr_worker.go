@@ -632,7 +632,17 @@ func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
 		Length:         len(content),
 		InterfaceIndex: 0,
 	}
-	id := pwr.cfg.PcapUploadId(key)
+	var idBuf [256]byte
+	var idLen int
+	var id []byte
+	idLen, err = pwr.cfg.PcapUploadId(idBuf[:], key)
+	if err != nil {
+		BUG("PCAP Dumper %s: Upload Id generation for message %q failed: %v\n",
+			pwr.name, key, err)
+		pwr.stats.cnts.Inc(pwr.stats.hBUG)
+		goto err_cleanup
+	}
+	id = idBuf[:idLen]
 	// TODO: escape unsupported chars
 	// uploader API supports only /^\w+([-_]?\w+)*$/ and max 64 chars
 	//  (a-z, A-Z, 0-9, _, - , not starting or terminating with -)

@@ -5,8 +5,10 @@ go 1.23.0
 toolchain go1.23.5
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/google/gopacket v1.1.19
 	github.com/valyala/fasthttp v1.65.0
+	github.com/zeebo/blake3 v0.2.4
 	github.com/zeebo/xxh3 v1.0.2
 	github.com/intuitivelabs/bytescase v1.0.3
 	github.com/intuitivelabs/bytespool v0.0.4
@@ -24,7 +26,7 @@ require (
 require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sdp/v3 v3.0.9 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

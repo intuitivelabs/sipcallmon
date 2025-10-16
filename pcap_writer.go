@@ -11,6 +11,7 @@ import (
 	"github.com/google/gopacket/layers"
 
 	//"github.com/intuitivelabs/calltr" // GetHash
+	"github.com/intuitivelabs/bytescase"
 	"github.com/intuitivelabs/sipsp"
 	"github.com/intuitivelabs/timestamp"
 	"github.com/intuitivelabs/unsafeconv"
@@ -27,14 +28,59 @@ var errorPcapWNewMsgFailed = errors.New("pcap dumper message alloc failed")
 
 var pcapSubDirChrSet = []byte("0123456789abcdefghijklmnopqrstuvwxyz")
 
+type PcapIdHashT uint8
+
+const (
+	PcapIdHashNone PcapIdHashT = iota
+	PcapIdHashMD5
+	PcapIdHashSHA256
+	PcapIdHashXXHash
+	PcapIdHashXXHash128
+	PcapIdHashBlake256
+	PcapIdHashBlake384
+	PcapIdHashInvalid // marker
+)
+
+var pcapIdHashNames = [...][]string{
+	PcapIdHashNone:      {"none"},
+	PcapIdHashMD5:       {"md5"},
+	PcapIdHashSHA256:    {"sha256"},
+	PcapIdHashXXHash:    {"xxhash64", "xxhash"},
+	PcapIdHashXXHash128: {"xxhash128"},
+	PcapIdHashBlake256:  {"blake3_256", "blake256", "blake3"},
+	PcapIdHashBlake384:  {"blake3_384", "blake384"},
+}
+
+var errPcapWrCfgInvHash = errors.New("pcap dump config: invalid id hash type")
+
+func (h PcapIdHashT) String() string {
+	if int(h) < len(pcapIdHashNames) {
+		return pcapIdHashNames[h][0]
+	}
+	return "invalid"
+}
+
+func ParsePcapIdHashT(s string) PcapIdHashT {
+	val := unsafeconv.Bytes(s)
+	for h, names := range pcapIdHashNames {
+		for _, n := range names {
+			if bytescase.CmpEq(unsafeconv.Bytes(n), val) {
+				return PcapIdHashT(h)
+			}
+		}
+	}
+	return PcapIdHashInvalid
+}
+
 type PcapWriterCfg struct {
-	NWorkers int     // number of worker threads started
-	QueueLen int     // queue size per worker
-	Dir      string  // should contain the parent directory for the pcap files
-	Prefix   string  // should contain a file prefix (optional)
-	Suffix   string  // should contain file suffix + extension
-	Upload   string  // upload URL
-	RestCfg  RESTcfg // config for pcap uploader over http
+	NWorkers int         // number of worker threads started
+	QueueLen int         // queue size per worker
+	Dir      string      // should contain the parent directory for the pcap files
+	Prefix   string      // should contain a file prefix (optional)
+	Suffix   string      // should contain file suffix + extension
+	Upload   string      // upload URL
+	RestCfg  RESTcfg     // config for pcap uploader over http
+	IdHash   PcapIdHashT // hash used when generating the upload id
 
 	init    bool
 	wSeed   maphash.Seed // seed for workers dist.: init to random hash seed
@@ -86,9 +132,35 @@ func (pcfg PcapWriterCfg) PcapFileName(key []byte) string {
 	return pcfg.Prefix + escKey + pcfg.Suffix
 }
 
-func (pcfg PcapWriterCfg) PcapUploadId(key []byte) string {
-	escKey := url.QueryEscape(unsafeconv.Str(key))
-	return escKey
+// Returns the number of bytes written into dst or an error if
+// dst was too small or the hash id was wrong.
+func (pcfg PcapWriterCfg) PcapUploadId(dst []byte, key []byte) (int, error) {
+
+	switch pcfg.IdHash {
+	case PcapIdHashNone:
+		if len(key) > len(dst) {
+			return 0, errUrlEncDstTooSmall
+		}
+		k := url.QueryEscape(unsafeconv.Str(key))
+		n := copy(dst, k)
+		if len(k) > len(dst) {
+			return n, errUrlEncDstTooSmall
+		}
+		return n, nil
+	case PcapIdHashMD5:
+		return MD5URLSafe(dst, key)
+	case PcapIdHashSHA256:
+		return SHA256URLSafe(dst, key)
+	case PcapIdHashXXHash:
+		return XXHashURLSafe(dst, key)
+	case PcapIdHashXXHash128:
+		return XXHash128URLSafe(dst, key)
+	case PcapIdHashBlake256:
+		return Blake3URLSafe256(dst, key)
+	case PcapIdHashBlake384:
+		return Blake3URLSafe384(dst, key)
+	}
+	return 0, errPcapWrCfgInvHash
 }
 
 // PcapFileRelPath returns the relative path to pcfg.Dir of the output

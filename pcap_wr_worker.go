@@ -38,11 +38,13 @@ var pcapWrMsgPool bytespool.Bpool
 // pcap per packet header is 16 bytes and pcapng EPB is min. 32 bytes
 // max  packet is 14 (eth) + 65535  (ip) + 40 (ip6)
 const maxWriterBufSize = 28 + 20 + 32 + 14 + 40 + 65535 + 3 /* round to 8 multiple */
+/*
 var pcapWriterBufPool = sync.Pool{
 	New: func() any {
 		return make([]byte, maxWriterBufSize)
 	},
 }
+*/
 
 // PcapWrMsg contains the message that will be sent to the writer goroutine.
 // It encapsulates the message key, some flags and the original message.
@@ -318,18 +320,19 @@ const (
 type PcapWrWorker struct {
 	msgs chan PcapWrMsg
 
-	init       bool // true after Init()
-	running    bool // true after Start()
+	init       bool        // true after Init()
+	running    atomic.Bool // true after Start()
 	name       string
 	flags      PcapWrWorkerFlags
 	cfg        *PcapWriterCfg
 	restClient *RESTclient
 
-	stop     chan struct{} // internal strop (via Strop())
-	wg       sync.WaitGroup
-	initLock sync.Mutex // avoid running Stop() in parallel
-	stats    *pcapStatsT
-	tmsgs    atomic.Uint64 // total messages handled
+	stop        chan struct{} // internal strop (via Strop())
+	wg          sync.WaitGroup
+	initLock    sync.Mutex // avoid running Stop() in parallel
+	stats       *pcapStatsT
+	tmsgs       atomic.Uint64          // total messages handled
+	tmpWriteBuf [maxWriterBufSize]byte // tmp buffer for constructing msgs
 }
 
 func (pwr *PcapWrWorker) Init(name string, flags PcapWrWorkerFlags, cfg *PcapWriterCfg,
@@ -400,6 +403,12 @@ func (pwr *PcapWrWorker) TotalMsgs() uint64 {
 }
 
 func (pwr *PcapWrWorker) run() bool {
+	// disallow running in parallel for the same PcapWrWorker
+	if !pwr.running.CompareAndSwap(false, true) {
+		BUG("attempt to run pcap worker %s (%p) in parallel\n",
+			pwr.name, pwr)
+		return false
+	}
 loop:
 	for {
 		select {
@@ -425,6 +434,10 @@ loop:
 	}
 	close(pwr.msgs)
 	pwr.msgs = nil
+	if !pwr.running.CompareAndSwap(true, false) {
+		BUG("unexpected running flag on %s (%p) run() exit\n",
+			pwr.name, pwr)
+	}
 	return false
 }
 
@@ -627,8 +640,10 @@ func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
 	// (see also uuid.NewMD5(uuid.NameSpaceOID, key).String())
 	// or xxh3.Hash64(key), then base64 and then replace "+/=" with "-__"
 
-	iowBuf.Buf = pcapWriterBufPool.Get().([]byte)
-	iowBuf.Buf = iowBuf.Buf[0:0] // start with empty Buf (0 length)
+	/* iowBuf.Buf = pcapWriterBufPool.Get().([]byte)
+	   iowBuf.Buf = iowBuf.Buf[0:0] // start with empty Buf (0 length)
+	*/
+	iowBuf.Buf = pwr.tmpWriteBuf[0:0] // start with empty buf
 	pcapDump = pcapgo.NewWriter(&iowBuf)
 	if flags&PcapDumpNewFileF != 0 {
 		// new file -> write pcap header
@@ -696,10 +711,12 @@ func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
 	}
 
 err_cleanup:
-	if cap(iowBuf.Buf) != 0 {
-		pcapWriterBufPool.Put(iowBuf.Buf)
-		iowBuf.Buf = nil
-	}
+	/*
+		if cap(iowBuf.Buf) != 0 {
+			pcapWriterBufPool.Put(iowBuf.Buf)
+			iowBuf.Buf = nil
+		}
+	*/
 
 	if err != nil {
 		pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)

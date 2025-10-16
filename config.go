@@ -37,6 +37,7 @@ type Config struct {
 	WpcapUpldRTO   time.Duration `config:"pcap_dump_upload_rd_timeout"`
 	WpcapUpldWTO   time.Duration `config:"pcap_dump_upload_wr_timeout"`
 	WpcapUpldRedir int           `config:"pcap_dump_upload_max_redir"`
+	WpcapUpldHashN string        `config:"pcap_dump_upload_id_hash"`
 	WpcapDir       string        `config:"pcap_dump_dir"`
 	WpcapPrefix    string        `config:"pcap_dump_prefix"`
 	WpcapSuffix    string        `config:"pcap_dump_suffix"`
@@ -194,6 +195,7 @@ var defaultConfigVals = Config{
 	WpcapUpldRTO:   10 * time.Second,
 	WpcapUpldWTO:   5 * time.Second,
 	WpcapUpldRedir: 2,
+	WpcapUpldHashN: "none",
 
 	WpcapPrefix:   "callid_",
 	WpcapSuffix:   "",
@@ -372,12 +374,15 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 	flag.StringVar(&cfg.WpcapUpload, "pcap_dump_upload", c.WpcapUpload,
 		"upload url for dumping pcap packets (using pcap uploader api)")
-	pcapUpldRToS := flag.String("pcap_upload_rd_timeout", c.WpcapUpldRTO.String(),
+	pcapUpldRToS := flag.String("pcap_dump_upload_rd_timeout", c.WpcapUpldRTO.String(),
 		"pcap uploader network read timeout")
-	pcapUpldWToS := flag.String("pcap_upload_wd_timeout", c.WpcapUpldWTO.String(),
+	pcapUpldWToS := flag.String("pcap_dump_upload_wd_timeout", c.WpcapUpldWTO.String(),
 		"pcap uploader network write timeout")
-	flag.IntVar(&cfg.WpcapUpldRedir, "pcap_upload_max_redir", c.WpcapUpldRedir,
+	flag.IntVar(&cfg.WpcapUpldRedir, "pcap_dump_upload_max_redir", c.WpcapUpldRedir,
 		"maximum number of redirects followed when uploading pcap packets")
+	flag.StringVar(&cfg.WpcapUpldHashN, "pcap_dump_upload_id_hash", c.WpcapUpldHashN,
+		"method for generating the per call id for pcap dump upload"+
+			" (none, md5, sha256, xxh, xxh128, blake3_256, blake3_384)")
 	flag.StringVar(&cfg.WpcapDir, "pcap_dump_dir", c.WpcapDir,
 		"write directory for the generated pcap per call files")
 	flag.StringVar(&cfg.WpcapPrefix, "pcap_dump_prefix", c.WpcapPrefix,
@@ -1010,6 +1015,11 @@ func CfgCheck(cfg *Config) error {
 			return fmt.Errorf("pcap write mode is incompatible with" +
 				" any anonymisation or encryption options (encrypt_*)")
 		}
+	}
+	if cfg.WpcapUpldHashN != "" &&
+		ParsePcapIdHashT(cfg.WpcapUpldHashN) == PcapIdHashInvalid {
+		return fmt.Errorf("pcap_dump_upload_id_hash: invalid value %q",
+			cfg.WpcapUpldHashN)
 	}
 
 	if cfg.UseAnonymization() {

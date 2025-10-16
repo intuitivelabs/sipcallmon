@@ -462,6 +462,16 @@ func Init(cfg *Config) error {
 		PcapDumperCfg.RestCfg.ReadTimeout = cfg.WpcapUpldRTO
 		PcapDumperCfg.RestCfg.WriteTimeout = cfg.WpcapUpldWTO
 		PcapDumperCfg.RestCfg.MaxRedirects = cfg.WpcapUpldRedir
+		// fix pcap dumper id hash method
+		if cfg.WpcapUpldHashN == "" {
+			// default
+			PcapDumperCfg.IdHash = PcapIdHashNone
+		} else if m := ParsePcapIdHashT(cfg.WpcapUpldHashN); m == PcapIdHashInvalid {
+			return fmt.Errorf("bad pcap id hash method %q for -pcap_dump_upload_id_hash",
+				cfg.WpcapUpldHashN)
+		} else {
+			PcapDumperCfg.IdHash = m
+		}
 		if !pcapDumper.Init(PcapDumperCfg) {
 			return fmt.Errorf("failed to init pcap dumper")
 		}

@@ -127,9 +127,26 @@ func (pcfg *PcapWriterCfg) InitSubDirs(flags int, no int) error {
 	return nil
 }
 
-func (pcfg PcapWriterCfg) PcapFileName(key []byte) string {
-	escKey := url.PathEscape(unsafeconv.Str(key))
-	return pcfg.Prefix + escKey + pcfg.Suffix
+// PcapMaxFileNameLen will return the maximum lenght for the
+// filename produced by PcapFileName.
+func (pcfg PcapWriterCfg) PcapMaxFileNameLen(key []byte) int {
+	return len(pcfg.Prefix) + 3*len(key) + len(pcfg.Suffix)
+}
+
+// PcapFileName will create a filename based on the provided key.
+// The result is written in dst (which has to provide enough space).
+// It returns the number of bytes written and an error.
+func (pcfg PcapWriterCfg) PcapFileName(dst, key []byte) (int, error) {
+	if len(pcfg.Prefix)+len(key)+len(pcfg.Suffix) > len(dst) {
+		return 0, errFileEscDstTooSmall
+	}
+	flen, err := FileEscapeSafe(dst[len(pcfg.Prefix):], key)
+	if err != nil {
+		return 0, err
+	}
+	copy(dst[0:], pcfg.Prefix)
+	copy(dst[len(pcfg.Prefix)+flen:], pcfg.Suffix)
+	return len(pcfg.Prefix) + flen + len(pcfg.Suffix), nil
 }
 
 // Returns the number of bytes written into dst or an error if
@@ -169,13 +186,54 @@ func (pcfg PcapWriterCfg) PcapUploadId(dst []byte, key []byte) (int, error) {
 
 // PcapFileRelPath returns the relative path to pcfg.Dir of the output
 // pcap file  corresponding to "key". It includes the file name.
-func (pcfg PcapWriterCfg) PcapFileRelPath(key []byte) string {
-	return pcfg.PcapFileSubDir(key) + pcfg.PcapFileName(key)
+func (pcfg PcapWriterCfg) PcapFileRelPath(dst, key []byte) (int, error) {
+
+	subdir := pcfg.PcapFileSubDir(key)
+	if len(subdir)+len(key) > len(dst) {
+		return 0, errPathEscDstTooSmall
+	}
+	flen, err := FileEscapeSafe(dst[len(subdir):], key)
+	if err != nil {
+		return 0, err
+	}
+	copy(dst[0:], subdir)
+	return len(subdir) + flen, nil
 }
 
-func (pcfg PcapWriterCfg) PcapFileFullPath(key []byte) (fpath, dirpath string) {
-	dirpath = pcfg.Dir + pcfg.PcapFileSubDir(key)
-	fpath = dirpath + pcfg.PcapFileName(key)
+// PcapMaxDirPathLen will return the maximum length for the
+// directory path produced by PcapFileFullPath
+func (pcfg PcapWriterCfg) PcapMaxDirPathLen(key []byte) int {
+	subdir := pcfg.PcapFileSubDir(key)
+	return len(pcfg.Dir) + len(subdir)
+}
+
+// PcapMaxFullPathLen will return the maximum length for the
+// the full file path (including directories and filename)
+// produced by PcapFileFullPath
+func (pcfg PcapWriterCfg) PcapMaxFullPathLen(key []byte) int {
+	return pcfg.PcapMaxDirPathLen(key) + pcfg.PcapMaxFileNameLen(key)
+}
+
+// PcapFileFullPath will fill fpath with the full pcap file path
+// (including directories) for the given key.
+// The result is written into fpath  (which has to provide enough space).
+// It returns the number of bytes written in fpath, the  length of the directory path
+// and an error.
+// fpath[:flen] will contain the full file path, complete with directories
+// fpath[:dlen] will contain only the directories
+// fpath[dlen:] will contain only the filename
+func (pcfg PcapWriterCfg) PcapFileFullPath(fpath, key []byte) (flen, dlen int,
+	err error) {
+	subdir := pcfg.PcapFileSubDir(key)
+	if len(pcfg.Dir)+len(subdir)+len(key) > len(fpath) {
+		return 0, 0, errFileEscDstTooSmall
+	}
+	dlen = copy(fpath, pcfg.Dir)
+	dlen += copy(fpath[dlen:], subdir)
+	flen, err = pcfg.PcapFileName(fpath[dlen:], key)
+	if err == nil {
+		flen += dlen
+	}
 	return
 }
 

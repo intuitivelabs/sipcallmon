@@ -482,7 +482,20 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	}
 	// TODO: search if fd & name cached, based on m.key
 	// if not, create or open/append file
-	fname, dirname := pwr.cfg.PcapFileFullPath(key)
+	var fPathBuf [256]byte
+	var fPathLen, dirnameLen int
+	var fname, dirname string
+
+	fPathLen, dirnameLen, err = pwr.cfg.PcapFileFullPath(fPathBuf[:], key)
+	if err != nil {
+		// TODO: retry with larger buffer?
+		ERR("error obtaining output pcap filename for %q buf size %d max %d: %v\n",
+			key, len(fPathBuf), pwr.cfg.PcapMaxFullPathLen(key), err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrOther)
+		goto err_cleanup
+	}
+	fname = unsafeconv.Str(fPathBuf[:fPathLen])
+	dirname = unsafeconv.Str(fPathBuf[:dirnameLen])
 	/*
 		DBG("PCAP Dumper %s: message %q (l: %d) (h: %d seed: %d , %d) flags 0x%0x  len %d:"+
 			" open file %q (%q subdir %q (%d))\n",

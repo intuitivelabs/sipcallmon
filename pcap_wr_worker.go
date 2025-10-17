@@ -20,6 +20,8 @@ import (
 	"github.com/intuitivelabs/unsafeconv"
 )
 
+const maxPcapUploadIdLen = 64 // enforced limit on upload ids
+
 type PcapWrMsgFlags uint32
 
 const (
@@ -641,6 +643,9 @@ func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
 			pwr.name, key, err)
 		pwr.stats.cnts.Inc(pwr.stats.hBUG)
 		goto err_cleanup
+	}
+	if idLen > maxPcapUploadIdLen {
+		idLen = maxPcapUploadIdLen // truncate
 	}
 	id = idBuf[:idLen]
 	// TODO: escape unsupported chars

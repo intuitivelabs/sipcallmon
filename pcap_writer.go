@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"hash/maphash"
 	"net"
-	"net/url"
+	//"net/url"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -141,12 +141,16 @@ func (pcfg PcapWriterCfg) PcapUploadId(dst []byte, key []byte) (int, error) {
 		if len(key) > len(dst) {
 			return 0, errUrlEncDstTooSmall
 		}
-		k := url.QueryEscape(unsafeconv.Str(key))
-		n := copy(dst, k)
-		if len(k) > len(dst) {
-			return n, errUrlEncDstTooSmall
-		}
-		return n, nil
+		return UploadIdEscape(dst, key)
+		//return URLEscape(dst, key)
+		/*
+			k := url.QueryEscape(unsafeconv.Str(key))
+			n := copy(dst, k)
+			if len(k) > len(dst) {
+				return n, errUrlEncDstTooSmall
+			}
+			return n, nil
+		*/
 	case PcapIdHashMD5:
 		return MD5URLSafe(dst, key)
 	case PcapIdHashSHA256:

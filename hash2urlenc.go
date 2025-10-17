@@ -1,3 +1,4 @@
+// functions for hashing + ascii encoding []byte slices
 package sipcallmon
 
 import (
@@ -12,7 +13,7 @@ import (
 	"github.com/zeebo/xxh3"
 )
 
-var errUrlEncDstTooSmall = errors.New("url-encoded destination slice too small")
+var errUrlEncDstTooSmall = errors.New("encoded url destination slice too small")
 
 // URLEncodedLen returns the maximum length of the url encoded format
 //

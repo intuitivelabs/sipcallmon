@@ -707,8 +707,7 @@ skip_crlf:
 	}
 	c.wsP.sipMsg.Init(nil, nil, nil)
 	smsg := &c.wsP.sipMsg
-	o, err := sipsp.ParseSIPMsg(b, 0, smsg,
-		sipsp.SIPMsgSkipBodyF|sipsp.SIPMsgNoMoreDataF)
+	o, err := sipsp.ParseSIPMsg(b, 0, smsg, sipsp.SIPMsgNoMoreDataF)
 	switch err {
 	case 0:
 		stats.Inc(sCnts.ok)

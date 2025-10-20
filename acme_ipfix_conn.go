@@ -715,7 +715,7 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 	endPoints[1].Port = dstPort
 	// don't allow messages without Content-Length?
 	o, errParse := sipsp.ParseSIPMsg(smsg, 0, &c.sipmsg,
-		sipsp.SIPMsgNoMoreDataF|sipsp.SIPMsgSkipBodyF|sipsp.SIPMsgCLenReqF)
+		sipsp.SIPMsgNoMoreDataF|sipsp.SIPMsgCLenReqF)
 	switch errParse {
 	case 0:
 		// stats & dbg

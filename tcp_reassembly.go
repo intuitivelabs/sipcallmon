@@ -181,7 +181,7 @@ func (s *SIPStreamData) Process(data []byte) bool {
 				endPoints[1].SetProto(calltr.NProtoTCP)
 				o, err = sipsp.ParseSIPMsg(s.buf[s.mstart:s.bused], s.offs,
 					&s.pmsg,
-					sipsp.SIPMsgSkipBodyF|sipsp.SIPMsgCLenReqF)
+					sipsp.SIPMsgCLenReqF)
 				s.offs = o
 				if s.Verbose && (Plog.DBGon() || s.W != ioutil.Discard) {
 					Plog.LogMux(s.W, true, slog.LDBG,
@@ -264,8 +264,12 @@ func (s *SIPStreamData) Process(data []byte) bool {
 					// prepare for new message
 					s.mstart += o
 					s.offs = 0
-					s.skip = int(s.pmsg.PV.CLen.UIVal)
-					s.state = SIPStreamSkipBytes
+					// parsed including body so no bytes to skip
+					// (otherwise if sipsp.SIPMsgSkipBodyF used when parsing:
+					//   s.skip = int(s.pmsg.PV.CLen.UIVal)
+					//   and s.state = SIPStreamSkipBytes)
+					s.skip = 0
+					s.state = SIPStreamSkipCRLF
 					s.pmsg.Reset()
 				case sipsp.ErrHdrMoreBytes:
 					// handle skip over body partial body ?

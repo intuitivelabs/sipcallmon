@@ -382,7 +382,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"maximum number of redirects followed when uploading pcap packets")
 	flag.StringVar(&cfg.WpcapUpldHashN, "pcap_dump_upload_id_hash", c.WpcapUpldHashN,
 		"method for generating the per call id for pcap dump upload"+
-			" (none, md5, sha256, xxh, xxh128, blake3_256, blake3_384)")
+			" (none, md5, sha256, xxhash, xxhash128, blake3_256, blake3_384)")
 	flag.StringVar(&cfg.WpcapDir, "pcap_dump_dir", c.WpcapDir,
 		"write directory for the generated pcap per call files")
 	flag.StringVar(&cfg.WpcapPrefix, "pcap_dump_prefix", c.WpcapPrefix,

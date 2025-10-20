@@ -673,16 +673,16 @@ func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
 	*/
 	iowBuf.Buf = pwr.tmpWriteBuf[0:0] // start with empty buf
 	pcapDump = pcapgo.NewWriter(&iowBuf)
-	if flags&PcapDumpNewFileF != 0 {
-		// new file -> write pcap header
-		pwr.stats.cnts.Inc(pwr.stats.hNewUpldFhdr)
-		err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
-		if err != nil {
-			DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
-				pwr.name, key, err, err)
-			pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
-			goto err_cleanup
-		}
+	// write a new header for every packet (expected by the upload api) and not
+	// only if  flags&PcapDumpNewFileF != 0
+	// new file -> write pcap header
+	pwr.stats.cnts.Inc(pwr.stats.hNewUpldFhdr) // TODO: obsolete since done everytime?
+	err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
+	if err != nil {
+		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+			pwr.name, key, err, err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
+		goto err_cleanup
 	}
 	err = pcapDump.WritePacket(ci, content)
 	if err != nil {

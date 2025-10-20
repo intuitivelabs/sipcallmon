@@ -1941,7 +1941,7 @@ func httpRTPStreamsList(w http.ResponseWriter, r *http.Request) {
 			rVal = -rVal
 		default:
 			fmt.Fprintf(w, "Error: invalid rop value %q"+
-				" (expected &gt= or &lt)\n")
+				" (expected &gt= or &lt)\n", paramRop[0])
 		}
 	}
 	if len(tst) > 0 {

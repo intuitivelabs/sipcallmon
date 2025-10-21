@@ -133,11 +133,17 @@ func (pcfg PcapWriterCfg) PcapMaxFileNameLen(key []byte) int {
 	return len(pcfg.Prefix) + 3*len(key) + len(pcfg.Suffix)
 }
 
+// PcapMinFileNameLen will return the minimum lenght for the
+// filename produced by PcapFileName.
+func (pcfg PcapWriterCfg) PcapMinFileNameLen(key []byte) int {
+	return len(pcfg.Prefix) + len(key) + len(pcfg.Suffix)
+}
+
 // PcapFileName will create a filename based on the provided key.
 // The result is written in dst (which has to provide enough space).
 // It returns the number of bytes written and an error.
 func (pcfg PcapWriterCfg) PcapFileName(dst, key []byte) (int, error) {
-	if len(pcfg.Prefix)+len(key)+len(pcfg.Suffix) > len(dst) {
+	if pcfg.PcapMinFileNameLen(key) > len(dst) {
 		return 0, errFileEscDstTooSmall
 	}
 	flen, err := FileEscapeSafe(dst[len(pcfg.Prefix):], key)
@@ -189,10 +195,10 @@ func (pcfg PcapWriterCfg) PcapUploadId(dst []byte, key []byte) (int, error) {
 func (pcfg PcapWriterCfg) PcapFileRelPath(dst, key []byte) (int, error) {
 
 	subdir := pcfg.PcapFileSubDir(key)
-	if len(subdir)+len(key) > len(dst) {
+	if len(subdir)+pcfg.PcapMinFileNameLen(key) > len(dst) {
 		return 0, errPathEscDstTooSmall
 	}
-	flen, err := FileEscapeSafe(dst[len(subdir):], key)
+	flen, err := pcfg.PcapFileName(dst[len(subdir):], key)
 	if err != nil {
 		return 0, err
 	}
@@ -225,7 +231,7 @@ func (pcfg PcapWriterCfg) PcapMaxFullPathLen(key []byte) int {
 func (pcfg PcapWriterCfg) PcapFileFullPath(fpath, key []byte) (flen, dlen int,
 	err error) {
 	subdir := pcfg.PcapFileSubDir(key)
-	if len(pcfg.Dir)+len(subdir)+len(key) > len(fpath) {
+	if len(pcfg.Dir)+len(subdir)+pcfg.PcapMinFileNameLen(key) > len(fpath) {
 		return 0, 0, errFileEscDstTooSmall
 	}
 	dlen = copy(fpath, pcfg.Dir)

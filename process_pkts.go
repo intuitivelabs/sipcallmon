@@ -444,7 +444,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	// allocs)
 	var sipmsg sipsp.PSIPMsg
 	var siphdrs [100]sipsp.Hdr // parse max. 100 headers by default
-	var callid [80]byte        // temporary callid buffer (rtp pcap)
+	//var callid [80]byte        // temporary callid buffer (rtp pcap)
 	/* needed layers */
 	// link layers
 	var sll layers.LinuxSLL // e.g.: pcap files captured on any interface
@@ -466,7 +466,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 
 	// init sipmsg
 	sipmsg.Init(nil, siphdrs[:], nil)
-	rtpHash := calltr.GetRTPStreamHash()
+	//rtpHash := calltr.GetRTPStreamHash()
 
 	//var appl gopacket.Payload
 	// space for decoded layers:
@@ -822,50 +822,9 @@ nextpkt:
 
 				var payload []byte = tl.LayerPayload()
 
-				// check if configured sip port
-				if cfg.RTP && len(cfg.SIPports) != 0 &&
-					!checkPortsList(sport, dport, cfg.SIPports) {
-					// non sip
-					// process as RTP
-					var endPoints [2]calltr.NetInfo
-					endPoints[0].SetIP(sip)
-					endPoints[0].Port = uint16(sport)
-					endPoints[0].SetProto(calltr.NProtoUDP)
-					endPoints[1].SetIP(dip)
-					endPoints[1].Port = uint16(dport)
-					endPoints[1].SetProto(calltr.NProtoUDP)
-					match, clen, needed := rtpHash.ProcessPkt(
-						endPoints[0], endPoints[1],
-						timestamp.Timestamp(now), payload,
-						callid[:])
-					if needed > clen {
-						DBG("returned call-id too big: %d, copied %d\n",
-							needed, clen)
-					} else if match != calltr.RTPNoMatch {
-						/*
-							DBG("rtp packet match %d call: %s\n",
-								match, unsafeconv.Str(callid[:clen]))
-						*/
-
-						if cfg.WpcapDumpOn && cfg.WpcapDumpRTP {
-							/* in the RTP Stream case the CallID is not
-							   part of the message (as for SIP) =>
-							   path separate key buffer */
-							key :=
-								sipsp.PField{Offs: 0, Len: sipsp.OffsT(clen)}
-							e := pcapDumper.WriteUDPmsg(
-								sip, sport,
-								dip, dport,
-								key, callid[:clen],
-								timestamp.Timestamp(now),
-								PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, payload)
-							if e != nil {
-								ERR("pcapDumper WriteUDPmsg error %v: "+
-									"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
-									e, n, sip, sport, dip, dport, len(buf))
-							}
-						}
-					}
+				// check and process RTP
+				if isRTP, _, _, _ := processRTP(cfg, sip, sport, dip, dport,
+					timestamp.Timestamp(now), payload); isRTP {
 					break nextlayer // exit loop
 				}
 				// sport or dport listed in SIPports or no SIPports configured

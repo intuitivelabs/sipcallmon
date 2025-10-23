@@ -604,6 +604,11 @@ func (c *AcmeIPFIXconn) handleSIPudp(
 		ERR("acme ipfix: sip udp4: bad udp header: %s\n", err)
 		return err
 	}
+	// check and process RTP
+	if isRTP, _, _, _ := processRTP(processPktCfg, srcIP, int(udp.SrcPort),
+		dstIP, int(udp.DstPort), ts, udp.Payload); isRTP {
+		return nil
+	}
 	if !nonSIP(udp.Payload, srcIP, int(udp.SrcPort),
 		dstIP, int(udp.DstPort)) {
 

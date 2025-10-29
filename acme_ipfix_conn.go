@@ -60,6 +60,8 @@ type AcmeIPFIXconnCfg struct {
 type AcmeIPFIXconn struct {
 	id        uint64
 	conn      net.TCPConn
+	src       net.TCPAddr // cached from conn.RemoteAddr()
+	dst       net.TCPAddr // cached from conn.LocalAddr()
 	startTS   timestamp.TS
 	lastIO    timestamp.TS
 	timeout   atomic.Int32 // io timeout in s
@@ -77,6 +79,7 @@ type AcmeIPFIXconn struct {
 	keepAlive uint16              // negotiated/replied KeepAlive value
 	hname     [255]byte           // hostname buffer
 	Cfg       AcmeIPFIXconnCfg
+	init      bool
 
 	next, prev *AcmeIPFIXconn
 }
@@ -85,16 +88,26 @@ func (c *AcmeIPFIXconn) Reset() {
 	*c = AcmeIPFIXconn{}
 }
 
+// NoConn returns true if there is no underlying tcp connection initialised
+// (read-only mode).
+func (c *AcmeIPFIXconn) NoConn() bool {
+	return c.conn == net.TCPConn{}
+}
+
+// ReadOnly returns true if in read-only mode: no message is
+// ever sent back.
+func (c *AcmeIPFIXconn) ReadOnly() bool {
+	return c.NoConn()
+}
+
 func (c *AcmeIPFIXconn) GetInfo(info *AcmeIPFIXconnInfo) {
 	info.Id = c.id
-	src := c.conn.RemoteAddr().(*net.TCPAddr)
-	dst := c.conn.LocalAddr().(*net.TCPAddr)
 	info.Src.SetProto(calltr.NProtoTCP)
-	info.Src.SetIP(src.IP)
-	info.Src.Port = uint16(src.Port)
+	info.Src.SetIP(c.src.IP)
+	info.Src.Port = uint16(c.src.Port)
 	info.Dst.SetProto(calltr.NProtoTCP)
-	info.Dst.SetIP(dst.IP)
-	info.Dst.Port = uint16(dst.Port)
+	info.Dst.SetIP(c.dst.IP)
+	info.Dst.Port = uint16(c.dst.Port)
 	info.StartTS = c.startTS // not changing so no need for atomic
 	info.LastIO = timestamp.AtomicLoad(&c.lastIO)
 	info.Timeout = c.timeout.Load()
@@ -141,13 +154,15 @@ func (c *AcmeIPFIXconn) handleIOdeadline(e error) error {
 	return e
 }
 
-func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
+func (c *AcmeIPFIXconn) Init(id uint64, src, dst *net.TCPAddr,
+	conn *net.TCPConn, startTS timestamp.TS,
+	stats *acmeIPFIXstatsT, cfg AcmeIPFIXconnCfg, processPktCfg *Config) {
 
-	var buf [65536]byte
-	var rpos int
-	var n, missing, end int
-	var err error
-	var mHdr IPFIXmsgHdr
+	c.id = id
+	c.startTS = startTS
+	c.lastIO = startTS
+	c.gStats = stats
+	c.Cfg = cfg
 
 	// init the sipmsg with more headers then the default of 10
 	// (more headers remembered by default helps in getting a
@@ -159,6 +174,44 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 		timeout = c.Cfg.TimeoutMin
 	}
 	c.timeout.Store(int32(timeout))
+	if conn != nil {
+		c.conn = *conn
+		if src == nil {
+			src = c.conn.RemoteAddr().(*net.TCPAddr)
+		}
+		if dst == nil {
+			dst = c.conn.LocalAddr().(*net.TCPAddr)
+		}
+	} else {
+		c.conn = net.TCPConn{} // force empty
+	}
+	if src != nil {
+		c.src = *src
+	}
+	if dst != nil {
+		c.dst = *dst
+	}
+	c.init = true
+}
+
+func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
+
+	var buf [65536]byte
+	var rpos int
+	var n, missing, end int
+	var err error
+	var mHdr IPFIXmsgHdr
+
+	if !c.init {
+		BUG("run: not initialised\n")
+		return
+	}
+	if c.NoConn() {
+		BUG("run: empty tcpconn\n")
+		return
+	}
+
+	timeout := c.timeout.Load()
 	// negative timeout == disabled timeout
 	if timeout > 0 {
 		if e := c.conn.SetDeadline(
@@ -404,6 +457,10 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 	}
 	c.hshkLock.Unlock()
 
+	if c.ReadOnly() {
+		/* stop here, not replying */
+		return nil
+	}
 	// reply to connect request
 	cSet.KeepAliveT = uint16(keepAlive)
 	cSet.CfgFlags = 0 // sip only

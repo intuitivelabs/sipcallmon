@@ -273,22 +273,8 @@ func (s *AcmeIPFIXcollector) acceptConns(
 			// use sync.pool
 			conn, _ := acmeIPFIXconnPool.Get().(*AcmeIPFIXconn)
 			conn.Reset()
-			conn.id = connId
-			conn.conn = *tcpConn
-			conn.startTS = now
-			conn.lastIO = now
-			conn.gStats = s.gStats
-			conn.Cfg = s.Cfg
-			/*
-				conn := &AcmeIPFIXconn{
-					id:      connId,
-					conn:    *tcpConn,
-					startTS: now,
-					lastIO:  now,
-					gStats:  s.gStats,
-					Cfg:     s.Cfg,
-				}
-			*/
+			conn.Init(connId, nil, nil, tcpConn, now, s.gStats,
+				s.Cfg, processPktCfg)
 			s.addConn(conn)
 			connId++
 			s.wg.Add(1)

@@ -31,6 +31,8 @@ type acmeIPFIXstatsT struct {
 	hSIPsctp4Out counters.Handle
 	hSIPudp6In   counters.Handle
 	hSIPudp6Out  counters.Handle
+	hRTPqos4Int  counters.Handle
+	hRTPqos4     counters.Handle
 
 	hMaxClifetime counters.Handle
 
@@ -90,6 +92,10 @@ func (s *acmeIPFIXstatsT) Init() bool {
 			"number of ingress SIP over IPv6 UDP data sets received"},
 		{&s.hSIPudp6Out, 0, nil, nil, "sip_udp6_out",
 			"number of egress SIP over IPv6 UDP data sets received"},
+		{&s.hRTPqos4Int, 0, nil, nil, "rtp_qos4_interim",
+			"number of rtp qos interim records received for ipv4 streams"},
+		{&s.hRTPqos4, 0, nil, nil, "rtp_qos4",
+			"number of rtp qos records received for ipv4 streams"},
 
 		{&s.hMaxClifetime, counters.CntMaxF | counters.CntNonMonoF, nil, nil,
 			"max_conn_lifetime",

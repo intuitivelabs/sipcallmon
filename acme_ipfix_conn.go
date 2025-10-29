@@ -34,6 +34,8 @@ type AcmeIPFIXconnInfo struct {
 	Timeout     int32
 	PktNo       uint64
 	SIPpktNo    uint64
+	RTPqosInt   uint64 // rtp qos interim records
+	RTPqos      uint64 // rtp qos records
 	HandshakeNo uint32
 	Handshake   AcmeIPFIXconnectSet // handshake info (probe connect)
 	KeepAlive   uint16
@@ -41,9 +43,10 @@ type AcmeIPFIXconnInfo struct {
 }
 
 func (c *AcmeIPFIXconnInfo) String() string {
-	s := fmt.Sprintf("%s:%d -> %s:%d   id:%5d,  pkts:%6d,  sip:%6d",
+	s := fmt.Sprintf("%s:%d -> %s:%d   id:%5d,  pkts:%6d,  sip:%6d"+
+		" rtp_qos:%6d %6d",
 		c.Src.IP(), c.Src.Port, c.Dst.IP(), c.Dst.Port,
-		c.Id, c.PktNo, c.SIPpktNo)
+		c.Id, c.PktNo, c.SIPpktNo, c.RTPqosInt, c.RTPqos)
 	return s
 }
 
@@ -55,15 +58,17 @@ type AcmeIPFIXconnCfg struct {
 }
 
 type AcmeIPFIXconn struct {
-	id       uint64
-	conn     net.TCPConn
-	startTS  timestamp.TS
-	lastIO   timestamp.TS
-	timeout  atomic.Int32 // io timeout in s
-	pktNo    atomic.Uint64
-	sipPktNo atomic.Uint64
-	sipmsg   sipsp.PSIPMsg  // avoids allocs
-	sipHdrs  [100]sipsp.Hdr // extra space for sip headers (needed for msg sig)
+	id        uint64
+	conn      net.TCPConn
+	startTS   timestamp.TS
+	lastIO    timestamp.TS
+	timeout   atomic.Int32 // io timeout in s
+	pktNo     atomic.Uint64
+	sipPktNo  atomic.Uint64
+	rtpQOSint atomic.Uint64
+	rtpQOS    atomic.Uint64
+	sipmsg    sipsp.PSIPMsg  // avoids allocs
+	sipHdrs   [100]sipsp.Hdr // extra space for sip headers (needed for msg sig)
 
 	gStats    *acmeIPFIXstatsT // global stats (must be init)
 	hshkLock  sync.Mutex
@@ -95,6 +100,8 @@ func (c *AcmeIPFIXconn) GetInfo(info *AcmeIPFIXconnInfo) {
 	info.Timeout = c.timeout.Load()
 	info.PktNo = c.pktNo.Load()
 	info.SIPpktNo = c.sipPktNo.Load()
+	info.RTPqosInt = c.rtpQOSint.Load()
+	info.RTPqos = c.rtpQOS.Load()
 	// copy handshake info
 	c.hshkLock.Lock()
 	{
@@ -313,6 +320,9 @@ func (c *AcmeIPFIXconn) handlePkt(
 				break
 			}
 			err = c.handleSIPtcp(setHdr.SetID, set, ts, processPktCfg)
+		case AcmeIPFIXrtpQOS4interim:
+			// missing: ipv6 version
+			err = c.handleRTPqos4Interim(setHdr.SetID, set, ts, processPktCfg)
 		case IPFIXtemplateID:
 			WARN("acme ipfix: unexpected template set (%d)\n", setHdr.SetID)
 			c.gStats.cnts.Inc(c.gStats.hTemplateSet)
@@ -894,5 +904,51 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 	/* don't return err here: if it's a sip message parsing error
 	   we can just ignore the ipfix set, we don't need to close the
 	   connection */
+	return nil
+}
+
+// handleRTPqos4Interim handles rtp qos interim records for ipv4.
+func (c *AcmeIPFIXconn) handleRTPqos4Interim(
+	setID uint16,
+	buf []byte,
+	ts timestamp.TS, // receive timestamp
+	processPktCfg *Config) error {
+
+	var qosSet AcmeIPFIXrtpQOS4InterimSet
+	var nxt, missing int
+	var err error
+
+	c.rtpQOSint.Add(1)
+	qosSet, nxt, missing, err =
+		ParseAcmeIPFIXrtpQOS4InterimSet(buf, 0)
+	if err != nil {
+		if err != ErrIPFIXqosSessionsMax || qosSet.No == 0 {
+			ERR("acme ipfix: rtp qos interim set %d parsing failed: %s"+
+				" (%d streams)\n",
+				setID, err, qosSet.No)
+			return err
+		}
+		// else continue with the number of parsed sessions
+		WARN("acme ipfix: rtp qos interim: %s (using %d streams)\n",
+			err, qosSet.No)
+	}
+	if missing != 0 {
+		BUG("acme ipfix: rtp qos  returned missing %d\n", missing)
+		c.gStats.cnts.Inc(c.gStats.hBUG)
+	}
+	if nxt < len(buf) {
+		DBG("acme ipfix: udp4 set extra padding %d bytes\n", len(buf)-nxt)
+		c.gStats.cnts.Set(c.gStats.hMaxPadding, counters.Val(len(buf)-nxt))
+		c.gStats.cnts.Inc(c.gStats.hPaddedSets)
+	}
+	c.gStats.cnts.Inc(c.gStats.hRTPqos4Int)
+
+	// iterate through all the media streams
+	for i := 0; i < qosSet.No; i++ {
+		if DBGon() {
+			DBG("ipfix rtp qos m=%d: %s\n", i, qosSet.MStreams[i])
+		}
+	}
+
 	return nil
 }

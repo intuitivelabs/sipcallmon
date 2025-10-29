@@ -21,6 +21,8 @@ const (
 	// missing/unknown  AcmeIPFIXsipTCP6Out
 	// missing/unknown  AcmeIPFIXsipSCTP6In
 	// missing/unknown  AcmeIPFIXsipSCTP6Out
+	AcmeIPFIXrtpQOS4        uint16 = 268
+	AcmeIPFIXrtpQOS4interim uint16 = 279
 )
 
 // flags used in the connect and connect ack messages / data sets

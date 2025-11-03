@@ -98,10 +98,12 @@ type ipfixStreamData struct {
 	ipfixStreamOptions
 	cfg Config // need a copy of the main config for RTP
 
-	resync     bool
-	ignore     bool
-	fin        bool
-	syn        bool
+	resync bool
+	ignore bool
+	fin    bool
+	syn    bool
+
+	ipfConnLst *AcmeIPFIXconnLst
 	ipfixStats *acmeIPFIXstatsT
 	stats      *ipfixTCPreassStatsT
 	isInit     bool
@@ -124,6 +126,7 @@ func (s *ipfixStreamData) init(id uint64, b []byte, srcIP, dstIP net.IP,
 	sport, dport uint16,
 	createdTS time.Time,
 	ipfixStats *acmeIPFIXstatsT, tcpStats *ipfixTCPreassStatsT,
+	ipfixConnLst *AcmeIPFIXconnLst,
 	o *ipfixStreamOptions, cfg *Config) {
 	s.Reset(o)
 	s.id = id
@@ -138,6 +141,7 @@ func (s *ipfixStreamData) init(id uint64, b []byte, srcIP, dstIP net.IP,
 	s.lastRcv = s.created
 	s.ipfixStats = ipfixStats
 	s.stats = tcpStats
+	s.ipfConnLst = ipfixConnLst
 	s.isInit = true
 }
 
@@ -158,6 +162,12 @@ func (s *ipfixStreamData) finishInit() {
 			sz = 8192
 		}
 		s.buf = make([]byte, sz) // TODO sync.Pool or alloc
+	}
+	// keep a list of ipfix connections
+	if s.ipfConnLst != nil {
+		s.ipfConnLst.Lock()
+		s.ipfConnLst.InsertUnsafe(&s.c)
+		s.ipfConnLst.Unlock()
 	}
 }
 
@@ -462,7 +472,12 @@ func (s *ipfixStreamData) ReassemblyComplete() {
 	s.ipfixStats.cnts.Set(s.ipfixStats.hMaxClifetime,
 		counters.Val(lifetime))
 	s.ipfixStats.cnts.Dec(s.ipfixStats.hActiveConns)
-	// TODO:  remove from active AcmeIPFIXconnLst
+	//  remove from active AcmeIPFIXconnLst
+	if s.ipfConnLst != nil {
+		s.ipfConnLst.Lock()
+		s.ipfConnLst.RmUnsafe(&s.c)
+		s.ipfConnLst.Unlock()
+	}
 	s.c.Reset()
 }
 
@@ -470,10 +485,11 @@ func (s *ipfixStreamData) ReassemblyComplete() {
 
 type ipfixStreamFactory struct {
 	ipfixStreamOptions
-	cfg        Config
-	ipfixStats *acmeIPFIXstatsT
-	stats      *ipfixTCPreassStatsT
-	init       bool
+	cfg          Config
+	ipfixStats   *acmeIPFIXstatsT
+	stats        *ipfixTCPreassStatsT
+	ipfixConnLst *AcmeIPFIXconnLst
+	init         bool
 }
 
 func (f *ipfixStreamFactory) Init(opts ipfixStreamOptions, cfg *Config) error {
@@ -506,6 +522,11 @@ func (f *ipfixStreamFactory) Init(opts ipfixStreamOptions, cfg *Config) error {
 	f.stats = ipfixTCPreassStats
 	ipfixTCPreassStatsLock.Unlock()
 
+	if acmeIPFIXreassLst.IsInit() {
+		f.ipfixConnLst = &acmeIPFIXreassLst
+	} else {
+		BUG("ipfix tcp reassembly init with uninitialized acmeIPFIXreassLst\n")
+	}
 	f.init = true
 	return nil
 }
@@ -534,7 +555,7 @@ func (f ipfixStreamFactory) New(netFlow, tcpFlow gopacket.Flow) tcpassembly.Stre
 	id := uint64(f.ipfixStats.cnts.Inc(f.ipfixStats.hTotalConns))
 	s.init(id, nil, netFlow.Src().Raw(), netFlow.Dst().Raw(),
 		srcPort, dstPort, time.Now(),
-		f.ipfixStats, f.stats, &f.ipfixStreamOptions, &f.cfg)
-	// TODO: keep a list of AcmeIPFIXconn (global AcmeIPFIXconnLst?)
+		f.ipfixStats, f.stats, f.ipfixConnLst,
+		&f.ipfixStreamOptions, &f.cfg)
 	return s
 }

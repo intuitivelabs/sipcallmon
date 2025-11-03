@@ -30,7 +30,6 @@ import (
 	"net/netip"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/intuitivelabs/counters"
@@ -55,7 +54,6 @@ type AcmeIPFIXcollector struct {
 	net      string
 	listener *net.TCPListener
 	conns    AcmeIPFIXconnLst
-	connsNo  atomic.Uint32
 	gStats   *acmeIPFIXstatsT
 
 	init     bool
@@ -123,7 +121,6 @@ func (s *AcmeIPFIXcollector) Init(addr string, port int,
 	var err error
 	s.initLock.Lock()
 	s.conns.Init()
-	s.connsNo.Store(0)
 	s.wg = sync.WaitGroup{}
 	s.listener, err = net.ListenTCP(s.net, s.laddr)
 	if err == nil {
@@ -194,7 +191,9 @@ func (s *AcmeIPFIXcollector) Stop() bool {
 	s.conns.Lock()
 	// TODO: some close timeout?
 	s.conns.ForEachUnsafe(func(c *AcmeIPFIXconn) bool {
-		c.conn.Close()
+		if c.init && !c.NoConn() {
+			c.conn.Close()
+		}
 		return true
 	})
 	s.conns.Unlock()
@@ -215,7 +214,7 @@ func (s *AcmeIPFIXcollector) Addr() net.Addr {
 }
 
 func (s *AcmeIPFIXcollector) ConnsNo() uint32 {
-	return s.connsNo.Load()
+	return s.conns.ConnsNo()
 }
 
 // GetConnInfo will fill an AcmeIPFIXconnInfo array from the
@@ -226,38 +225,10 @@ func (s *AcmeIPFIXcollector) ConnsNo() uint32 {
 // total number of connections in the list (ConnsNo()).
 func (s *AcmeIPFIXcollector) GetConnInfo(info []AcmeIPFIXconnInfo,
 	start int, no int) (int, int) {
-	var i int
-	var connsNo uint32
-
-	if start < 0 || no <= 0 {
-		return 0, int(s.ConnsNo())
+	if s == nil {
+		return 0, 0
 	}
-	s.conns.Lock()
-	{
-		s.conns.ForEachUnsafe(func(c *AcmeIPFIXconn) bool {
-			if i < start {
-				i++
-				return true
-			}
-			if (i - start) >= no {
-				return false // stop, exceeded requested number
-			}
-			if (i - start) < len(info) {
-				c.GetInfo(&info[i-start])
-			} else {
-				return false // stop, no more space in info
-			}
-			i++
-			return true
-		})
-
-		connsNo = s.connsNo.Load()
-	}
-	s.conns.Unlock()
-	if i < start {
-		return 0, int(connsNo)
-	}
-	return i - start, int(connsNo)
+	return s.conns.GetConnInfo(info, start, no)
 }
 
 // NOTE: supposed to run in a go-routine, with s.wg.Add(1)
@@ -304,16 +275,16 @@ func (s *AcmeIPFIXcollector) acceptConns(
 	}
 }
 
-func (s *AcmeIPFIXcollector) addConn(c *AcmeIPFIXconn) {
+func (s *AcmeIPFIXcollector) addConn(c *AcmeIPFIXconn) uint32 {
 	s.conns.Lock()
-	s.conns.InsertUnsafe(c)
-	s.connsNo.Add(1)
+	v := s.conns.InsertUnsafe(c)
 	s.conns.Unlock()
+	return v
 }
 
-func (s *AcmeIPFIXcollector) rmConn(c *AcmeIPFIXconn) {
+func (s *AcmeIPFIXcollector) rmConn(c *AcmeIPFIXconn) uint32 {
 	s.conns.Lock()
-	s.conns.RmUnsafe(c)
-	s.connsNo.Add(^(uint32(0))) // Dec
+	v := s.conns.RmUnsafe(c)
 	s.conns.Unlock()
+	return v
 }

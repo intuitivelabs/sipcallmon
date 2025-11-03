@@ -10,12 +10,13 @@ package sipcallmon
 
 import (
 	"fmt"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/tcpassembly"
 	"io"
 	"io/ioutil"
 	"net"
 	"time"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/tcpassembly"
 
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/slog"
@@ -225,8 +226,10 @@ func (s *ipfixStreamData) Process(data []byte) bool {
 				s.stats.cnts.Inc(s.stats.errs)
 				if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
 					Plog.LogMux(s.W, true, slog.LNOTICE,
-						"tcp: unexpected error after parsing "+
-							"stream sync lost for %p => %s\n", s, err)
+						"tcp: ipfix reassembly: unexpected error after parsing "+
+							"stream sync lost for %p %s:%p->%s:%p => %s\n",
+						s, s.srcIP.String(), s.sport,
+						s.dstIP.String(), s.dport, err)
 					fmt.Fprintln(s.W)
 				}
 				// actual work
@@ -249,9 +252,9 @@ func (s *ipfixStreamData) Process(data []byte) bool {
 				break
 			}
 			ts := timestamp.Now()
-			// handlePkt will not repond to pings, because there no tcpconn
+			// handlePkt will not respond to pings, because there is no tcpconn
 			// set (s.c.conn is empty)
-			err = s.c.handlePkt(mHdr, s.buf[s.mstart:s.bused], ts, &s.cfg)
+			err = s.c.handlePkt(mHdr, s.buf[s.mstart:s.mstart+totalLen], ts, &s.cfg)
 			if err != nil {
 				s.stats.cnts.Inc(s.stats.errs)
 				s.state = ipfixStreamParseError

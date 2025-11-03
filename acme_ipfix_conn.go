@@ -323,14 +323,20 @@ func (c *AcmeIPFIXconn) handlePkt(
 
 	for pos < len(buf) {
 		setHdr, nxt, missing, err := ParseIPFIXsetHdr(buf, pos)
+		/*DBG("ipfix parsing set %d from %d:%d in buf[%d], pos %d set len %d\n",
+		setHdr.SetID, nxt, pos+int(setHdr.Length),
+		len(buf), pos, setHdr.Length)
+		*/
 		if err != nil {
-			ERR("acme ipfix: set header error: %s, missing %d\n", err, missing)
+			ERR("acme ipfix: set header error: %s, missing %d\n",
+				err, missing)
 			c.gStats.cnts.Inc(c.gStats.hPktParseErr)
 			return err
 		}
 		if int(setHdr.Length)+pos > len(buf) {
-			ERR("acme ipfix: set header error: invalid length %d (data %d)\n",
-				setHdr.Length, len(buf))
+			ERR("acme ipfix: set header error: invalid length %d"+
+				" (buf %d pos %d) for set %d\n",
+				setHdr.Length, len(buf), pos, setHdr.SetID)
 			c.gStats.cnts.Inc(c.gStats.hPktParseErr)
 			return ErrIPFIXmoreBytes
 		}
@@ -1005,7 +1011,163 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 		if DBGon() {
 			DBG("ipfix rtp qos m=%d: %s\n", i, qosSet.MStreams[i])
 		}
+		var src1, src2, dst1, dst2 calltr.NetInfo
+		mstream := &qosSet.MStreams[i].MStream
+		var src3, src4, dst3, dst4 calltr.NetInfo
+		src1.SetProto(calltr.NProtoUDP)
+		src2.SetProto(calltr.NProtoUDP)
+		dst1.SetProto(calltr.NProtoUDP)
+		dst2.SetProto(calltr.NProtoUDP)
+		// check if cfg igress only or egress only or none are set and based on
+		// them choose the src and dst ip:ports for rtpHash.SetStats(...)
+		if c.Cfg.IgnoreEgress {
+			// ignore egress => only SBC-ingress are seen:
+			//   Caller  -> SBC and SBC <- Callee => the SDP is the original
+			//   SDP provided by the caller and callee
+			// stream from Caller to Callee
+			src1.SetIP(mstream.CallerSBC.SrcIP)
+			src1.Port = mstream.CallerSBC.SrcPort
+			dst1.SetIP(mstream.SBCcallee.DstIP)
+			dst1.Port = mstream.SBCcallee.DstPort
+			// stream from Callee to Caller
+			src2.SetIP(mstream.CalleeSBC.SrcIP)
+			src2.Port = mstream.CalleeSBC.SrcPort
+			dst2.SetIP(mstream.SBCcaller.DstIP)
+			dst2.Port = mstream.SBCcaller.DstPort
+		} else if c.Cfg.IgnoreIngress {
+			// only SBC egress messages are seen:
+			//   SBC -> Caller, SBC-> Callee
+			// => the SDP will be always the SDP from SBC
+			//    the calls will look like they are made from SBC-if2 to SBC-if1
+			// stream from Caller to Callee
+			src1.SetIP(mstream.SBCcallee.SrcIP)
+			src1.Port = mstream.SBCcallee.SrcPort
+			dst1.SetIP(mstream.SBCcaller.DstIP)
+			dst1.Port = mstream.SBCcaller.DstPort
+			// stream from Callee to Caller
+			src2.SetIP(mstream.SBCcaller.SrcIP)
+			src2.Port = mstream.SBCcaller.SrcPort
+			dst2.SetIP(mstream.SBCcallee.DstIP)
+			dst2.Port = mstream.SBCcallee.DstPort
+		} else {
+			// using both ingress and egress messages (relative to the SBC)
+			// => we have 2 calls  Caller <-> SBC and SBC <-> Calee
+			// stream from Caller to SBC
+			src1.SetIP(mstream.CallerSBC.SrcIP)
+			src1.Port = mstream.CallerSBC.SrcPort
+			dst1.SetIP(mstream.CallerSBC.DstIP)
+			dst1.Port = mstream.CallerSBC.DstPort
+			// stream from SBC to Caller
+			src2.SetIP(mstream.SBCcaller.SrcIP)
+			src2.Port = mstream.SBCcaller.SrcPort
+			dst2.SetIP(mstream.SBCcaller.DstIP)
+			dst2.Port = mstream.SBCcaller.DstPort
+
+			src3.SetProto(calltr.NProtoUDP)
+			src4.SetProto(calltr.NProtoUDP)
+			dst3.SetProto(calltr.NProtoUDP)
+			dst4.SetProto(calltr.NProtoUDP)
+			// stream from  SBC to Callee
+			src3.SetIP(mstream.SBCcallee.SrcIP)
+			src3.Port = mstream.SBCcallee.SrcPort
+			dst3.SetIP(mstream.SBCcallee.DstIP)
+			dst3.Port = mstream.SBCcallee.DstPort
+			// stream from  Callee to SBC
+			src4.SetIP(mstream.CalleeSBC.SrcIP)
+			src4.Port = mstream.CalleeSBC.SrcPort
+			dst4.SetIP(mstream.CalleeSBC.DstIP)
+			dst4.Port = mstream.CalleeSBC.DstPort
+		}
+		// TODO: convert qos stats to PktStats
+		// TODO: load stats and set them with rtpHash.SetStats(...)
+		// set rtp caller stats
+		setRTPstats(dst1, src1, &qosSet.MStreams[i], true)
+
+		// set rtp callee stats
+		setRTPstats(dst2, src2, &qosSet.MStreams[i], false)
+		if !c.Cfg.IgnoreIngress && !c.Cfg.IgnoreEgress {
+			// extra streams SBC <-> callee
+			setRTPstats(dst3, src3, &qosSet.MStreams[i], true)
+			setRTPstats(dst4, src4, &qosSet.MStreams[i], false)
+		}
 	}
 
 	return nil
+}
+
+func setRTPstats(dst, src calltr.NetInfo,
+	streamInfo *AcmeIPFIXrtpQOS4InterimMStreamInfo, isCaller bool) bool {
+	var callid [256]byte // temporary buffer for callid
+	var newStats calltr.PktStats
+	// get caller or callee stats in calltr preferred format
+	pktStatsFromAcmeIPFIXqos(&newStats, streamInfo, isCaller)
+	rtpHash := calltr.GetRTPStreamHash() // TODO: global
+	m, sz, _ := rtpHash.SetStats(dst, src, newStats, callid[:])
+	if m == calltr.RTPNoMatch {
+		DBG("acme rtp qos: failed to match rtp stream for %s:%d->%s:%d\n",
+			src.IP().String(), src.Port, dst.IP().String(), dst.Port)
+		// TODO: rtp qos stream match error stats++
+		return false
+	} else {
+		DBG("acme rtp qos: updated call %q rtp stream  %s:%d->%s:%d\n",
+			callid[:sz], src.IP().String(), src.Port, dst.IP().String(), dst.Port)
+	}
+	return true
+}
+
+func pktStatsFromAcmeIPFIXqos(dest *calltr.PktStats,
+	source *AcmeIPFIXrtpQOS4InterimMStreamInfo,
+	mapCallerStats bool) {
+
+	var qosStats AcmeIPFIXrtpStats
+
+	// select the appropriate statistics part (caller<-> SBC or SBC<->callee)
+	// ssrc and payload type
+	if mapCallerStats {
+		qosStats = source.StatsA.RTP
+		dest.RTPssrc = source.MStream.CallerSSRC
+		dest.RTPPayloadType = calltr.RTPcodec(source.MStream.CallerPT)
+		// assuming the provided Seq is the last one seen for this reporting interval
+		// note: Seq does not look like real rtp seq
+		dest.RTPSeqNo.Store(source.MStream.CallerSeq)
+	} else {
+		qosStats = source.StatsB.RTP
+		dest.RTPssrc = source.MStream.CalleeSSRC
+		dest.RTPPayloadType = calltr.RTPcodec(source.MStream.CalleePT)
+		// assuming the provided Seq is the last one seen for this reporting interval
+		dest.RTPSeqNo.Store(source.MStream.CalleeSeq)
+	}
+
+	// map rtp packet and byte Counts
+	dest.Pkts.Store(qosStats.Pkts) // assume only rtp seen
+	dest.Bytes.Store(qosStats.Bytes)
+	dest.RTPpkts.Store(qosStats.Pkts)
+	dest.RTPbytes.Store(qosStats.Bytes)
+
+	// calculate and store expected rtp packets
+	expectedPkts := qosStats.Pkts + qosStats.LostPkts
+	dest.RTPexpected.Store(expectedPkts)
+
+	// jitter, ignore JitterMax for now
+	dest.RTPJitter16.Store(uint64(qosStats.JitterAvg) * 16)
+
+	// timestamps
+	// we havestart and stop times for the media session =>
+	// map to the first and last received timestamps
+	startTime := time.Duration(source.MStream.StartTimeS)*time.Second +
+		time.Duration(source.MStream.StartTimeUS)*time.Microsecond
+	stopTime := time.Duration(source.MStream.StopTimeS)*time.Second +
+		time.Duration(source.MStream.StopTimeUS)*time.Microsecond
+	dest.RTPrcvdTS0 = timestamp.TS(startTime)
+	dest.RTPrcvdTSn = timestamp.TS(stopTime)
+
+	// try to fill Rate
+	dest.Rate.T0 = dest.RTPrcvdTS0 // assume 1st was RTP
+
+	// fields not mapped due to missing info in the rtp qos record:
+	// - RTPSeqNo0
+	// - RTPpktTS0, RTPpktTSn: RTP header timemstamps are not reported
+	// - Rate: partially filled (start time)
+	// - RTPdj: de-jitter buffer: TODO: move it out of normal stats
+
 }

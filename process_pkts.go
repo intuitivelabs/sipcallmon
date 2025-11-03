@@ -948,9 +948,11 @@ nextpkt:
 				}
 
 				// check if ipfix
-				if dport == cfg.IPFIXport && cfg.IPFIXport != 0 {
+				if cfg.IPFIXport != 0 &&
+					(dport == cfg.IPFIXport || sport == cfg.IPFIXport) {
 					// TODO: check for ipfix address too
-					if tcpIPFIXAssembler != nil {
+					if dport == cfg.IPFIXport && tcpIPFIXAssembler != nil {
+						// assemble only incoming packets, ignore outgoing
 						tcpIPFIXAssembler.AssembleWithTimestamp(
 							ipl.NetworkFlow(), &tcp, ts)
 					}

@@ -1787,7 +1787,8 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 	paramS := r.URL.Query()["s"] // start
 
 	cfg := RunningCfg
-	if acmeIPFIXsrv == nil {
+	live := len(cfg.PCAPs) == 0
+	if acmeIPFIXsrv == nil && (cfg.IPFIXport == 0 || live) {
 		fmt.Fprintf(w, "Error: IPFIX disabled (addr: %q port:%d)\n",
 			cfg.IPFIXaddr, cfg.IPFIXport)
 		return
@@ -1815,48 +1816,62 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	connsInfo := make([]AcmeIPFIXconnInfo, n)
-	retNo, totalConns := acmeIPFIXsrv.GetConnInfo(connsInfo, s, n)
-	fmt.Fprintf(w, "IPFIX connections on %s (%d/%d) :\n\n",
-		acmeIPFIXsrv.Addr(), retNo, totalConns)
-	now := timestamp.Now()
-	for i, c := range connsInfo[:retNo] {
-		fmt.Fprintf(w,
-			"%5d. (%d) %s\n",
-			i+s, i, c.String())
-		fmt.Fprintf(w,
-			"       started   : %s (%ds ago)\n"+
-				"       last io   : %s (%ds ago)\n"+
-				"       timeout   : %ds (keepalive : %ds)\n",
-			c.StartTS, now.Sub(c.StartTS)/time.Second,
-			c.LastIO, now.Sub(c.LastIO)/time.Second,
-			c.Timeout, c.KeepAlive)
-
-		if c.HandshakeNo > 0 {
+	printIPFIXconns := func(w io.Writer, conns []AcmeIPFIXconnInfo, now timestamp.TS) {
+		for i, c := range conns {
 			fmt.Fprintf(w,
-				"       handshake : no %d\n"+
-					"                   protocol ver %d.%d"+
-					" cfg flags %04x %04x"+
-					" sys flags %04x"+
-					" system id: %d\n"+
-					"                   keepalive %ds\n"+
-					"                   product   0x%02x%02x ver %d.%d.%d\n"+
-					"                   host      %q\n\n",
-				c.HandshakeNo,
-				c.Handshake.MajorVer, c.Handshake.MinorVer,
-				c.Handshake.CfgFlags, c.Handshake.CfgFlags2,
-				c.Handshake.SysFlags,
-				c.Handshake.SysID,
-				c.Handshake.KeepAliveT,
-				c.Handshake.ProdCode1, c.Handshake.ProdCode2,
-				c.Handshake.ProdMajorVer, c.Handshake.ProdMinorVer,
-				c.Handshake.Revision,
-				c.Handshake.HostName,
-			)
-		} else {
-			fmt.Fprintf(w, "       handshake : no %d\n\n", c.HandshakeNo)
-		}
+				"%5d. (%d) %s\n",
+				i+s, i, c.String())
+			fmt.Fprintf(w,
+				"       started   : %s (%ds ago)\n"+
+					"       last io   : %s (%ds ago)\n"+
+					"       timeout   : %ds (keepalive : %ds)\n",
+				c.StartTS, now.Sub(c.StartTS)/time.Second,
+				c.LastIO, now.Sub(c.LastIO)/time.Second,
+				c.Timeout, c.KeepAlive)
 
+			if c.HandshakeNo > 0 {
+				fmt.Fprintf(w,
+					"       handshake : no %d\n"+
+						"                   protocol ver %d.%d"+
+						" cfg flags %04x %04x"+
+						" sys flags %04x"+
+						" system id: %d\n"+
+						"                   keepalive %ds\n"+
+						"                   product   0x%02x%02x ver %d.%d.%d\n"+
+						"                   host      %q\n",
+					c.HandshakeNo,
+					c.Handshake.MajorVer, c.Handshake.MinorVer,
+					c.Handshake.CfgFlags, c.Handshake.CfgFlags2,
+					c.Handshake.SysFlags,
+					c.Handshake.SysID,
+					c.Handshake.KeepAliveT,
+					c.Handshake.ProdCode1, c.Handshake.ProdCode2,
+					c.Handshake.ProdMajorVer, c.Handshake.ProdMinorVer,
+					c.Handshake.Revision,
+					c.Handshake.HostName,
+				)
+			} else {
+				fmt.Fprintf(w, "       handshake : no %d\n", c.HandshakeNo)
+			}
+			fmt.Fprintf(w, "       pkts %d sip %d rtp_qos %d %d\n\n",
+				c.PktNo, c.SIPpktNo, c.RTPqos, c.RTPqosInt)
+		}
+	}
+
+	connsInfo := make([]AcmeIPFIXconnInfo, n)
+	var retNo, totalConns int
+	now := timestamp.Now()
+	if acmeIPFIXsrv != nil {
+		retNo, totalConns = acmeIPFIXsrv.GetConnInfo(connsInfo, s, n)
+		fmt.Fprintf(w, "IPFIX connections on %s (%d/%d) :\n\n",
+			acmeIPFIXsrv.Addr(), retNo, totalConns)
+		printIPFIXconns(w, connsInfo[:retNo], now)
+	}
+	if cfg.IPFIXport != 0 && !live {
+		retNo, totalConns = acmeIPFIXreassLst.GetConnInfo(connsInfo, s, n)
+		fmt.Fprintf(w, "IPFIX tcp-reassembled connections (pcap) (%d/%d) :\n\n",
+			retNo, totalConns)
+		printIPFIXconns(w, connsInfo[:retNo], now)
 	}
 }
 

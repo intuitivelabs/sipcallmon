@@ -1087,16 +1087,16 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 			var ce3Src, ce3Dst, ce4Src, ce4Dst calltr.NetInfo
 
 			// set rtp caller stats
-			setRTPstatsAndRefCallEntry(dst1, src1, &qosSet.MStreams[i], true,
+			updateRTPstatsAndRefCallEntry(dst1, src1, &qosSet.MStreams[i], true,
 				&ce1Src, &ce1Dst, &ce1)
 			// set rtp callee stats
-			setRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false,
+			updateRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false,
 				&ce2Src, &ce2Dst, &ce2)
 			if !c.Cfg.IgnoreIngress && !c.Cfg.IgnoreEgress {
-				// extra streams SBC <-> callee
-				setRTPstatsAndRefCallEntry(dst3, src3, &qosSet.MStreams[i], true,
+				// extRra streams SBC <-> callee
+				updateRTPstatsAndRefCallEntry(dst3, src3, &qosSet.MStreams[i], true,
 					&ce3Src, &ce3Dst, &ce3)
-				setRTPstatsAndRefCallEntry(dst4, src4, &qosSet.MStreams[i], false,
+				updateRTPstatsAndRefCallEntry(dst4, src4, &qosSet.MStreams[i], false,
 					&ce4Src, &ce4Dst, &ce4)
 			}
 
@@ -1134,15 +1134,15 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 		} else {
 			// slow event: let calltr generate the rtp events
 			// set rtp caller stats
-			setRTPstatsAndRefCallEntry(dst1, src1, &qosSet.MStreams[i],
+			updateRTPstatsAndRefCallEntry(dst1, src1, &qosSet.MStreams[i],
 				true, nil, nil, nil)
 			// set rtp callee stats
-			setRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false, nil, nil, nil)
+			updateRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false, nil, nil, nil)
 			if !c.Cfg.IgnoreIngress && !c.Cfg.IgnoreEgress {
 				// extra streams SBC <-> callee
-				setRTPstatsAndRefCallEntry(dst3, src3, &qosSet.MStreams[i],
+				updateRTPstatsAndRefCallEntry(dst3, src3, &qosSet.MStreams[i],
 					true, nil, nil, nil)
-				setRTPstatsAndRefCallEntry(dst4, src4, &qosSet.MStreams[i],
+				updateRTPstatsAndRefCallEntry(dst4, src4, &qosSet.MStreams[i],
 					false, nil, nil, nil)
 			}
 		}
@@ -1150,19 +1150,21 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 	return nil
 }
 
-// sets RTP stats for the matching rtp stream and if outCe != nil
+// update RTP stats for the matching rtp stream and if outCe != nil
 // it will fill it with matching referenced CallEntry.
 // WARNING: the CallEntry must be Unref()-enced when no longer needed.
-func setRTPstatsAndRefCallEntry(dst, src calltr.NetInfo,
+// It returns whether or not it has found a matching rtp stream and
+// if it succeeded updating the stats.
+func updateRTPstatsAndRefCallEntry(dst, src calltr.NetInfo,
 	streamInfo *AcmeIPFIXrtpQOS4InterimMStreamInfo, isCaller bool,
-	ceSrc, ceDst *calltr.NetInfo, outCe **calltr.CallEntry) bool {
+	ceSrc, ceDst *calltr.NetInfo, outCe **calltr.CallEntry) (bool, bool) {
 	var callid [256]byte // temporary buffer for callid
 	var newStats calltr.PktStats
 
 	// get caller or callee stats in calltr preferred format
 	pktStatsFromAcmeIPFIXqos(&newStats, streamInfo, isCaller)
 	rtpHash := calltr.GetRTPStreamHash() // TODO: global
-	m, sz, _ := rtpHash.SetStatsAndRefCallEntry(dst, src, &newStats,
+	m, sz, _, ret := rtpHash.UpdateStatsAndRefCallEntry(dst, src, &newStats,
 		callid[:], ceSrc, ceDst, outCe)
 	if m == calltr.RTPNoMatch {
 		DBG("acme rtp qos: failed to match rtp stream for %s:%d->%s:%d\n",
@@ -1172,12 +1174,12 @@ func setRTPstatsAndRefCallEntry(dst, src calltr.NetInfo,
 			(*outCe).Unref()
 			*outCe = nil
 		}
-		return false
+		return false, false
 	} else {
 		DBG("acme rtp qos: updated call %q rtp stream  %s:%d->%s:%d\n",
 			callid[:sz], src.IP().String(), src.Port, dst.IP().String(), dst.Port)
 	}
-	return true
+	return true, ret
 }
 
 func pktStatsFromAcmeIPFIXqos(dest *calltr.PktStats,

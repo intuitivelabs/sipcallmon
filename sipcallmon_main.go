@@ -504,6 +504,7 @@ func Run(cfg *Config) error {
 				TimeoutMax:    cfg.IPFIXmaxTo,
 				IgnoreIngress: cfg.IPFIXignIn,
 				IgnoreEgress:  cfg.IPFIXignOut,
+				RTPfastEvent:  cfg.IPFIXqRTPev,
 			})
 		if err != nil {
 			acmeIPFIXsrv = nil

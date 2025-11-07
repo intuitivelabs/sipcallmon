@@ -565,6 +565,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 			TimeoutMax:    cfg.IPFIXmaxTo,
 			IgnoreIngress: cfg.IPFIXignIn,
 			IgnoreEgress:  cfg.IPFIXignOut,
+			RTPfastEvent:  cfg.IPFIXqRTPev,
 		}
 		ipfixStreamOpts := ipfixStreamOptions{
 			bufSize:    cfg.TCPMsgBufSz, // re-use from tcp

@@ -66,6 +66,7 @@ type Config struct {
 	IPFIXmaxTo     int           `config:"ipfix_timeout_max"`
 	IPFIXignIn     bool          `config:"ipfix_ignore_ingress"`
 	IPFIXignOut    bool          `config:"ipfix_ignore_egress"`
+	IPFIXqRTPev    bool          `config:"ipfix_rtp_quick_ev"`
 	HTTPport       int           `config:"http_port"`
 	HTTPaddr       string        `config:"http_addr"`
 	TCPGcInt       time.Duration `config:"tcp_gc_int"`
@@ -444,6 +445,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"ignore sip-ingress IPFIX messages")
 	flag.BoolVar(&cfg.IPFIXignOut, "ipfix_ignore_egress", c.IPFIXignOut,
 		"ignore sip-egress IPFIX messages")
+	flag.BoolVar(&cfg.IPFIXqRTPev, "ipfix_rtp_quick_ev", c.IPFIXqRTPev,
+		"generate a rtp_stats2 event immediately after receving ipfix stats")
 
 	flag.IntVar(&cfg.HTTPport, "http_port", c.HTTPport,
 		"port for the internal http server, 0 == disable")

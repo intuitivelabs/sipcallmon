@@ -1,9 +1,14 @@
 # vi swaps
 .*.swp
+.*.swo
+.*.swn
 # Emacs backup files
 *~
 # Emacs file loc
 .#*
+# various backup files
+*.bak
+*.bak[0-9]
 # tags
 tags
 TAGS
@@ -16,3 +21,8 @@ sipcallmon
 cmd/sipcm/sipcm
 #pcap dir
 test_pcaps
+*.pcap
+# go.work
+go.work
+go.work.sum
+go.work.old

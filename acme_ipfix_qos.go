@@ -141,10 +141,10 @@ func (v AcmeIPFIXrtpQOS4InterimMStreamInfo) String() string {
 			"CalleeSeq=%08x CalleePType=%08x "+
 			"Tid=%08x "+
 			"Start=%v Stop=%v "+
-			"StatsA[Pkts=%d Lost=%d JitAvg=%d JitMax=%d LatAvg=%d"+
-			" LatMax=%d jitAvg=%d jitMax=%d R=%d MOS=%d] "+
-			"StatsB[Pkts=%d Lost=%d JitAvg=%d JitMax=%d LatAvg=%d"+
-			" LatMax=%d jitAvg=%d jitMax=%d R=%d MOS=%d] "+
+			"StatsA[Pkts=%d Lost=%d JitAvg=%d JitMax=%d"+
+			" RPkts=%d RLost= %d LatAvg=%d LatMax=%d RjitAvg=%d RjitMax=%d"+" R=%d MOS=%d] "+
+			"StatsB[Pkts=%d Lost=%d JitAvg=%d JitMax=%d"+
+			" RPkts=%d RLost= %d LatAvg=%d LatMax=%d RjitAvg=%d RjitMax=%d"+" R=%d MOS=%d] "+
 			"CallerRealm=%q CalleeRealm=%q CallerCallID=%q CalleeCallID=%q",
 		ms.Type,
 		ms.CallerSBC, ms.SBCcallee,
@@ -163,12 +163,14 @@ func (v AcmeIPFIXrtpQOS4InterimMStreamInfo) String() string {
 
 		v.StatsA.RTP.Pkts, v.StatsA.RTP.LostPkts, v.StatsA.RTP.JitterAvg,
 		v.StatsA.RTP.JitterMax,
+		v.StatsA.RTCP.Pkts, v.StatsA.RTCP.LostPkts,
 		v.StatsA.RTCP.LatencyAvg, v.StatsA.RTCP.LatencyMax,
 		v.StatsA.RTCP.JitterAvg, v.StatsA.RTCP.JitterMax,
 		v.StatsA.RTCP2.Rvalue, v.StatsA.RTCP2.MOS,
 
 		v.StatsB.RTP.Pkts, v.StatsB.RTP.LostPkts, v.StatsB.RTP.JitterAvg,
 		v.StatsB.RTP.JitterMax,
+		v.StatsB.RTCP.Pkts, v.StatsB.RTCP.LostPkts,
 		v.StatsB.RTCP.LatencyAvg, v.StatsB.RTCP.LatencyMax,
 		v.StatsB.RTCP.JitterAvg, v.StatsB.RTCP.JitterMax,
 		v.StatsB.RTCP2.Rvalue, v.StatsB.RTCP2.MOS,

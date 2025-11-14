@@ -1192,17 +1192,17 @@ func pktStatsFromAcmeIPFIXqos(dest *calltr.PktStats,
 	// ssrc and payload type
 	if mapCallerStats {
 		qosStats = source.StatsA.RTP
-		dest.RTPssrc = source.MStream.CallerSSRC
+		dest.RTPssrc.Store(source.MStream.CallerSSRC)
 		dest.RTPPayloadType = calltr.RTPcodec(source.MStream.CallerPT)
 		// assuming the provided Seq is the last one seen for this reporting interval
 		// note: Seq does not look like real rtp seq
-		dest.RTPSeqNo.Store(source.MStream.CallerSeq)
+		// dest.RTPSeqNo.Store(source.MStream.CallerSeq)
 	} else {
 		qosStats = source.StatsB.RTP
-		dest.RTPssrc = source.MStream.CalleeSSRC
+		dest.RTPssrc.Store(source.MStream.CalleeSSRC)
 		dest.RTPPayloadType = calltr.RTPcodec(source.MStream.CalleePT)
 		// assuming the provided Seq is the last one seen for this reporting interval
-		dest.RTPSeqNo.Store(source.MStream.CalleeSeq)
+		// dest.RTPSeqNo.Store(source.MStream.CalleeSeq)
 	}
 
 	// map rtp packet and byte Counts
@@ -1231,8 +1231,16 @@ func pktStatsFromAcmeIPFIXqos(dest *calltr.PktStats,
 	// try to fill Rate
 	dest.Rate.T0 = dest.RTPrcvdTS0 // assume 1st was RTP
 
+	// fill RTPdj
+	//  assume qosStats.Pkts are unique packets
+	dest.RTPdj.Stats.TotalQueued = qosStats.Pkts
+	dest.RTPdj.Stats.Dups = 0       // no info about duplicates
+	dest.RTPdj.Stats.DropOld = 0    // no info
+	dest.RTPdj.Stats.OutOfOrder = 0 // no info
+
 	// fields not mapped due to missing info in the rtp qos record:
 	// - RTPSeqNo0
+	// - RTPSeqNo
 	// - RTPpktTS0, RTPpktTSn: RTP header timemstamps are not reported
 	// - Rate: partially filled (start time)
 	// - RTPdj: de-jitter buffer: TODO: move it out of normal stats

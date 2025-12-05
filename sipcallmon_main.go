@@ -325,6 +325,11 @@ func Init(cfg *Config) error {
 	calltrCfg.Mem.SDPtotalMem = cfg.SDPtotalMem * 1024 * 1024
 	calltrCfg.Mem.SDPmaxEntryMem = cfg.SDPmaxEntryMem
 	calltrCfg.RTP = cfg.RTP
+	if cfg.RTPstatsInt > 0 {
+		calltrCfg.StatsInterval = uint32(cfg.RTPstatsInt)
+	} else {
+		calltrCfg.StatsInterval = 0 // disabled
+	}
 
 	for callst, to := range cfg.CallStTo {
 		cs, perr := parseCallStateName(callst)

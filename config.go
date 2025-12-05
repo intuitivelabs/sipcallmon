@@ -182,6 +182,7 @@ type Config struct {
 	SDPtotalMem    uint64 `config:"sdp_total_mem"`
 	SDPmaxEntryMem uint64 `config:"sdp_max_entry_mem"`
 	RTP            bool   `config:"rtp"` // RTP enable/ disable
+	RTPstatsInt    int    `config:"rtp_stats_interval"`
 }
 
 var defaultConfigVals = Config{
@@ -242,6 +243,7 @@ var defaultConfigVals = Config{
 	SDPtotalMem:        0,
 	SDPmaxEntryMem:     65535,
 	RTP:                true,
+	RTPstatsInt:        0, // disabled by default
 }
 
 func (cfg Config) UseIPAnonymization() bool {
@@ -535,6 +537,8 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.Uint64Var(&cfg.SDPmaxEntryMem, "sdp_max_entry_mem", c.SDPmaxEntryMem,
 		"maximum memory for one SDP state entry (offer or answer)")
 	flag.BoolVar(&cfg.RTP, "rtp", c.RTP, "turn on rtp support")
+	flag.IntVar(&cfg.RTPstatsInt, "rtp_stats_interval", c.RTPstatsInt,
+		"rtp statistics event interval in seconds (0 for disabled)")
 
 	flag.Parse()
 	// fix cmd line params

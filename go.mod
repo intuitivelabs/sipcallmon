@@ -12,7 +12,7 @@ require (
 	github.com/zeebo/xxh3 v1.0.2
 	github.com/intuitivelabs/bytescase v1.0.3
 	github.com/intuitivelabs/bytespool v0.0.4
-	github.com/intuitivelabs/calltr v1.1.15-0.20251205162027-9a8d61e986f0
+	github.com/intuitivelabs/calltr v1.1.15-0.20260202193152-a3bb0814418c
 	github.com/intuitivelabs/counters v0.3.3
 	github.com/intuitivelabs/httpsp v0.0.10
 	github.com/intuitivelabs/sipsp v1.1.6
@@ -20,7 +20,7 @@ require (
 	github.com/intuitivelabs/timestamp v0.0.4
 	github.com/intuitivelabs/unsafeconv v0.0.3
 	github.com/intuitivelabs/websocket v0.0.2
-	github.com/intuitivelabs/wtimer v0.0.3
+	github.com/intuitivelabs/wtimer v0.0.4-0.20260202095537-12b2c542343a
 )
 
 require (

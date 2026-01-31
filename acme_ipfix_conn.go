@@ -1086,18 +1086,19 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 			var ce1Src, ce1Dst, ce2Src, ce2Dst calltr.NetInfo
 			var ce3Src, ce3Dst, ce4Src, ce4Dst calltr.NetInfo
 
-			// set rtp caller stats
+			// set rtp caller stats (disable periodic stats - we generate immediate
+			//  events)
 			updateRTPstatsAndRefCallEntry(dst1, src1, &qosSet.MStreams[i], true,
-				&ce1Src, &ce1Dst, &ce1)
+				&ce1Src, &ce1Dst, &ce1, true)
 			// set rtp callee stats
 			updateRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false,
-				&ce2Src, &ce2Dst, &ce2)
+				&ce2Src, &ce2Dst, &ce2, true)
 			if !c.Cfg.IgnoreIngress && !c.Cfg.IgnoreEgress {
 				// extRra streams SBC <-> callee
 				updateRTPstatsAndRefCallEntry(dst3, src3, &qosSet.MStreams[i], true,
-					&ce3Src, &ce3Dst, &ce3)
+					&ce3Src, &ce3Dst, &ce3, true)
 				updateRTPstatsAndRefCallEntry(dst4, src4, &qosSet.MStreams[i], false,
-					&ce4Src, &ce4Dst, &ce4)
+					&ce4Src, &ce4Dst, &ce4, true)
 			}
 
 			if ce1 != nil {
@@ -1135,15 +1136,15 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 			// slow event: let calltr generate the rtp events
 			// set rtp caller stats
 			updateRTPstatsAndRefCallEntry(dst1, src1, &qosSet.MStreams[i],
-				true, nil, nil, nil)
+				true, nil, nil, nil, false)
 			// set rtp callee stats
-			updateRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false, nil, nil, nil)
+			updateRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false, nil, nil, nil, false)
 			if !c.Cfg.IgnoreIngress && !c.Cfg.IgnoreEgress {
 				// extra streams SBC <-> callee
 				updateRTPstatsAndRefCallEntry(dst3, src3, &qosSet.MStreams[i],
-					true, nil, nil, nil)
+					true, nil, nil, nil, false)
 				updateRTPstatsAndRefCallEntry(dst4, src4, &qosSet.MStreams[i],
-					false, nil, nil, nil)
+					false, nil, nil, nil, false)
 			}
 		}
 	}
@@ -1157,7 +1158,8 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 // if it succeeded updating the stats.
 func updateRTPstatsAndRefCallEntry(dst, src calltr.NetInfo,
 	streamInfo *AcmeIPFIXrtpQOS4InterimMStreamInfo, isCaller bool,
-	ceSrc, ceDst *calltr.NetInfo, outCe **calltr.CallEntry) (bool, bool) {
+	ceSrc, ceDst *calltr.NetInfo, outCe **calltr.CallEntry,
+	disablePeriodicStats bool) (bool, bool) {
 	var callid [256]byte // temporary buffer for callid
 	var newStats calltr.PktStats
 
@@ -1165,7 +1167,7 @@ func updateRTPstatsAndRefCallEntry(dst, src calltr.NetInfo,
 	pktStatsFromAcmeIPFIXqos(&newStats, streamInfo, isCaller)
 	rtpHash := calltr.GetRTPStreamHash() // TODO: global
 	m, sz, _, ret := rtpHash.UpdateStatsAndRefCallEntry(dst, src, &newStats,
-		callid[:], ceSrc, ceDst, outCe)
+		callid[:], ceSrc, ceDst, outCe, disablePeriodicStats)
 	if m == calltr.RTPNoMatch {
 		DBG("acme rtp qos: failed to match rtp stream for %s:%d->%s:%d\n",
 			src.IP().String(), src.Port, dst.IP().String(), dst.Port)
@@ -1192,31 +1194,31 @@ func pktStatsFromAcmeIPFIXqos(dest *calltr.PktStats,
 	// ssrc and payload type
 	if mapCallerStats {
 		qosStats = source.StatsA.RTP
-		dest.RTPssrc.Store(source.MStream.CallerSSRC)
+		dest.RTPssrc = source.MStream.CallerSSRC
 		dest.RTPPayloadType = calltr.RTPcodec(source.MStream.CallerPT)
 		// assuming the provided Seq is the last one seen for this reporting interval
 		// note: Seq does not look like real rtp seq
-		// dest.RTPSeqNo.Store(source.MStream.CallerSeq)
+		// dest.RTPSeqNo = source.MStream.CallerSeq
 	} else {
 		qosStats = source.StatsB.RTP
-		dest.RTPssrc.Store(source.MStream.CalleeSSRC)
+		dest.RTPssrc = source.MStream.CalleeSSRC
 		dest.RTPPayloadType = calltr.RTPcodec(source.MStream.CalleePT)
 		// assuming the provided Seq is the last one seen for this reporting interval
-		// dest.RTPSeqNo.Store(source.MStream.CalleeSeq)
+		// dest.RTPSeqNo = source.MStream.CalleeSeq
 	}
 
 	// map rtp packet and byte Counts
-	dest.Pkts.Store(qosStats.Pkts) // assume only rtp seen
-	dest.Bytes.Store(qosStats.Bytes)
-	dest.RTPpkts.Store(qosStats.Pkts)
-	dest.RTPbytes.Store(qosStats.Bytes)
+	dest.Pkts = qosStats.Pkts // assume only rtp seen
+	dest.Bytes = qosStats.Bytes
+	dest.RTPpkts = qosStats.Pkts
+	dest.RTPbytes = qosStats.Bytes
 
 	// calculate and store expected rtp packets
 	expectedPkts := qosStats.Pkts + qosStats.LostPkts
-	dest.RTPexpected.Store(expectedPkts)
+	dest.RTPexpected = expectedPkts
 
 	// jitter, ignore JitterMax for now
-	dest.RTPJitter16.Store(uint64(qosStats.JitterAvg) * 16)
+	dest.RTPJitter16 = uint64(qosStats.JitterAvg) * 16
 
 	// timestamps
 	// we havestart and stop times for the media session =>
@@ -1231,18 +1233,18 @@ func pktStatsFromAcmeIPFIXqos(dest *calltr.PktStats,
 	// try to fill Rate
 	dest.Rate.T0 = dest.RTPrcvdTS0 // assume 1st was RTP
 
-	// fill RTPdj
+	// fill DjStats
 	//  assume qosStats.Pkts are unique packets
-	dest.RTPdj.Stats.TotalQueued = qosStats.Pkts
-	dest.RTPdj.Stats.Dups = 0       // no info about duplicates
-	dest.RTPdj.Stats.DropOld = 0    // no info
-	dest.RTPdj.Stats.OutOfOrder = 0 // no info
+	dest.DjStats.TotalQueued = qosStats.Pkts
+	dest.DjStats.Dups = 0       // no info about duplicates
+	dest.DjStats.DropOld = 0    // no info
+	dest.DjStats.OutOfOrder = 0 // no info
 
 	// fields not mapped due to missing info in the rtp qos record:
 	// - RTPSeqNo0
 	// - RTPSeqNo
-	// - RTPpktTS0, RTPpktTSn: RTP header timemstamps are not reported
+	// - RTPpktTS0, RTPpktTSn: RTP header timestamps are not reported
 	// - Rate: partially filled (start time)
-	// - RTPdj: de-jitter buffer: TODO: move it out of normal stats
+	// - DjStats: de-jitter buffer: TODO: move it out of normal stats
 
 }

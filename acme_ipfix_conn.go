@@ -1094,7 +1094,7 @@ func (c *AcmeIPFIXconn) handleRTPqos4Interim(
 			updateRTPstatsAndRefCallEntry(dst2, src2, &qosSet.MStreams[i], false,
 				&ce2Src, &ce2Dst, &ce2, true)
 			if !c.Cfg.IgnoreIngress && !c.Cfg.IgnoreEgress {
-				// extRra streams SBC <-> callee
+				// extra streams SBC <-> callee
 				updateRTPstatsAndRefCallEntry(dst3, src3, &qosSet.MStreams[i], true,
 					&ce3Src, &ce3Dst, &ce3, true)
 				updateRTPstatsAndRefCallEntry(dst4, src4, &qosSet.MStreams[i], false,

@@ -72,7 +72,7 @@ func main() {
 		case syscall.SIGINT:
 			fallthrough
 		case syscall.SIGTERM:
-			// terminate immediatly
+			// terminate immediately
 			go sipcallmon.Stop()
 			// in case it did not stop and we receive more
 			// signals force-quit

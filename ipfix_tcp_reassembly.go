@@ -237,7 +237,7 @@ func (s *ipfixStreamData) Process(data []byte) bool {
 				if Plog.L(slog.LNOTICE) || s.W != ioutil.Discard {
 					Plog.LogMux(s.W, true, slog.LNOTICE,
 						"tcp: ipfix reassembly: unexpected error after parsing "+
-							"stream sync lost for %p %s:%p->%s:%p => %s\n",
+							"stream sync lost for %p %s:%d->%s:%d => %s\n",
 						s, s.srcIP.String(), s.sport,
 						s.dstIP.String(), s.dport, err)
 					fmt.Fprintln(s.W)

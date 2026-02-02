@@ -194,6 +194,8 @@ var defaultConfigVals = Config{
 
 	NoPromisc: false,
 
+	IPFIXqRTPev: true,
+
 	WpcapUpldRTO:   10 * time.Second,
 	WpcapUpldWTO:   5 * time.Second,
 	WpcapUpldRedir: 2,

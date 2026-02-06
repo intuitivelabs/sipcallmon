@@ -44,8 +44,8 @@ github.com/intuitivelabs/bytescase v1.0.3 h1:EYIRtQ0DLNxC1wU0dpXsXcCJVP530UPXsL9
 github.com/intuitivelabs/bytescase v1.0.3/go.mod h1:Gr+B79bV8+mDKvYr4hja6qPVHtYG4Knem0K8gzZKHHU=
 github.com/intuitivelabs/bytespool v0.0.4 h1:ZocPDJMI1SMTnFXOcaOsRJKorWgFVOnTyzYcirDsqEo=
 github.com/intuitivelabs/bytespool v0.0.4/go.mod h1:e/iUtYUxDP49OoeAx+g7ocSmke8pGZf3//CZbZ0wcFk=
-github.com/intuitivelabs/calltr v1.1.15-0.20260202193152-a3bb0814418c h1:swOULAEy1Xofr6f0rX4v5l5B4uyEcyW5EPzR+7SQS+A=
-github.com/intuitivelabs/calltr v1.1.15-0.20260202193152-a3bb0814418c/go.mod h1:gODA48ieO3803ysdFI029ae/JcsSHaVIbjS40G4RQ4c=
+github.com/intuitivelabs/calltr v1.1.15-0.20260206101009-e4b0b9b42a51 h1:6JpWbK6FsEgiknFHM8jiSznwW37Lu3519A3IQuYSu60=
+github.com/intuitivelabs/calltr v1.1.15-0.20260206101009-e4b0b9b42a51/go.mod h1:pxo7x1CibXX/9LkVWI1/IG0jhW5OJjbjV/x4PfOYv/4=
 github.com/intuitivelabs/counters v0.3.3 h1:W7Ra/Xj45EEUyWIC9QXkrwlZLcTtfhkmxOCABzpIUnQ=
 github.com/intuitivelabs/counters v0.3.3/go.mod h1:gg2mPscHiatkLfDWF7bSuUeHcmsiTazGQx1pW62uJ0w=
 github.com/intuitivelabs/httpsp v0.0.10 h1:L4Svxhenfw0j2dE7LfDhRkwxrglLGEJUXvMKZzi7TPA=
@@ -62,8 +62,8 @@ github.com/intuitivelabs/unsafeconv v0.0.3 h1:SF8sbwkSHsWqc2RpQWCk5zZt/0EabS4PeK
 github.com/intuitivelabs/unsafeconv v0.0.3/go.mod h1:QK7AOVbwVRbhdxEwAT8BsUvLqliEHETqqF9r74ICb8g=
 github.com/intuitivelabs/websocket v0.0.2 h1:EiQF0jQQMIJn15T8wVD4f4Qlv+eoFyJp2YeDeg9gRgg=
 github.com/intuitivelabs/websocket v0.0.2/go.mod h1:WnxiNaoclkJ3PP+iQKE/LBlHCX74OQMO/2frDOJHksU=
-github.com/intuitivelabs/wtimer v0.0.4-0.20260202095537-12b2c542343a h1:6rOIv3HusIVV4/Y3TnWfsgEqqA7YNAKqQTgNtYg2EXI=
-github.com/intuitivelabs/wtimer v0.0.4-0.20260202095537-12b2c542343a/go.mod h1:WrrvfXJ1yBcbsxvfwmRGBS1uzuUV5EDATUh619lEaMI=
+github.com/intuitivelabs/wtimer v0.0.4-0.20260206100613-922fb41058fa h1:1nbu9un6xSVSIp3nI15M6grxzMd+pS1kD2U3ckwbW0I=
+github.com/intuitivelabs/wtimer v0.0.4-0.20260206100613-922fb41058fa/go.mod h1:WrrvfXJ1yBcbsxvfwmRGBS1uzuUV5EDATUh619lEaMI=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
 golang.org/x/lint v0.0.0-20200302205851-738671d3881b/go.mod h1:3xt1FjdF8hUf6vQPIChWIBhFzV8gjjsPE/fR3IyQdNY=

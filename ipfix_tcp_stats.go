@@ -74,9 +74,9 @@ func (s *ipfixTCPreassStatsT) Init() bool {
 
 		{&s.bufGrow, 0, nil, nil, "buf_grow",
 			"dbg: number of time the internal buffer was increased"},
-		{&s.bufMax, counters.CntMaxF | counters.CntHideVal,
-			nil, nil, "buf_max",
-			"dbg: maximum internal buffer size"},
+		{&s.bufMax,
+			counters.CntNonMonoF | counters.CntMaxF | counters.CntHideVal,
+			nil, nil, "buf_max", "dbg: maximum internal buffer size"},
 
 		{&s.ok, 0, nil, nil, "parsed_ok",
 			"total number of ipfix messages parsed successfully"},

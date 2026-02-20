@@ -777,7 +777,6 @@ nextpkt:
 				ipl = &ip4
 				sip = ip4.SrcIP
 				dip = ip4.DstIP
-				stats.Inc(sCnts.ip4)
 				if ip4.FragOffset != 0 ||
 					(ip4.Flags&layers.IPv4MoreFragments != 0) {
 					stats.Inc(sCnts.ip4frags)
@@ -802,7 +801,6 @@ nextpkt:
 				ipl = &ip6
 				sip = ip6.SrcIP
 				dip = ip6.DstIP
-				stats.Inc(sCnts.ip6)
 			case layers.LayerTypeIPv6Fragment:
 				stats.Inc(sCnts.ip6frags)
 			case layers.LayerTypeUDP:
@@ -817,17 +815,8 @@ nextpkt:
 							//   => continue decoding
 							stats.Inc(sCnts.vxlanN)
 							if ipl == &ip4 {
-								// count it as vxlan over ipv4 and dec. ipv4
-								// counter
-								// (we will record only the encapsulated packet
-								// ip  version)
-								stats.Dec(sCnts.ip4)
 								stats.Inc(sCnts.vxlan4)
 							} else if ipl == &ip6 {
-								// count it as vxlan over ipv6 and dec. ipv6
-								// counter (we will record only the
-								// encapsulated packet ip version)
-								stats.Dec(sCnts.ip6)
 								stats.Inc(sCnts.vxlan6)
 							} else {
 								if PDBGon() {
@@ -847,19 +836,22 @@ nextpkt:
 						}
 					}
 				}
-				stats.Inc(sCnts.udpN)
 				if ipl == &ip4 {
+					stats.Inc(sCnts.ip4)
 					stats.Inc(sCnts.udp4)
 				} else if ipl == &ip6 {
+					stats.Inc(sCnts.ip6)
 					stats.Inc(sCnts.udp6)
 				} else {
 					if PDBGon() {
 						PDBG("strange packet %d  udp but no network layer"+
 							": %s \n", n, udp.TransportFlow())
 					}
+					stats.Inc(sCnts.udpN)
 					stats.Inc(sCnts.decodeErrs)
 					continue nextpkt
 				}
+				stats.Inc(sCnts.udpN)
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
 				/*
 					if udp.SrcPort != 5060 && udp.DstPort != 5060 {
@@ -928,19 +920,22 @@ nextpkt:
 						}
 					}
 				}
-				stats.Inc(sCnts.tcpN)
 				if ipl == &ip4 {
+					stats.Inc(sCnts.ip4)
 					stats.Inc(sCnts.tcp4)
 				} else if ipl == &ip6 {
+					stats.Inc(sCnts.ip6)
 					stats.Inc(sCnts.tcp6)
 				} else {
 					if PDBGon() {
 						PDBG("strange packet %d  tcp but no network layer"+
 							": %s \n", n, tcp.TransportFlow())
 					}
+					stats.Inc(sCnts.tcpN)
 					stats.Inc(sCnts.decodeErrs)
 					continue nextpkt
 				}
+				stats.Inc(sCnts.tcpN)
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
 				//DBG("DBG: %q\n", tcp.Payload)
 				ts := ci.Timestamp
@@ -974,19 +969,22 @@ nextpkt:
 				tl = &sctp
 				sport = int(sctp.SrcPort)
 				dport = int(sctp.DstPort)
-				stats.Inc(sCnts.sctpN)
 				if ipl == &ip4 {
+					stats.Inc(sCnts.ip4)
 					stats.Inc(sCnts.sctp4)
 				} else if ipl == &ip6 {
+					stats.Inc(sCnts.ip6)
 					stats.Inc(sCnts.sctp6)
 				} else {
 					if PDBGon() {
 						PDBG("strange packet %d  tcp but no network layer"+
 							": %s \n", n, tcp.TransportFlow())
 					}
+					stats.Inc(sCnts.sctpN)
 					stats.Inc(sCnts.decodeErrs)
 					continue nextpkt
 				}
+				stats.Inc(sCnts.sctpN)
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
 				if cfg.Verbose && PDBGon() {
 					PDBG("ignoring SCTP for now...\n\n")
@@ -1006,6 +1004,11 @@ nextpkt:
 			}
 		}
 		if tl == nil {
+			if ipl == &ip4 {
+				stats.Inc(sCnts.ip4)
+			} else if ipl == &ip6 {
+				stats.Inc(sCnts.ip6)
+			}
 			stats.Inc(sCnts.otherN) // unknown transport or network layer
 		}
 

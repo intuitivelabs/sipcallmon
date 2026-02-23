@@ -113,6 +113,7 @@ func prometheusExportCounter(w io.Writer, g *counters.Group,
 	// nameBuf is used for zero-allocation metric name conversion
 	var tmpBuf [256]byte
 	nameBuf := tmpBuf[0:0]
+	var numBuf [20]byte
 
 	if len(fullName) == 0 {
 		return
@@ -164,7 +165,7 @@ func prometheusExportCounter(w io.Writer, g *counters.Group,
 	// Write metric value - use strconv for efficient integer conversion
 	buf.WriteString(metricName)
 	buf.WriteByte(' ')
-	buf.Write(strconv.AppendUint(nil, uint64(val), 10))
+	buf.Write(strconv.AppendUint(numBuf[:0], uint64(val), 10))
 	buf.WriteByte('\n')
 
 	// Export min value if present
@@ -176,7 +177,7 @@ func prometheusExportCounter(w io.Writer, g *counters.Group,
 			buf.WriteString("_min gauge\n")
 			buf.WriteString(metricName)
 			buf.WriteString("_min ")
-			buf.Write(strconv.AppendUint(nil, uint64(minVal), 10))
+			buf.Write(strconv.AppendUint(numBuf[:0], uint64(minVal), 10))
 			buf.WriteByte('\n')
 		}
 	}
@@ -189,7 +190,7 @@ func prometheusExportCounter(w io.Writer, g *counters.Group,
 		buf.WriteString("_max gauge\n")
 		buf.WriteString(metricName)
 		buf.WriteString("_max ")
-		buf.Write(strconv.AppendUint(nil, uint64(maxVal), 10))
+		buf.Write(strconv.AppendUint(numBuf[:0], uint64(maxVal), 10))
 		buf.WriteByte('\n')
 	}
 
@@ -337,7 +338,8 @@ func httpPrometheusMetrics(w http.ResponseWriter, r *http.Request) {
 	buf.WriteString("uptime_seconds ")
 	// convert duration to seconds
 	secs := int64(time.Since(StartTS).Seconds())
-	buf.Write(strconv.AppendUint(nil, uint64(secs), 10))
+	var numBuf [20]byte
+	buf.Write(strconv.AppendUint(numBuf[:0], uint64(secs), 10))
 	buf.WriteByte('\n')
 	buf.WriteByte('\n')
 

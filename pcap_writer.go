@@ -89,6 +89,7 @@ type PcapWriterCfg struct {
 	RotateInterval time.Duration // pcap file rotation interval
 	RotateSuffix   string        // rename extension on rotation (e.g. ".pcap")
 	RotateDir      string        // move rotated files to this directory
+	RotateFmt      string        // format string for rotated filenames
 
 	init    bool
 	wSeed   maphash.Seed // seed for workers dist.: init to random hash seed

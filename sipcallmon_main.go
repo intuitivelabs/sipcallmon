@@ -489,6 +489,7 @@ func Init(cfg *Config) error {
 		PcapDumperCfg.RotateInterval = cfg.WpcapRotateInt
 		PcapDumperCfg.RotateSuffix = cfg.WpcapRotateSfx
 		PcapDumperCfg.RotateDir = cfg.WpcapRotateDir
+		PcapDumperCfg.RotateFmt = cfg.WpcapRotateFmt
 		if !pcapDumper.Init(PcapDumperCfg) {
 			return fmt.Errorf("failed to init pcap dumper")
 		}

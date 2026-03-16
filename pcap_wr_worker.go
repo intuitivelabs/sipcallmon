@@ -421,7 +421,8 @@ func (pwr *PcapWrWorker) run() bool {
 		err := tracker.Init(pwr.cfg.FdBuckets, pwr.cfg.FdPrealloc,
 			pwr.cfg.FdMaxOpen,
 			pwr.cfg.RotateInterval, pwr.cfg.RotateSuffix,
-			pwr.cfg.RotateDir, pwr.stats)
+			pwr.cfg.RotateDir, pwr.cfg.RotateFmt,
+			pwr.cfg, pwr.stats)
 		if err != nil {
 			ERR("pcap worker %s: fd tracker init failed: %v\n",
 				pwr.name, err)

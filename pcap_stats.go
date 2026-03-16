@@ -73,8 +73,9 @@ type pcapStatsT struct {
 	hFdTrackRenames    counters.Handle
 	hFdTrackHeapAlloc  counters.Handle
 	hFdTrackHeapFree   counters.Handle
-	hFdTrackLimitEx    counters.Handle
-	hErrFdTrackRename  counters.Handle
+	hFdTrackLimitEx      counters.Handle
+	hFdTrackNameConflict counters.Handle
+	hErrFdTrackRename    counters.Handle
 }
 
 func (s *pcapStatsT) Init() bool {
@@ -167,6 +168,8 @@ func (s *pcapStatsT) Init() bool {
 			"fd tracker heap entries freed (not returned to free list)"},
 		{&s.hFdTrackLimitEx, 0, nil, nil, "fd_track_limit_exceeded",
 			"fd tracker add rejected due to global open fd limit"},
+		{&s.hFdTrackNameConflict, 0, nil, nil, "fd_track_name_conflict",
+			"rename conflicts resolved by retry with unique suffix"},
 		{&s.hErrFdTrackRename, 0, nil, nil, "err_fd_track_rename",
 			"errors renaming files on fd tracker eviction"},
 	}

@@ -119,6 +119,13 @@ It can either capture live packets or replay pcap files.
     	rename rotated pcap files with this extension, e.g. ".pcap"
   -pcap_dump_rotate_dir string
     	move rotated pcap files to this directory
+  -pcap_dump_rotate_fmt string
+    	format string for rotated filenames (default "" uses "%b_%s%e").
+    	Specifiers: %b=base name, %e=extension, %f=full filename,
+    	%d=directory, %s=unix seconds, %ms=milliseconds, %ns=nanoseconds,
+    	%t{layout}=Go time format, %r=random hex, %i=upload id,
+    	%n=monotonic counter, %R=conflict-only random, %N=conflict-only
+    	counter, %U=conflict-only retry number, %%=literal %
   -reg_del_delay int
     	RegDel event generation delay to work around quick reg.del re-reg
   -reg_exp_delta uint

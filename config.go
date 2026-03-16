@@ -55,6 +55,7 @@ type Config struct {
 	WpcapRotateInt  time.Duration `config:"pcap_dump_rotate_interval"`
 	WpcapRotateSfx  string        `config:"pcap_dump_rotate_suffix"`
 	WpcapRotateDir  string        `config:"pcap_dump_rotate_dir"`
+	WpcapRotateFmt  string        `config:"pcap_dump_rotate_fmt"`
 	Replay          bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
@@ -436,6 +437,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"rename rotated pcap files with this extension (e.g. .pcap)")
 	flag.StringVar(&cfg.WpcapRotateDir, "pcap_dump_rotate_dir", c.WpcapRotateDir,
 		"move rotated pcap files to this directory")
+	flag.StringVar(&cfg.WpcapRotateFmt, "pcap_dump_rotate_fmt", c.WpcapRotateFmt,
+		"format for the rotated pcap files name (e.g. %d/%b.%e), "+
+		"default: empty (equivalent to %d/%b_%s%e)" )
 
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")

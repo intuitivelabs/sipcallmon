@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/maphash"
 	"net"
+	"time"
 	//"net/url"
 
 	"github.com/google/gopacket"
@@ -81,6 +82,13 @@ type PcapWriterCfg struct {
 	Upload   string      // upload URL
 	RestCfg  RESTcfg     // config for pcap uploader over http
 	IdHash   PcapIdHashT // hash used when generating the upload id
+
+	FdBuckets      int           // hash buckets for fd tracker (0 = disabled)
+	FdPrealloc     int           // pre-allocated fd tracker entries per worker
+	FdMaxOpen      int           // max tracked open fds globally (0 = unlimited)
+	RotateInterval time.Duration // pcap file rotation interval
+	RotateSuffix   string        // rename extension on rotation (e.g. ".pcap")
+	RotateDir      string        // move rotated files to this directory
 
 	init    bool
 	wSeed   maphash.Seed // seed for workers dist.: init to random hash seed

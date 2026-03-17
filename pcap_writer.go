@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/maphash"
 	"net"
+	"strconv"
 	"time"
 	//"net/url"
 
@@ -91,6 +92,9 @@ type PcapWriterCfg struct {
 	RotateDir      string        // move rotated files to this directory
 	RotateFmt      string        // format string for rotated filenames
 
+	rotateFmtSegs     []pcapRotFmtSeg // compiled format (parsed once in Init)
+	rotateFmtHasRetry bool            // true if format contains %R, %N, or %U
+
 	init    bool
 	wSeed   maphash.Seed // seed for workers dist.: init to random hash seed
 	subDirs []string     // array of subdirs for spreading the pcap files
@@ -103,6 +107,10 @@ func (pcfg *PcapWriterCfg) Init() {
 	}
 	if pcfg.RestCfg.ContentType == "" {
 		pcfg.RestCfg.ContentType = "application/octet-stream"
+	}
+	pcfg.rotateFmtSegs, pcfg.rotateFmtHasRetry = parseRotateFmt(pcfg.RotateFmt)
+	if len(pcfg.rotateFmtSegs) == 0 {
+		pcfg.rotateFmtSegs, pcfg.rotateFmtHasRetry = parseRotateFmt("%b_%s%e")
 	}
 
 	pcfg.init = true
@@ -197,6 +205,102 @@ func (pcfg PcapWriterCfg) PcapUploadId(dst []byte, key []byte) (int, error) {
 		return Blake3URLSafe384(dst, key)
 	}
 	return 0, errPcapWrCfgInvHash
+}
+
+// PcapRotatedName builds the expected rotated filename for the given key
+// and timestamp. Non-deterministic specifiers (%r, %n, %R, %N, %U) are
+// replaced with '*'. This produces a glob pattern usable for finding
+// the actual file. Deterministic specifiers (%b, %e, %f, %d, %s, %ms,
+// %ns, %t{}, %i, %%) are resolved normally.
+// The result is written into dst. Returns the number of bytes written.
+func (pcfg PcapWriterCfg) PcapRotatedName(dst, key []byte,
+	ts time.Time) (int, error) {
+
+	// build oldName via PcapFileFullPath
+	var fPathBuf [256]byte
+	fPathLen, _, err := pcfg.PcapFileFullPath(fPathBuf[:], key)
+	if err != nil {
+		return 0, err
+	}
+	oldName := fPathBuf[:fPathLen]
+	dir, baseName, ext := splitOldName(oldName)
+
+	buf := dst[:0]
+	segs := pcfg.rotateFmtSegs
+
+	for i := range segs {
+		seg := &segs[i]
+		switch seg.op {
+		case rotFmtLiteral:
+			buf = append(buf, seg.lit...)
+		case rotFmtBase:
+			buf = append(buf, baseName...)
+		case rotFmtExt:
+			if len(pcfg.RotateSuffix) > 0 {
+				if pcfg.RotateSuffix[0] != '.' &&
+					(len(buf) > 0 && buf[len(buf)-1] != '.') {
+					buf = append(buf, '.')
+				}
+				buf = append(buf, pcfg.RotateSuffix...)
+			} else {
+				if len(buf) > 0 && buf[len(buf)-1] == '.' && len(ext) > 0 {
+					buf = append(buf, ext[1:]...)
+				} else {
+					buf = append(buf, ext...)
+				}
+			}
+		case rotFmtFull:
+			buf = append(buf, baseName...)
+			buf = append(buf, ext...)
+		case rotFmtDir:
+			if len(pcfg.RotateDir) > 0 {
+				buf = append(buf, pcfg.RotateDir...)
+				if pcfg.RotateDir[len(pcfg.RotateDir)-1] != '/' {
+					if (i+1) >= len(segs) ||
+						segs[i+1].op != rotFmtLiteral ||
+						len(segs[i+1].lit) == 0 ||
+						segs[i+1].lit[0] != '/' {
+						buf = append(buf, '/')
+					}
+				}
+			} else if len(dir) > 0 {
+				buf = append(buf, dir...)
+				if (i+1) >= len(segs) ||
+					segs[i+1].op != rotFmtLiteral ||
+					len(segs[i+1].lit) == 0 ||
+					segs[i+1].lit[0] != '/' {
+					buf = append(buf, '/')
+				}
+			}
+		case rotFmtTsSec:
+			buf = strconv.AppendInt(buf, ts.Unix(), 10)
+		case rotFmtTsMs:
+			buf = strconv.AppendInt(buf, ts.UnixMilli(), 10)
+		case rotFmtTsNs:
+			buf = strconv.AppendInt(buf, ts.UnixNano(), 10)
+		case rotFmtTimeLayout:
+			buf = ts.AppendFormat(buf, seg.lit)
+		case rotFmtUploadId:
+			avail := cap(buf) - len(buf)
+			if avail < 128 {
+				break
+			}
+			n, err := pcfg.PcapUploadId(buf[len(buf):cap(buf)], key)
+			if err == nil {
+				buf = buf[:len(buf)+n]
+			}
+		case rotFmtRand, rotFmtSeq:
+			// non-deterministic: emit glob wildcard
+			buf = append(buf, '*')
+		case rotFmtConflictRand, rotFmtConflictSeq, rotFmtConflictRetry:
+			// conflict-only: emit nothing (same as retry=0)
+		}
+	}
+	n := len(buf)
+	if n > len(dst) {
+		return 0, errPathEscDstTooSmall
+	}
+	return n, nil
 }
 
 // PcapFileRelPath returns the relative path to pcfg.Dir of the output

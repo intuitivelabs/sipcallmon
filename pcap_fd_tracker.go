@@ -20,50 +20,22 @@ import (
 	"github.com/intuitivelabs/wtimer"
 )
 
-// pcapRotFmtOp identifies a format segment operation for rotated filenames.
-type pcapRotFmtOp uint8
-
-const (
-	rotFmtLiteral       pcapRotFmtOp = iota // literal bytes
-	rotFmtBase                              // %b - original base (no ext)
-	rotFmtExt                               // %e - original extension
-	rotFmtFull                              // %f - original filename
-	rotFmtDir                               // %d - original directory
-	rotFmtTsSec                             // %s - unix seconds
-	rotFmtTsMs                              // %ms - unix milliseconds
-	rotFmtTsNs                              // %ns - unix nanoseconds
-	rotFmtTimeLayout                        // %t{layout} - Go time format
-	rotFmtRand                              // %r - random hex uint32 (always)
-	rotFmtUploadId                          // %i - PcapUploadId(key)
-	rotFmtSeq                               // %n - monotonic counter (always)
-	rotFmtConflictRand                      // %R - random hex (conflict-only)
-	rotFmtConflictSeq                       // %N - monotonic counter (conflict-only)
-	rotFmtConflictRetry                     // %U - retry counter (conflict-only)
-)
-
-// pcapRotFmtSeg is one segment of a compiled rotate format string.
-type pcapRotFmtSeg struct {
-	op  pcapRotFmtOp
-	lit string // literal text or time layout
-}
-
 type pcapFdTracker struct {
 	h              pcapFdHash
 	lt             wtimer.LTimer
 	rotateInterval time.Duration
-	rotateSuffix   string           // new extension on close (e.g. ".pcap")
-	rotateDir      string           // move to this dir on close
-	rotateFmt      []pcapRotFmtSeg  // compiled format (parsed once at Init)
-	maxOpen        int64            // global limit on tracked entries (0 = unlimited)
-	cfg            *PcapWriterCfg   // needed for PcapUploadId (%i)
+	rotateSuffix   string          // new extension on close (e.g. ".pcap")
+	rotateDir      string          // move to this dir on close
+	maxOpen        int64           // global limit on tracked entries (0 = unlimited)
+	cfg            *PcapWriterCfg  // needed for PcapUploadId (%i) and rotateFmtSegs
 	stats          *pcapStatsT
-	rng            uint32           // xorshift32 state for %r / %R
-	seq            uint64           // monotonic counter for %n / %N
-	hasRetryOp     bool             // true if format contains %R, %N, or %U
+	rng            uint32          // xorshift32 state for %r / %R
+	seq            uint64          // monotonic counter for %n / %N
+	hasRetryOp     bool            // true if format contains %R, %N, or %U
 }
 
 func (t *pcapFdTracker) Init(buckets, prealloc, maxOpen int,
-	rotateInterval time.Duration, rotateSuffix, rotateDir, rotateFmt string,
+	rotateInterval time.Duration, rotateSuffix, rotateDir string,
 	cfg *PcapWriterCfg, stats *pcapStatsT) error {
 
 	t.h.Init(buckets, prealloc)
@@ -77,11 +49,7 @@ func (t *pcapFdTracker) Init(buckets, prealloc, maxOpen int,
 	if t.rng == 0 {
 		t.rng = 1 // xorshift32 must not be 0
 	}
-	t.rotateFmt, t.hasRetryOp = parseRotateFmt(rotateFmt)
-	// if no explicit format, use default that matches old behavior
-	if len(t.rotateFmt) == 0 {
-		t.rotateFmt, t.hasRetryOp = parseRotateFmt("%b_%s%e")
-	}
+	t.hasRetryOp = cfg.rotateFmtHasRetry
 	// tick duration: use 100ms for reasonable timer resolution
 	// (10s interval = 100 ticks)
 	err := t.lt.Init(100 * time.Millisecond)
@@ -95,9 +63,14 @@ func (t *pcapFdTracker) Init(buckets, prealloc, maxOpen int,
 	return nil
 }
 
+// rotateFmt returns the compiled format segments from cfg.
+func (t *pcapFdTracker) rotateFmt() []pcapRotFmtSeg {
+	return t.cfg.rotateFmtSegs
+}
+
 // RotateActive returns true if in rotate mode.
 func (t *pcapFdTracker) RotateActive() bool {
-	return len(t.rotateFmt) > 0 || len(t.rotateSuffix) > 0 || len(t.rotateDir) > 0
+	return len(t.cfg.rotateFmtSegs) > 0 || len(t.rotateSuffix) > 0 || len(t.rotateDir) > 0
 }
 
 // Lookup finds a tracked entry by key.
@@ -243,9 +216,10 @@ func (t *pcapFdTracker) buildNewName(buf []byte, oldName []byte,
 	dir, baseName, ext := splitOldName(oldName)
 
 	now := time.Now()
+	segs := t.rotateFmt()
 
-	for i := range t.rotateFmt {
-		seg := &t.rotateFmt[i]
+	for i := range segs {
+		seg := &segs[i]
 		switch seg.op {
 		case rotFmtLiteral:
 			buf = append(buf, seg.lit...)
@@ -277,20 +251,20 @@ func (t *pcapFdTracker) buildNewName(buf []byte, oldName []byte,
 				if t.rotateDir[len(t.rotateDir)-1] != '/' {
 					// add '/' if rotateDir does not end with it
 					// and next chunk is not a literal starting with it
-					if (i+1) >= len(t.rotateFmt) ||
-						t.rotateFmt[i+1].op != rotFmtLiteral ||
-						(len(t.rotateFmt[i+1].lit) == 0) ||
-						t.rotateFmt[i+1].lit[0] != '/' {
+					if (i+1) >= len(segs) ||
+						segs[i+1].op != rotFmtLiteral ||
+						(len(segs[i+1].lit) == 0) ||
+						segs[i+1].lit[0] != '/' {
 							buf = append(buf, '/')
 					}
 				}
 			} else if len(dir) > 0 {
 				buf = append(buf, dir...)
 				// add '/' if next chunk is not a literal starting with it
-				if (i+1) >= len(t.rotateFmt) ||
-					t.rotateFmt[i+1].op != rotFmtLiteral ||
-					(len(t.rotateFmt[i+1].lit) == 0) ||
-					t.rotateFmt[i+1].lit[0] != '/' {
+				if (i+1) >= len(segs) ||
+					segs[i+1].op != rotFmtLiteral ||
+					(len(segs[i+1].lit) == 0) ||
+					segs[i+1].lit[0] != '/' {
 						buf = append(buf, '/')
 				}
 			}
@@ -352,44 +326,6 @@ func (t *pcapFdTracker) buildNewName(buf []byte, oldName []byte,
 	return buf
 }
 
-// splitOldName splits oldName into directory (without trailing /),
-// base name (without extension), and extension (with leading dot).
-// All returned slices point into oldName (no allocation).
-func splitOldName(oldName []byte) (dir, baseName, ext []byte) {
-	// find last '/' for dir/base split
-	dirEnd := -1
-	for i := len(oldName) - 1; i >= 0; i-- {
-		if oldName[i] == '/' {
-			dirEnd = i
-			break
-		}
-	}
-
-	var base []byte
-	if dirEnd >= 0 {
-		dir = oldName[:dirEnd]
-		base = oldName[dirEnd+1:]
-	} else {
-		base = oldName
-	}
-
-	// find last '.' in base for extension split
-	extIdx := -1
-	for i := len(base) - 1; i >= 0; i-- {
-		if base[i] == '.' {
-			extIdx = i
-			break
-		}
-	}
-	if extIdx >= 0 {
-		baseName = base[:extIdx]
-		ext = base[extIdx:]
-	} else {
-		baseName = base
-	}
-	return
-}
-
 // nextRand returns a pseudo-random uint32 using xorshift32.
 // Single goroutine per tracker, no synchronization needed.
 func (t *pcapFdTracker) nextRand() uint32 {
@@ -399,131 +335,6 @@ func (t *pcapFdTracker) nextRand() uint32 {
 	x ^= x << 5
 	t.rng = x
 	return x
-}
-
-// appendHex32 appends v as 8 lowercase hex digits to buf (zero-alloc).
-func appendHex32(buf []byte, v uint32) []byte {
-	const hexDigits = "0123456789abcdef"
-	var tmp [8]byte
-	for i := 7; i >= 0; i-- {
-		tmp[i] = hexDigits[v&0xf]
-		v >>= 4
-	}
-	return append(buf, tmp[:]...)
-}
-
-// parseRotateFmt compiles a format string into a list of segments.
-// Returns nil if the format string is empty.
-// Also returns whether any conflict-only ops (%R, %N, %U) are present.
-func parseRotateFmt(fmt string) ([]pcapRotFmtSeg, bool) {
-	if len(fmt) == 0 {
-		return nil, false
-	}
-	var segs []pcapRotFmtSeg
-	hasRetry := false
-	litStart := 0
-	i := 0
-	for i < len(fmt) {
-		if fmt[i] != '%' {
-			i++
-			continue
-		}
-		// flush literal before this %
-		if i > litStart {
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtLiteral, lit: fmt[litStart:i]})
-		}
-		i++ // skip '%'
-		if i >= len(fmt) {
-			break
-		}
-		switch fmt[i] {
-		case '%':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtLiteral, lit: "%"})
-			i++
-		case 'b':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtBase})
-			i++
-		case 'e':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtExt})
-			i++
-		case 'f':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtFull})
-			i++
-		case 'd':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtDir})
-			i++
-		case 's':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtTsSec})
-			i++
-		case 'm':
-			// %ms
-			if i+1 < len(fmt) && fmt[i+1] == 's' {
-				segs = append(segs, pcapRotFmtSeg{op: rotFmtTsMs})
-				i += 2
-			} else {
-				// unknown, treat as literal
-				segs = append(segs, pcapRotFmtSeg{op: rotFmtLiteral, lit: "%m"})
-				i++
-			}
-		case 'n':
-			// %ns or %n
-			if i+1 < len(fmt) && fmt[i+1] == 's' {
-				segs = append(segs, pcapRotFmtSeg{op: rotFmtTsNs})
-				i += 2
-			} else {
-				segs = append(segs, pcapRotFmtSeg{op: rotFmtSeq})
-				i++
-			}
-		case 't':
-			// %t{layout}
-			i++
-			if i < len(fmt) && fmt[i] == '{' {
-				end := i + 1
-				for end < len(fmt) && fmt[end] != '}' {
-					end++
-				}
-				if end < len(fmt) {
-					layout := fmt[i+1 : end]
-					segs = append(segs, pcapRotFmtSeg{op: rotFmtTimeLayout, lit: layout})
-					i = end + 1
-				} else {
-					// unterminated {, treat as literal
-					segs = append(segs, pcapRotFmtSeg{op: rotFmtLiteral, lit: "%t"})
-				}
-			} else {
-				segs = append(segs, pcapRotFmtSeg{op: rotFmtLiteral, lit: "%t"})
-			}
-		case 'r':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtRand})
-			i++
-		case 'i':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtUploadId})
-			i++
-		case 'R':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtConflictRand})
-			hasRetry = true
-			i++
-		case 'N':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtConflictSeq})
-			hasRetry = true
-			i++
-		case 'U':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtConflictRetry})
-			hasRetry = true
-			i++
-		default:
-			// unknown specifier, emit as literal
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtLiteral,
-				lit: fmt[i-1 : i+1]})
-			i++
-		}
-		litStart = i
-	}
-	// flush trailing literal
-	if litStart < len(fmt) {
-		segs = append(segs, pcapRotFmtSeg{op: rotFmtLiteral, lit: fmt[litStart:]})
-	}
-	return segs, hasRetry
 }
 
 // pcapFdTimerHandler is the LTimer callback fired when a rotation

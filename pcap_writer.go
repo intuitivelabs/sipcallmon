@@ -223,7 +223,7 @@ func (pcfg PcapWriterCfg) PcapRotatedName(dst, key []byte,
 		return 0, err
 	}
 	oldName := fPathBuf[:fPathLen]
-	dir, baseName, ext := splitOldName(oldName)
+	baseName, ext := splitOldName(oldName)
 
 	buf := dst[:0]
 	segs := pcfg.rotateFmtSegs
@@ -252,26 +252,6 @@ func (pcfg PcapWriterCfg) PcapRotatedName(dst, key []byte,
 		case rotFmtFull:
 			buf = append(buf, baseName...)
 			buf = append(buf, ext...)
-		case rotFmtDir:
-			if len(pcfg.RotateDir) > 0 {
-				buf = append(buf, pcfg.RotateDir...)
-				if pcfg.RotateDir[len(pcfg.RotateDir)-1] != '/' {
-					if (i+1) >= len(segs) ||
-						segs[i+1].op != rotFmtLiteral ||
-						len(segs[i+1].lit) == 0 ||
-						segs[i+1].lit[0] != '/' {
-						buf = append(buf, '/')
-					}
-				}
-			} else if len(dir) > 0 {
-				buf = append(buf, dir...)
-				if (i+1) >= len(segs) ||
-					segs[i+1].op != rotFmtLiteral ||
-					len(segs[i+1].lit) == 0 ||
-					segs[i+1].lit[0] != '/' {
-					buf = append(buf, '/')
-				}
-			}
 		case rotFmtTsSec:
 			buf = strconv.AppendInt(buf, ts.Unix(), 10)
 		case rotFmtTsMs:

@@ -212,8 +212,7 @@ func (t *pcapFdTracker) renameFile(oldName []byte, key []byte) {
 func (t *pcapFdTracker) buildNewName(buf []byte, oldName []byte,
 	key []byte, retry int) []byte {
 
-	// parse oldName into dir, base, ext once
-	dir, baseName, ext := splitOldName(oldName)
+	baseName, ext := splitOldName(oldName)
 
 	now := time.Now()
 	segs := t.rotateFmt()
@@ -245,29 +244,6 @@ func (t *pcapFdTracker) buildNewName(buf []byte, oldName []byte,
 		case rotFmtFull:
 			buf = append(buf, baseName...)
 			buf = append(buf, ext...)
-		case rotFmtDir:
-			if len(t.rotateDir) > 0 {
-				buf = append(buf, t.rotateDir...)
-				if t.rotateDir[len(t.rotateDir)-1] != '/' {
-					// add '/' if rotateDir does not end with it
-					// and next chunk is not a literal starting with it
-					if (i+1) >= len(segs) ||
-						segs[i+1].op != rotFmtLiteral ||
-						(len(segs[i+1].lit) == 0) ||
-						segs[i+1].lit[0] != '/' {
-							buf = append(buf, '/')
-					}
-				}
-			} else if len(dir) > 0 {
-				buf = append(buf, dir...)
-				// add '/' if next chunk is not a literal starting with it
-				if (i+1) >= len(segs) ||
-					segs[i+1].op != rotFmtLiteral ||
-					(len(segs[i+1].lit) == 0) ||
-					segs[i+1].lit[0] != '/' {
-						buf = append(buf, '/')
-				}
-			}
 		case rotFmtTsSec:
 			buf = strconv.AppendInt(buf, now.Unix(), 10)
 		case rotFmtTsMs:

@@ -8,7 +8,6 @@ const (
 	rotFmtBase                              // %b - original base (no ext)
 	rotFmtExt                               // %e - original extension
 	rotFmtFull                              // %f - original filename
-	rotFmtDir                               // %d - original directory
 	rotFmtTsSec                             // %s - unix seconds
 	rotFmtTsMs                              // %ms - unix milliseconds
 	rotFmtTsNs                              // %ns - unix nanoseconds
@@ -63,9 +62,6 @@ func parseRotateFmt(fmt string) ([]pcapRotFmtSeg, bool) {
 			i++
 		case 'f':
 			segs = append(segs, pcapRotFmtSeg{op: rotFmtFull})
-			i++
-		case 'd':
-			segs = append(segs, pcapRotFmtSeg{op: rotFmtDir})
 			i++
 		case 's':
 			segs = append(segs, pcapRotFmtSeg{op: rotFmtTsSec})
@@ -141,10 +137,9 @@ func parseRotateFmt(fmt string) ([]pcapRotFmtSeg, bool) {
 	return segs, hasRetry
 }
 
-// splitOldName splits oldName into directory (without trailing /),
-// base name (without extension), and extension (with leading dot).
-// All returned slices point into oldName (no allocation).
-func splitOldName(oldName []byte) (dir, baseName, ext []byte) {
+// splitOldName splits oldName into base name (without extension) and
+// extension (with leading dot). Both slices point into oldName (no allocation).
+func splitOldName(oldName []byte) (baseName, ext []byte) {
 	// find last '/' for dir/base split
 	dirEnd := -1
 	for i := len(oldName) - 1; i >= 0; i-- {
@@ -156,7 +151,6 @@ func splitOldName(oldName []byte) (dir, baseName, ext []byte) {
 
 	var base []byte
 	if dirEnd >= 0 {
-		dir = oldName[:dirEnd]
 		base = oldName[dirEnd+1:]
 	} else {
 		base = oldName
@@ -176,7 +170,7 @@ func splitOldName(oldName []byte) (dir, baseName, ext []byte) {
 	} else {
 		baseName = base
 	}
-	return
+	return baseName, ext
 }
 
 // appendHex32 appends v as 8 lowercase hex digits to buf (zero-alloc).

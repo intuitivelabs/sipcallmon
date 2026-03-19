@@ -135,6 +135,18 @@ func (t *pcapFdTracker) CloseAll() {
 	})
 }
 
+// CloseEntry forces close+rotate of the tracked entry matching key.
+// No-op if key is not tracked.
+func (t *pcapFdTracker) CloseEntry(key []byte) {
+	e := t.h.Lookup(key)
+	if e == nil {
+		return
+	}
+	t.lt.Del(&e.timer)
+	t.lt.ResetTimer(&e.timer)
+	t.rotateEntry(e)
+}
+
 // rotateEntry closes, renames (if non-empty), removes from hash, and frees.
 func (t *pcapFdTracker) rotateEntry(e *pcapFdEntry) {
 	if e.f != nil {

@@ -594,3 +594,11 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 	}
 	return pw.WriteRawMsg(k, keyBuf, ts, flags, sbuf.Bytes())
 }
+
+// EndCall signals end-of-call for the given key.
+// Queues a control message with PcapDumpCloseFileF and empty payload.
+// The worker will close and rotate the tracked pcap file (if any).
+// keyBuf must not be nil.
+func (pw *PcapWriter) EndCall(key sipsp.PField, keyBuf []byte) error {
+	return pw.WriteRawMsg(key, keyBuf, 0, PcapDumpCloseFileF, nil)
+}

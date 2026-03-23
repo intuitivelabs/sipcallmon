@@ -32,6 +32,9 @@ type pcapFdTracker struct {
 	rng            uint32          // xorshift32 state for %r / %R
 	seq            uint64          // monotonic counter for %n / %N
 	hasRetryOp     bool            // true if format contains %R, %N, or %U
+	// file uploader: set externally after Init() if upload is configured
+	upldCh   chan<- *pcapFileUpldReq // nil if channel upload disabled
+	upldPool *pcapFileUpldPool       // nil if channel upload disabled
 }
 
 func (t *pcapFdTracker) Init(buckets, prealloc, maxOpen int,
@@ -98,6 +101,7 @@ func (t *pcapFdTracker) Add(key, fname []byte, f *os.File,
 	e.pcapW = pcapW
 	e.state = 1 // open
 	e.nWritten = 0
+	e.openTS = time.Now().Unix()
 	kl := len(key)
 	if kl > pcapFdMaxKeyLen {
 		kl = pcapFdMaxKeyLen
@@ -156,7 +160,8 @@ func (t *pcapFdTracker) rotateEntry(e *pcapFdEntry) {
 	}
 	// rename/move only if file has actual packet data
 	if e.nWritten > 0 && t.RotateActive() {
-		t.renameFile(e.fname[:e.fnameLen], e.key[:e.keyLen])
+		t.renameFile(e.fname[:e.fnameLen], e.key[:e.keyLen],
+			e.openTS, time.Now().Unix())
 	}
 	e.state = 0
 	t.h.Remove(e)
@@ -172,7 +177,9 @@ func (t *pcapFdTracker) rotateEntry(e *pcapFdEntry) {
 
 // renameFile renames/moves a closed pcap file using the compiled format.
 // oldName and key are byte slices (no alloc).
-func (t *pcapFdTracker) renameFile(oldName []byte, key []byte) {
+// fromTS/toTS are unix seconds for upload timestamps (0 = derive from file).
+func (t *pcapFdTracker) renameFile(oldName []byte, key []byte,
+	fromTS, toTS int64) {
 	var buf [512]byte
 
 	newName := t.buildNewName(buf[:0], oldName, key, 0)
@@ -215,6 +222,10 @@ func (t *pcapFdTracker) renameFile(oldName []byte, key []byte) {
 	}
 	if t.stats != nil {
 		t.stats.cnts.Inc(t.stats.hFdTrackRenames)
+	}
+	// notify file uploader (non-blocking)
+	if t.upldCh != nil {
+		t.sendUpldReq(newName, key, fromTS, toTS)
 	}
 }
 
@@ -337,4 +348,29 @@ func pcapFdTimerHandler(lt *wtimer.LTimer, tl *wtimer.LTimerLnk,
 // Entries returns the current number of tracked entries.
 func (t *pcapFdTracker) Entries() uint {
 	return t.h.nEntries
+}
+
+// sendUpldReq gets a request from the pool, fills it, and sends
+// to the upload channel (non-blocking).
+func (t *pcapFdTracker) sendUpldReq(newName, key []byte,
+	fromTS, toTS int64) {
+	req := t.upldPool.Get()
+	if req == nil {
+		// pool exhausted — file stays in rotate dir
+		return
+	}
+	req.fnameLen = uint16(copy(req.fname[:], newName))
+	n, err := t.cfg.PcapUploadId(req.upldId[:], key)
+	if err != nil {
+		t.upldPool.Put(req)
+		return
+	}
+	req.idLen = uint16(n)
+	req.fromTS = fromTS
+	req.toTS = toTS
+	select {
+	case t.upldCh <- req:
+	default:
+		t.upldPool.Put(req) // queue full
+	}
 }

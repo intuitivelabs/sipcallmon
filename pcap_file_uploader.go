@@ -10,6 +10,7 @@ package sipcallmon
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
@@ -160,13 +161,7 @@ func (u *pcapFileUploader) Init(cfg *PcapWriterCfg, stats *pcapStatsT) error {
 		u.fmtRegex, u.idCapIdx, u.baseCapIdx = buildRotateFmtRegex(
 			cfg.rotateFmtSegs)
 		if u.fmtRegex == nil {
-			ERR("pcap file uploader: cannot build format regex, watch disabled\n")
-			if u.notify == FileUpldNotifyWatch {
-				u.notify = "" // effectively disabled
-			} else {
-				u.notify = FileUpldNotifyChannel
-			}
-			// TODO: return an error
+			return fmt.Errorf("pcap file uploader: cannot build format regex for watch mode")
 		}
 	}
 	return nil
@@ -258,50 +253,27 @@ func (u *pcapFileUploader) upldFile(req *pcapFileUpldReq,
 		}
 		return
 	}
-	// TODO: use Statx if configured (avoids 1 extra statx syscall)
-	fi, err := f.Stat()
+	fileSize, fromTS, toTS, err := fileUpldInfo(f, req)
 	if err != nil {
 		f.Close()
-		// TODO: counter
 		ERR("pcap file uploader: stat %q: %v\n", fname, err)
+		if u.stats != nil {
+			u.stats.cnts.Inc(u.stats.hErrFileUpldStat)
+		}
 		return
 	}
-	if fi.Size() == 0 {
+	if fileSize == 0 {
 		f.Close()
-		// empty file, just clean up
 		u.onSuccess(fname)
 		return
-	}
-
-	// resolve timestamps
-	var fromTS, toTS time.Time
-	if req.fromTS != 0 {
-		fromTS = time.Unix(req.fromTS, 0)
-	}
-	if req.toTS != 0 {
-		toTS = time.Unix(req.toTS, 0)
-	}
-	if req.fromTS == 0 || req.toTS == 0 {
-		dfrom, dto := deriveTimestamps(f, fi, fname)
-		if req.fromTS == 0 {
-			fromTS = dfrom
-		}
-		if req.toTS == 0 {
-			toTS = dto
-		}
-		// FIXME: rewind only if pcapReadFirstTS was used
-		// rewind after potential pcapReadFirstTS
-		f.Seek(0, io.SeekStart)
 	}
 
 	// build URL
 	var urlBuf [512]byte
 	uri := buildUpldURL(urlBuf[:0], u.cfg.Upload, upldId, fromTS, toTS)
 
-	// TODO: investigate if we need the file size or we can use -1
-	//       (see fasthttp... and if upload api supports no content length)
 	status, httpErr := client.RESTsendStream(
-		unsafeconv.Str(uri), f, fi.Size())
+		unsafeconv.Str(uri), f, fileSize)
 	f.Close()
 
 	if httpErr != nil || status < 200 || status >= 300 {
@@ -327,9 +299,7 @@ func (u *pcapFileUploader) onSuccess(fname string) {
 	case FileUpldDelete:
 		os.Remove(fname)
 	case FileUpldMove:
-		// TODO: MkdirAll only if os.Rename fails with an appropriate error
-		os.MkdirAll(u.doneDir, 0700)
-		os.Rename(fname, filepath.Join(u.doneDir, filepath.Base(fname)))
+		moveFile(fname, u.doneDir)
 	}
 }
 
@@ -338,44 +308,70 @@ func (u *pcapFileUploader) onError(fname string) {
 	case FileUpldDelete:
 		os.Remove(fname)
 	case FileUpldMove:
-		// TODO: MkdirAll only if os.Rename fails with an appropriate error
-		os.MkdirAll(u.errDir, 0700)
-		os.Rename(fname, filepath.Join(u.errDir, filepath.Base(fname)))
+		moveFile(fname, u.errDir)
 	}
 }
 
-// deriveTimestamps gets fromTS and toTS from the file.
-func deriveTimestamps(f *os.File, fi os.FileInfo,
-	fpath string) (fromTS, toTS time.Time) {
+// moveFile renames fname into dir, creating dir only if the first
+// rename fails because the directory does not exist.
+func moveFile(fname, dir string) {
+	dst := filepath.Join(dir, filepath.Base(fname))
+	err := os.Rename(fname, dst)
+	if err != nil && os.IsNotExist(err) {
+		os.MkdirAll(dir, 0700)
+		err = os.Rename(fname, dst)
+	}
+	if err != nil {
+		ERR("pcap file uploader: move %q -> %q: %v\n", fname, dst, err)
+	}
+}
 
-	toTS = fi.ModTime()
+// fileUpldInfo returns the file size and resolved timestamps for upload.
+// When fileUpldTSFromStatx is true, a single statx syscall on the open fd
+// provides size + birth time + mtime (avoids the extra fstat + statx pair).
+// When false, falls back to f.Stat() + pcapReadFirstTS.
+// req.fromTS/toTS override derived values when non-zero.
+// On the pcapReadFirstTS path the file is seeked back to 0.
+func fileUpldInfo(f *os.File,
+	req *pcapFileUpldReq) (fileSize int64, fromTS, toTS time.Time, err error) {
+
 	if fileUpldTSFromStatx {
-		fromTS = statxBirthTime(fpath)
-		if fromTS.IsZero() {
-			fromTS = toTS // fallback
+		var stx unix.Statx_t
+		err = unix.Statx(int(f.Fd()), "",
+			unix.AT_EMPTY_PATH,
+			unix.STATX_SIZE|unix.STATX_BTIME|unix.STATX_MTIME, &stx)
+		if err != nil {
+			return
+		}
+		fileSize = int64(stx.Size)
+		toTS = time.Unix(stx.Mtime.Sec, int64(stx.Mtime.Nsec))
+		if stx.Mask&unix.STATX_BTIME != 0 {
+			fromTS = time.Unix(stx.Btime.Sec, int64(stx.Btime.Nsec))
+		} else {
+			fromTS = toTS // filesystem doesn't support btime
 		}
 	} else {
+		var fi os.FileInfo
+		fi, err = f.Stat()
+		if err != nil {
+			return
+		}
+		fileSize = fi.Size()
+		toTS = fi.ModTime()
 		fromTS = pcapReadFirstTS(f)
-		// TODO: fseek back to 0 here
 		if fromTS.IsZero() {
 			fromTS = toTS
 		}
+		f.Seek(0, io.SeekStart)
+	}
+	// request-provided timestamps override derived ones
+	if req.fromTS != 0 {
+		fromTS = time.Unix(req.fromTS, 0)
+	}
+	if req.toTS != 0 {
+		toTS = time.Unix(req.toTS, 0)
 	}
 	return
-}
-
-// statxBirthTime returns the file birth time using statx(2).
-func statxBirthTime(fpath string) time.Time {
-	var stx unix.Statx_t
-	err := unix.Statx(unix.AT_FDCWD, fpath, 0,
-		unix.STATX_BTIME, &stx)
-	if err != nil {
-		return time.Time{}
-	}
-	if stx.Mask&unix.STATX_BTIME == 0 {
-		return time.Time{} // filesystem doesn't support btime
-	}
-	return time.Unix(stx.Btime.Sec, int64(stx.Btime.Nsec))
 }
 
 // pcapReadFirstTS reads the first packet timestamp from a pcap file.
@@ -493,7 +489,9 @@ func (u *pcapFileUploader) handleWatchEvent(fullPath string) {
 	req := u.pool.Get()
 	if req == nil {
 		// pool exhausted — file stays, will be retried on next event/scan
-		// TODO: counter to u.pool.Get failure
+		if u.stats != nil {
+			u.stats.cnts.Inc(u.stats.hFileUpldPoolEmpty)
+		}
 		return
 	}
 	req.fnameLen = uint16(copy(req.fname[:], fullPath))
@@ -504,8 +502,11 @@ func (u *pcapFileUploader) handleWatchEvent(fullPath string) {
 	case u.upldCh <- req:
 	default:
 		u.pool.Put(req) // queue full
-		//TODO: error message
-		//TODO: counter
+		WARN("pcap file uploader: upload queue full, skipping %q\n",
+			fullPath)
+		if u.stats != nil {
+			u.stats.cnts.Inc(u.stats.hFileUpldQueueFull)
+		}
 	}
 }
 

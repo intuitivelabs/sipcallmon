@@ -32,10 +32,10 @@ const AcmeIPFIXrtpQOS4InterimMStreamMinLen int = 1 + // type
 	4 + 4 + 4 + 4 + // start_s, start_us, stop_s, stop_us
 	4 + 4 + 1 + 4 + 4 + 1 + // (ssrc, seq, ptype)  x 2
 	4 + // tid
-	4*IPFIXvarLenElemMinLen // 4 emtpy strings:  realm x2 + callid x2
+	4*IPFIXvarLenElemMinLen // 4 empty strings:  realm x2 + callid x2
 
 // AcmeIPFIXrtpQOS4InterimMStream holds information about both rtp streams
-// for a media stream (caller -> callee and calee -> caller). Note that from
+// for a media stream (caller -> callee and callee -> caller). Note that from
 // the point of view of addresses, each rtp stream is broken into 2 "legs":
 // source -> sbc and sbc -> destination.
 type AcmeIPFIXrtpQOS4InterimMStream struct {

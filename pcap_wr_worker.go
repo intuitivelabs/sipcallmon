@@ -129,7 +129,7 @@ func NewPcapWrMsg(Key sipsp.PField, KeyBuf []byte, ts timestamp.TS, flags PcapWr
 
 	if flags&PcapMsgHdrKeyFieldF != 0 {
 		copy(buf[offsKeyVal:], Key.Get(KeyBuf))
-		(*pkey).Offs = 0 // starts at begining (copied only the key)
+		(*pkey).Offs = 0 // starts at beginning (copied only the key)
 	} // else key val is in the message
 
 	copy(buf[offs:], msg)

@@ -707,8 +707,7 @@ skip_crlf:
 	}
 	c.wsP.sipMsg.Init(nil, nil, nil)
 	smsg := &c.wsP.sipMsg
-	o, err := sipsp.ParseSIPMsg(b, 0, smsg,
-		sipsp.SIPMsgSkipBodyF|sipsp.SIPMsgNoMoreDataF)
+	o, err := sipsp.ParseSIPMsg(b, 0, smsg, sipsp.SIPMsgNoMoreDataF)
 	switch err {
 	case 0:
 		stats.Inc(sCnts.ok)
@@ -733,7 +732,7 @@ skip_crlf:
 		endPoints[1].SetIP(c.DstIP())
 		endPoints[1].Port = c.DstPort()
 		endPoints[1].SetProto(calltr.NProtoWS)
-		ok := CallTrack(smsg, endPoints)
+		ok, _, _ := CallTrack(smsg, endPoints)
 		if ok {
 			stats.Inc(sCnts.callTrWS)
 			// TODO: if WpcapPerCall ->

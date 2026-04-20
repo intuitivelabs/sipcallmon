@@ -1,7 +1,9 @@
 package sipcallmon
 
 import (
+	"encoding/binary"
 	"errors"
+	"net/url"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -14,18 +16,37 @@ import (
 	"github.com/intuitivelabs/bytespool"
 	"github.com/intuitivelabs/counters"
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/timestamp"
+	"github.com/intuitivelabs/unsafeconv"
 )
+
+const maxPcapUploadIdLen = 64 // enforced limit on upload ids
+
+type PcapWrMsgFlags uint32
 
 const (
 	PcapDumpAppendDefF   PcapWrMsgFlags = 0
 	PcapDumpAppendOnlyF  PcapWrMsgFlags = 1
+	PcapDumpNewFileF     PcapWrMsgFlags = 2        // new callid -> new file
 	PcapMsgHdrKeyFieldF  PcapWrMsgFlags = 0x010000 // key in header and not in msg
-	PcapMsgHdrKeyPaddedF PcapWrMsgFlags = 0x020000
+	PcapMsgHdrKeyPaddedF PcapWrMsgFlags = 0x020000 // if set key size will be padded to 4b
+	PcapMsgHdrTimestampF PcapWrMsgFlags = 0x040000 // header contains a 64 bit timestamp
 )
 
 var pcapWrMsgPool bytespool.Bpool
 
-type PcapWrMsgFlags uint32
+// pcap file header is 24 bytes
+// pcapng SHB block w/o options is 28 and IDB w/o options is 20 bytes
+// pcap per packet header is 16 bytes and pcapng EPB is min. 32 bytes
+// max  packet is 14 (eth) + 65535  (ip) + 40 (ip6)
+const maxWriterBufSize = 28 + 20 + 32 + 14 + 40 + 65535 + 3 /* round to 8 multiple */
+/*
+var pcapWriterBufPool = sync.Pool{
+	New: func() any {
+		return make([]byte, maxWriterBufSize)
+	},
+}
+*/
 
 // PcapWrMsg contains the message that will be sent to the writer goroutine.
 // It encapsulates the message key, some flags and the original message.
@@ -33,8 +54,13 @@ type PcapWrMsgFlags uint32
 //
 //		key - sipsp.PField (offs & len for the key)
 //		flags - uint32  (PcapMsgHdrKeyFieldF  set if key is in header and not in msg)
+//	     [ 8 byte timestamp if PcapMsgHdrTimestampF is set ]
 //	     [ key space if key is not contained in msg and PcapMsgHdrKeyFieldF is set ]
 //		msg - bytes array
+//
+// If the key is added to the header (PcapMsgHdrKeyFieldF set) and PcapMsgHdrKeyPaddedF
+// is also set, then the key will be padded so that the next filed starts at a multiple
+// of 4 bytes.
 type PcapWrMsg []byte
 
 func init() {
@@ -50,26 +76,36 @@ func init() {
 //
 //	the Key will be assumed to point inside msg and the key will not be
 //	added to the PcapWrMsg header.
-func NewPcapWrMsg(Key sipsp.PField, KeyBuf []byte, flags PcapWrMsgFlags,
+//	If PcapMsgHdrTimestampF is set the timestamp (ts) will be added to the message
+//	header (otherwise it will be ignored).
+func NewPcapWrMsg(Key sipsp.PField, KeyBuf []byte, ts timestamp.TS, flags PcapWrMsgFlags,
 	msg []byte) PcapWrMsg {
 
 	offsFlags := int(unsafe.Sizeof(Key))
+	offs := int(unsafe.Sizeof(Key) + unsafe.Sizeof(flags))
+	offsTimestamp := -1
+	if flags&PcapMsgHdrTimestampF != 0 {
+		offsTimestamp = offs
+		offs += int(unsafe.Sizeof(ts))
+	}
 	// offset to start of message or key
-	offsKey := int(unsafe.Sizeof(Key) + unsafe.Sizeof(flags))
-	offs := offsKey
+	offsKeyVal := offs
 	if KeyBuf != nil {
 		// separate key (not contained in msg)
 		flags |= PcapMsgHdrKeyFieldF
 	} else {
 		KeyBuf = msg // key inside msg
 	}
-	if flags&PcapMsgHdrKeyFieldF != 0 {
+	if flags&PcapMsgHdrKeyFieldF != 0 { // key value is stored in header
 		offs += int(Key.Len)
 		if flags&PcapMsgHdrKeyPaddedF != 0 {
 			// pad to 4 bytes
 			offs = padOffs(offs)
 		}
+	} else { // the key value is stored inside the msg part
+		offsKeyVal = -1 // not used, not in header
 	}
+
 	sz := offs + len(msg)
 	if Key.Len == 0 || (int(uint(Key.Offs)+uint(Key.Len)) > len(KeyBuf)) {
 		// invalid key or msg
@@ -81,12 +117,21 @@ func NewPcapWrMsg(Key sipsp.PField, KeyBuf []byte, flags PcapWrMsgFlags,
 
 	pkey := (*sipsp.PField)(unsafe.Pointer(&buf[0]))
 	*pkey = Key
-	pflags := (*PcapWrMsgFlags)(unsafe.Pointer(&buf[offsFlags]))
-	*pflags = flags
-	if flags&PcapMsgHdrKeyFieldF != 0 {
-		copy(buf[offsKey:], Key.Get(KeyBuf))
-		(*pkey).Offs = 0 // starts at begining (copied only the key)
+	//pflags := (*PcapWrMsgFlags)(unsafe.Pointer(&buf[offsFlags]))
+	//*pflags = flags
+	binary.NativeEndian.PutUint32(buf[offsFlags:], uint32(flags))
+
+	if flags&PcapMsgHdrTimestampF != 0 {
+		// pTimestamp := (*timestamp.TS)(unsafe.Pointer(&buf[offsTimestamp]))
+		// *pTimestamp = ts
+		binary.NativeEndian.PutUint64(buf[offsTimestamp:], uint64(ts))
 	}
+
+	if flags&PcapMsgHdrKeyFieldF != 0 {
+		copy(buf[offsKeyVal:], Key.Get(KeyBuf))
+		(*pkey).Offs = 0 // starts at begining (copied only the key)
+	} // else key val is in the message
+
 	copy(buf[offs:], msg)
 	pcapStats.cnts.Inc(pcapStats.hAllocMsgs)
 	pcapStats.cnts.Add(pcapStats.hAllocBytes, counters.Val(sz))
@@ -106,8 +151,9 @@ func FreePcapWrMsg(pwm PcapWrMsg) {
 
 // Format:
 //     key offs (2 bytes), key len (2 bytes),
-//     flags (4 byteS)
-//     [optional key value if iPcapMsgHdrKeyFieldF  is set]
+//     flags (4 bytes)
+//     [ optional 8 byte timestamp if PcapMsgHdrTimestampF is set ]
+//     [optional key value if iPcapMsgHdrKeyFieldF  is set, padded if PcapMsgHdrKeyPaddedF]
 //     message ...
 //Key     sipsp.PField
 //Content []byte
@@ -115,28 +161,41 @@ func FreePcapWrMsg(pwm PcapWrMsg) {
 func (pwm PcapWrMsg) RawKey() []byte {
 	var k sipsp.PField
 	var f PcapWrMsgFlags
+	var ts timestamp.TS
 
 	offsFlags := int(unsafe.Sizeof(k))
-	// keyBuf starts after the flags in both cases:
+	offs := offsFlags + int(unsafe.Sizeof(f))
+	if len(pwm) < offs {
+		// too small
+		return nil
+	}
+	// f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offsFlags]))
+	f = PcapWrMsgFlags(binary.NativeEndian.Uint32(pwm[offsFlags:]))
+	if f&PcapMsgHdrTimestampF != 0 {
+		// header contains optional timestamp
+		offs += int(unsafe.Sizeof(ts))
+	}
+	// keyBuf starts after the flags or timestamp in both cases:
 	// 1. key val is stored in the optional field after the header
 	//    (in this case k.Offs = 0)
 	// 2. key val is inside the message (k.Offs will point to right place)
-	offsKeyBuf := offsFlags + int(unsafe.Sizeof(f))
+	offsKeyBuf := offs
 	if len(pwm) < offsKeyBuf {
 		// too small
 		return nil
 	}
-	k = *(*sipsp.PField)(unsafe.Pointer(&pwm[0]))
 	if len(pwm) < (int(k.Offs) + int(k.Len) + offsKeyBuf) {
 		// too small
 		return nil
 	}
+	k = *(*sipsp.PField)(unsafe.Pointer(&pwm[0]))
 	return k.Get(pwm[offsKeyBuf:])
 }
 
 func (pwm PcapWrMsg) RawMsg() []byte {
 	var k sipsp.PField
 	var f PcapWrMsgFlags
+	var ts timestamp.TS
 
 	offsFlags := int(unsafe.Sizeof(k))
 	offs := int(unsafe.Sizeof(k) + unsafe.Sizeof(f))
@@ -145,7 +204,12 @@ func (pwm PcapWrMsg) RawMsg() []byte {
 		return nil
 	}
 	k = *(*sipsp.PField)(unsafe.Pointer(&pwm[0]))
-	f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offsFlags]))
+	/// f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offsFlags]))
+	f = PcapWrMsgFlags(binary.NativeEndian.Uint32(pwm[offsFlags:]))
+	if f&PcapMsgHdrTimestampF != 0 {
+		// header contains optional timestamp
+		offs += int(unsafe.Sizeof(ts))
+	}
 	if f&PcapMsgHdrKeyFieldF != 0 {
 		// key is stored in the "header" and does not point
 		// inside the msg
@@ -167,13 +231,76 @@ func (pwm PcapWrMsg) Flags() PcapWrMsgFlags {
 	var k sipsp.PField
 	var f PcapWrMsgFlags
 
-	offs := int(unsafe.Sizeof(k))
-	if len(pwm) < offs {
+	offsFlags := int(unsafe.Sizeof(k))
+	if len(pwm) < (offsFlags + int(unsafe.Sizeof(f))) {
 		// too small
 		return 0
 	}
-	f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offs]))
+	// f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offs]))
+	f = PcapWrMsgFlags(binary.NativeEndian.Uint32(pwm[offsFlags:]))
 	return f
+}
+
+func (pwm PcapWrMsg) TS() timestamp.TS {
+	var k sipsp.PField
+	var f PcapWrMsgFlags
+	var ts timestamp.TS
+
+	offsFlags := int(unsafe.Sizeof(k))
+	offsTimestamp := offsFlags + int(unsafe.Sizeof(f))
+	if len(pwm) < (offsTimestamp + int(unsafe.Sizeof(ts))) {
+		// too small
+		return ts
+	}
+	// f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offs]))
+	f = PcapWrMsgFlags(binary.NativeEndian.Uint32(pwm[offsFlags:]))
+	if f&PcapMsgHdrTimestampF != 0 {
+		// header contains optional timestamp
+		ts = timestamp.TS(binary.NativeEndian.Uint64(pwm[offsTimestamp:]))
+	}
+	return ts
+}
+
+func (pwm PcapWrMsg) Parse() (key []byte, flags PcapWrMsgFlags, ts timestamp.TS, msg []byte) {
+	var k sipsp.PField
+
+	offsFlags := int(unsafe.Sizeof(k))
+	offs := int(unsafe.Sizeof(k) + unsafe.Sizeof(flags))
+	if len(pwm) < offs {
+		// too small
+		return // key == nil (error) ...
+	}
+	k = *(*sipsp.PField)(unsafe.Pointer(&pwm[0]))
+	/// f = *(*PcapWrMsgFlags)(unsafe.Pointer(&pwm[offsFlags]))
+	flags = PcapWrMsgFlags(binary.NativeEndian.Uint32(pwm[offsFlags:]))
+	offsTimestamp := -1
+	if flags&PcapMsgHdrTimestampF != 0 {
+		// header contains optional timestamp
+		offsTimestamp = offs
+		offs += int(unsafe.Sizeof(ts))
+	}
+	// in both cases: key in header or in message the key "buffer" starts
+	// after the optional timestamp
+	offsKeyBuf := offs
+	if flags&PcapMsgHdrKeyFieldF != 0 {
+		// key is stored in the "header" and does not point
+		// inside the msg
+		// (in this case k.Offset should always be 0)
+		offs += int(k.Offs) + int(k.Len)
+		if flags&PcapMsgHdrKeyPaddedF != 0 {
+			offs = padOffs(offs)
+		}
+	}
+	if len(pwm) < (int(k.Offs) + int(k.Len) + offsKeyBuf) {
+		// too small
+		return // key == nil (error) ...
+	}
+	key = k.Get(pwm[offsKeyBuf:])
+	if flags&PcapMsgHdrTimestampF != 0 {
+		ts = timestamp.TS(binary.NativeEndian.Uint64(pwm[offsTimestamp:]))
+	}
+	msg = pwm[offs:]
+	return
 }
 
 // return the padded value
@@ -181,30 +308,48 @@ func padOffs(offs int) int {
 	return (offs + 3) & (^3)
 }
 
+var ErrBadPcapIntMsg = errors.New("bug: bad internal pcap wr message")
+var ErrBadPcapUloaderMsg = errors.New("bug: pcap upload client not initialised")
+
+type PcapWrWorkerFlags uint32 // worker type / behaviour flags
+
+const (
+	PcapWrWorkerEmptyF  PcapWrWorkerFlags = 0
+	PcapWrWorkerFileF   PcapWrWorkerFlags = 1 // write msgs to file(s)
+	PcapWrWorkerUploadF PcapWrWorkerFlags = 2 // upload msgs using the uploader API
+)
+
 type PcapWrWorker struct {
 	msgs chan PcapWrMsg
 
-	init    bool // true after Init()
-	running bool // true after Start()
-	name    string
-	cfg     *PcapWriterCfg
+	init       bool        // true after Init()
+	running    atomic.Bool // true after Start()
+	name       string
+	flags      PcapWrWorkerFlags
+	cfg        *PcapWriterCfg
+	restClient *RESTclient
 
-	stop     chan struct{} // internal strop (via Strop())
-	wg       sync.WaitGroup
-	initLock sync.Mutex // avoid running Stop() in parallel
-	stats    *pcapStatsT
-	tmsgs    atomic.Uint64 // total messages handled
+	stop        chan struct{} // internal strop (via Strop())
+	wg          sync.WaitGroup
+	initLock    sync.Mutex // avoid running Stop() in parallel
+	stats       *pcapStatsT
+	tmsgs       atomic.Uint64          // total messages handled
+	tmpWriteBuf [maxWriterBufSize]byte // tmp buffer for constructing msgs
 }
 
-func (pwr *PcapWrWorker) Init(name string, cfg *PcapWriterCfg,
+func (pwr *PcapWrWorker) Init(name string, flags PcapWrWorkerFlags, cfg *PcapWriterCfg,
 	stats *pcapStatsT) error {
 	pwr.initLock.Lock()
 	pwr.name = name
 	pwr.msgs = make(chan PcapWrMsg, cfg.QueueLen)
 	pwr.stop = make(chan struct{}, 1)
 	pwr.init = true
+	pwr.flags = flags
 	pwr.cfg = cfg
 	pwr.stats = stats
+	if (flags&PcapWrWorkerUploadF != 0) && (len(cfg.Upload) != 0) {
+		pwr.restClient = NewRESTclient(cfg.RestCfg)
+	}
 	pwr.initLock.Unlock()
 	return nil
 }
@@ -237,15 +382,16 @@ func (pwr *PcapWrWorker) QueueMsg(m PcapWrMsg) bool {
 	if !pwr.init || pwr.msgs == nil {
 		return false
 	}
+	pwr.stats.cnts.Inc(pwr.stats.hQueuedMsgs) // before send
 	select {
 	case pwr.msgs <- m:
 		pwr.stats.cnts.Inc(pwr.stats.hTQueuedMsgs)
 
-		pwr.stats.cnts.Inc(pwr.stats.hQueuedMsgs)
 		//DBG("message queued to %q\n", pwr.name)
 		break
 	default:
 		// message capacity exceeded
+		pwr.stats.cnts.Dec(pwr.stats.hQueuedMsgs) // send failed -> dec
 		pwr.stats.cnts.Inc(pwr.stats.hDroppedQueue)
 		DBG("queue exceeded for %q\n", pwr.name)
 		return false
@@ -259,6 +405,12 @@ func (pwr *PcapWrWorker) TotalMsgs() uint64 {
 }
 
 func (pwr *PcapWrWorker) run() bool {
+	// disallow running in parallel for the same PcapWrWorker
+	if !pwr.running.CompareAndSwap(false, true) {
+		BUG("attempt to run pcap worker %s (%p) in parallel\n",
+			pwr.name, pwr)
+		return false
+	}
 loop:
 	for {
 		select {
@@ -270,7 +422,12 @@ loop:
 			v := pwr.tmsgs.Add(1)
 			// DBG("worker %s  tmsg: %d\n", pwr.name, v)
 			pwr.stats.cnts.Max(pwr.stats.hMaxMsgsWorker, counters.Val(v))
-			pwr.writeMsg(m)
+			if pwr.flags&PcapWrWorkerFileF != 0 {
+				pwr.writeMsg(m)
+			}
+			if pwr.flags&PcapWrWorkerUploadF != 0 {
+				pwr.uploadMsg(m)
+			}
 			FreePcapWrMsg(m)
 			continue
 		case <-pwr.stop:
@@ -279,6 +436,10 @@ loop:
 	}
 	close(pwr.msgs)
 	pwr.msgs = nil
+	if !pwr.running.CompareAndSwap(true, false) {
+		BUG("unexpected running flag on %s (%p) run() exit\n",
+			pwr.name, pwr)
+	}
 	return false
 }
 
@@ -288,22 +449,53 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	var f *os.File
 	var pcapDump *pcapgo.Writer
 	var offs int64
+	var ciTime time.Time
 
-	key := m.RawKey()
-	content := m.RawMsg()
-	flags := m.Flags()
+	key, flags, timestamp, content := m.Parse()
+	/*
+	 key := m.RawKey()
+	 content := m.RawMsg()
+	 flags := m.Flags()
+	 timestamp := m.Timestamp()
+	*/
+	if len(key) == 0 {
+		// error bad message
+		BUG("PCAP Dumper %s: bad message flags 0%0x len %d total %d\n",
+			pwr.name, flags, len(content), len(m))
+		return ErrBadPcapIntMsg
+	}
 
 	//	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d\n",
 	//		pwr.name, key, flags, len(content))
+	if flags&PcapMsgHdrTimestampF != 0 {
+		// timestamp in header
+		ciTime = timestamp.Time()
+	} else {
+		// no timestamp in header => use current time
+		ciTime = time.Now()
+	}
 	ci := gopacket.CaptureInfo{
-		Timestamp:      time.Now(), // TODO: get if from packet when available
+		Timestamp:      ciTime,
 		CaptureLength:  len(content),
 		Length:         len(content),
 		InterfaceIndex: 0,
 	}
 	// TODO: search if fd & name cached, based on m.key
 	// if not, create or open/append file
-	fname, dirname := pwr.cfg.PcapFileFullPath(key)
+	var fPathBuf [256]byte
+	var fPathLen, dirnameLen int
+	var fname, dirname string
+
+	fPathLen, dirnameLen, err = pwr.cfg.PcapFileFullPath(fPathBuf[:], key)
+	if err != nil {
+		// TODO: retry with larger buffer?
+		ERR("error obtaining output pcap filename for %q buf size %d max %d: %v\n",
+			key, len(fPathBuf), pwr.cfg.PcapMaxFullPathLen(key), err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrOther)
+		goto err_cleanup
+	}
+	fname = unsafeconv.Str(fPathBuf[:fPathLen])
+	dirname = unsafeconv.Str(fPathBuf[:dirnameLen])
 	/*
 		DBG("PCAP Dumper %s: message %q (l: %d) (h: %d seed: %d , %d) flags 0x%0x  len %d:"+
 			" open file %q (%q subdir %q (%d))\n",
@@ -339,7 +531,7 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 					pwr.stats.cnts.Inc(pwr.stats.hErrNewFile)
 				} else {
 					// non-existing file
-					pwr.stats.cnts.Inc(pwr.stats.hErrNoFile)
+					pwr.stats.cnts.Inc(pwr.stats.hErrAppendOnly)
 				}
 				goto err_cleanup
 			}
@@ -354,6 +546,12 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 	pcapDump = pcapgo.NewWriter(f)
 	if offs == 0 {
 		// new file -> write pcap header
+		if flags&PcapDumpNewFileF == 0 {
+			// new file not set
+			DBG("PCAP Dumper %s: missing file %q -> created, writing pcap header.\n",
+				pwr.name, fname)
+			pwr.stats.cnts.Inc(pwr.stats.hNewMissingFile)
+		}
 		pwr.stats.cnts.Inc(pwr.stats.hNewFile)
 		err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
 		if err != nil {
@@ -362,6 +560,11 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 			pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
 			goto err_cleanup
 		}
+	} else if flags&PcapDumpNewFileF != 0 {
+		DBG("PCAP Dumper %s: new file requested (now %v ts %v ),"+
+			" but file %q already present\n",
+			time.Now(), ciTime, pwr.name, fname)
+		pwr.stats.cnts.Inc(pwr.stats.hFileExists)
 	}
 	err = pcapDump.WritePacket(ci, content)
 	if err != nil {
@@ -380,6 +583,168 @@ err_cleanup:
 	if f != nil {
 		f.Close()
 	}
+
+	if err != nil {
+		pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)
+		DBG("PCAP Dumper %s: ERROR for message %q flags 0x%0x  len %d type %T"+
+			": %v\n",
+			pwr.name, key, flags, len(content), err, err)
+	}
+	return err
+}
+
+func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
+
+	var err error
+	var pcapDump *pcapgo.Writer
+	var ciTime time.Time
+	var iowBuf FixedIOWriter
+	var rstatus int
+	var httpErr error
+	var fullURLbuf [256]byte // space for URL
+	var escTSstr string
+
+	if pwr.restClient == nil {
+		BUG("http pcap upload client not initialised for %q\n", pwr.name)
+		pwr.stats.cnts.Inc(pwr.stats.hBUG)
+		return ErrBadPcapUloaderMsg
+	}
+
+	// URL format: /api/upload/d9dd6620-e7f4-47c7-aa1b-ba8c55286640
+	// optional parameters: "?fromTS=2024-03-08T09%3a16%3a22Z&toTS=2024-03-08T09%3a16%3a22Z"
+	// optional headers:
+	//                   X-From-Timestamp: 2024-03-08T09:16:22Z
+	//                   X-To-Timestamp: 2024-03-08T09:16:22Z
+	uri := fullURLbuf[0:0]
+
+	key, flags, timestamp, content := m.Parse()
+	/*
+	 key := m.RawKey()
+	 content := m.RawMsg()
+	 flags := m.Flags()
+	 timestamp := m.Timestamp()
+	*/
+	if len(key) == 0 {
+		// error bad message
+		BUG("PCAP Dumper %s: bad message flags 0%0x len %d total %d\n",
+			pwr.name, flags, len(content), len(m))
+		pwr.stats.cnts.Inc(pwr.stats.hBUG)
+		return ErrBadPcapIntMsg
+	}
+
+	//	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d\n",
+	//		pwr.name, key, flags, len(content))
+	if flags&PcapMsgHdrTimestampF != 0 {
+		// timestamp in header
+		ciTime = timestamp.Time()
+	} else {
+		// no timestamp in header => use current time
+		ciTime = time.Now()
+	}
+	ci := gopacket.CaptureInfo{
+		Timestamp:      ciTime,
+		CaptureLength:  len(content),
+		Length:         len(content),
+		InterfaceIndex: 0,
+	}
+	var idBuf [256]byte
+	var idLen int
+	var id []byte
+	idLen, err = pwr.cfg.PcapUploadId(idBuf[:], key)
+	if err != nil {
+		BUG("PCAP Dumper %s: Upload Id generation for message %q failed: %v\n",
+			pwr.name, key, err)
+		pwr.stats.cnts.Inc(pwr.stats.hBUG)
+		goto err_cleanup
+	}
+	if idLen > maxPcapUploadIdLen {
+		idLen = maxPcapUploadIdLen // truncate
+	}
+	id = idBuf[:idLen]
+	// TODO: escape unsupported chars
+	// uploader API supports only /^\w+([-_]?\w+)*$/ and max 64 chars
+	//  (a-z, A-Z, 0-9, _, - , not starting or terminating with -)
+	// or return the base64 or hex representation of a hash over the key
+	// (see also uuid.NewMD5(uuid.NameSpaceOID, key).String())
+	// or xxh3.Hash64(key), then base64 and then replace "+/=" with "-__"
+
+	/* iowBuf.Buf = pcapWriterBufPool.Get().([]byte)
+	   iowBuf.Buf = iowBuf.Buf[0:0] // start with empty Buf (0 length)
+	*/
+	iowBuf.Buf = pwr.tmpWriteBuf[0:0] // start with empty buf
+	pcapDump = pcapgo.NewWriter(&iowBuf)
+	// write a new header for every packet (expected by the upload api) and not
+	// only if  flags&PcapDumpNewFileF != 0
+	// new file -> write pcap header
+	pwr.stats.cnts.Inc(pwr.stats.hNewUpldFhdr) // TODO: obsolete since done everytime?
+	err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
+	if err != nil {
+		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+			pwr.name, key, err, err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
+		goto err_cleanup
+	}
+	err = pcapDump.WritePacket(ci, content)
+	if err != nil {
+		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+			pwr.name, key, err, err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrWrMsg)
+		goto err_cleanup
+	}
+
+	// build full url
+	escTSstr = url.QueryEscape(timestamp.Format(time.RFC3339))
+	// initial url part: <host>/api/upload/
+	uri = append(uri, pwr.cfg.Upload...)
+	if len(uri) > 0 && uri[len(uri)-1] != '/' {
+		// add missing separator
+		uri = append(uri, '/')
+	}
+	// add id to url (e.g. d9dd6620-e7f4-47c7-aa1b-ba8c55286640)
+	uri = append(uri, id...)
+	//add : "?fromTS=<escaped_utc timestamp>"
+	uri = append(uri, "?fromTS="...)
+	uri = append(uri, escTSstr...)
+	//add:   "&toTS=<escaped_utc_timestamp>"
+	uri = append(uri, "&toTS="...)
+	uri = append(uri, escTSstr...)
+	if len(uri) == cap(fullURLbuf) {
+		ERR("PCAP dumper: space reserved for building http url too small: %d\n",
+			len(uri))
+		goto err_cleanup
+	}
+
+	// send packet
+	rstatus, httpErr = pwr.restClient.RESTsend(unsafeconv.Str(uri),
+		unsafeconv.Str(iowBuf.Buf))
+
+	if httpErr == nil && (rstatus >= 200 && rstatus < 300) {
+		// success
+		pwr.stats.cnts.Inc(pwr.stats.hUploadedMsgs)
+		pwr.stats.cnts.Add(pwr.stats.hUploadedBytes, counters.Val(len(iowBuf.Buf)))
+	} else {
+		if httpErr != nil {
+			// http request failed
+			pwr.stats.cnts.Inc(pwr.stats.hErrUpload)
+			ERR("%s: http %s failed: %s\n",
+				pwr.name, pwr.cfg.RestCfg.Method, httpErr)
+		} else {
+			// http request sent successfully, but got some non 2xx response
+			pwr.stats.cnts.Inc(pwr.stats.hRejUpload)
+			ERR("%s: http %s negative response:  %d\n",
+				pwr.name, pwr.cfg.RestCfg.Method, rstatus)
+		}
+		// TODO: if (httpErr != nil || isRetrStatus(rstatus, configed resty statuses))
+		//        retransmit/retry (queue)
+	}
+
+err_cleanup:
+	/*
+		if cap(iowBuf.Buf) != 0 {
+			pcapWriterBufPool.Put(iowBuf.Buf)
+			iowBuf.Buf = nil
+		}
+	*/
 
 	if err != nil {
 		pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)

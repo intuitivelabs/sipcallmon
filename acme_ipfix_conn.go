@@ -196,7 +196,8 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 			DBG("connection EOF\n")
 			break
 		}
-		timestamp.AtomicStore(&c.lastIO, timestamp.Now())
+		ts := timestamp.Now()
+		timestamp.AtomicStore(&c.lastIO, ts)
 		c.gStats.cnts.Add(c.gStats.hRdBytes, counters.Val(n))
 
 	skip_read:
@@ -230,7 +231,7 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 			// read at least a whole packet
 			c.gStats.cnts.Inc(c.gStats.hRdPkts)
 			c.pktNo.Add(1)
-			err = c.handlePkt(mHdr, buf[:end], processPktCfg)
+			err = c.handlePkt(mHdr, buf[:end], ts, processPktCfg)
 			// check error and close connection if needed
 			if err != nil {
 				ERR("acme ipfix: parsing error on %s %s: %s\n",
@@ -254,6 +255,7 @@ func (c *AcmeIPFIXconn) run(processPktCfg *Config) {
 func (c *AcmeIPFIXconn) handlePkt(
 	pktHdr IPFIXmsgHdr,
 	buf []byte,
+	ts timestamp.TS, // receive time for the packet
 	processPktCfg *Config) error {
 
 	pos := IPFIXmsgHdrLen
@@ -289,28 +291,28 @@ func (c *AcmeIPFIXconn) handlePkt(
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPudp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPudp(setHdr.SetID, set, ts, processPktCfg)
 		case AcmeIPFIXsipUDP4Out:
 			// missing: UDP6Out (same as ID & format as UPD4?)
 			if c.Cfg.IgnoreEgress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPudp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPudp(setHdr.SetID, set, ts, processPktCfg)
 		case AcmeIPFIXsipTCP4In:
 			// missing: TCP6In (unknown ID & format)
 			if c.Cfg.IgnoreIngress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPtcp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPtcp(setHdr.SetID, set, ts, processPktCfg)
 		case AcmeIPFIXsipTCP4Out:
 			// missing: TCP6Out (unknown ID & format)
 			if c.Cfg.IgnoreEgress {
 				c.gStats.cnts.Inc(c.gStats.hIgnoredSet)
 				break
 			}
-			err = c.handleSIPtcp(setHdr.SetID, set, processPktCfg)
+			err = c.handleSIPtcp(setHdr.SetID, set, ts, processPktCfg)
 		case IPFIXtemplateID:
 			WARN("acme ipfix: unexpected template set (%d)\n", setHdr.SetID)
 			c.gStats.cnts.Inc(c.gStats.hTemplateSet)
@@ -498,6 +500,7 @@ func (c *AcmeIPFIXconn) handleConnReq(pktHdr IPFIXmsgHdr, sHdr IPFIXsetHdr,
 func (c *AcmeIPFIXconn) handleSIPudp(
 	setID uint16,
 	buf []byte,
+	ts timestamp.TS, // receive timestamp
 	processPktCfg *Config) error {
 
 	var udp4InSet AcmeIPFIXsipUDP4InSet
@@ -601,12 +604,17 @@ func (c *AcmeIPFIXconn) handleSIPudp(
 		ERR("acme ipfix: sip udp4: bad udp header: %s\n", err)
 		return err
 	}
+	// check and process RTP
+	if isRTP, _, _, _ := processRTP(processPktCfg, srcIP, int(udp.SrcPort),
+		dstIP, int(udp.DstPort), ts, udp.Payload); isRTP {
+		return nil
+	}
 	if !nonSIP(udp.Payload, srcIP, int(udp.SrcPort),
 		dstIP, int(udp.DstPort)) {
 
 		udpSIPMsg(ioutil.Discard, &c.sipmsg, udp.Payload, c.pktNo.Load(),
 			srcIP, int(udp.SrcPort),
-			dstIP, int(udp.DstPort), processPktCfg)
+			dstIP, int(udp.DstPort), ts, processPktCfg)
 	} else {
 		// not sip -> probe
 		pktErrEvHandler(calltr.EvNonSIPprobe,
@@ -620,6 +628,7 @@ func (c *AcmeIPFIXconn) handleSIPudp(
 func (c *AcmeIPFIXconn) handleSIPtcp(
 	setID uint16,
 	buf []byte,
+	ts timestamp.TS,
 	processPktCfg *Config) error {
 
 	var tcp4InSet AcmeIPFIXsipTCP4InSet
@@ -702,9 +711,16 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 	}
 	// parse sip msg
 	c.sipmsg.Reset()
+	var endPoints [2]calltr.NetInfo
+	endPoints[0].SetProto(calltr.NProtoTCP)
+	endPoints[1].SetProto(calltr.NProtoTCP)
+	endPoints[0].SetIP(srcIP)
+	endPoints[0].Port = srcPort
+	endPoints[1].SetIP(dstIP)
+	endPoints[1].Port = dstPort
 	// don't allow messages without Content-Length?
 	o, errParse := sipsp.ParseSIPMsg(smsg, 0, &c.sipmsg,
-		sipsp.SIPMsgNoMoreDataF|sipsp.SIPMsgSkipBodyF|sipsp.SIPMsgCLenReqF)
+		sipsp.SIPMsgNoMoreDataF|sipsp.SIPMsgCLenReqF)
 	switch errParse {
 	case 0:
 		// stats & dbg
@@ -720,22 +736,19 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			}
 		}
 
-		var endPoints [2]calltr.NetInfo
-		endPoints[0].SetProto(calltr.NProtoTCP)
-		endPoints[1].SetProto(calltr.NProtoTCP)
-		endPoints[0].SetIP(srcIP)
-		endPoints[0].Port = srcPort
-		endPoints[1].SetIP(dstIP)
-		endPoints[1].Port = dstPort
-		ok := CallTrack(&c.sipmsg, endPoints)
+		ok, newCall, _ := CallTrack(&c.sipmsg, endPoints)
 		if ok {
 			stats.Inc(sCnts.callTrTCP)
 			if processPktCfg.WpcapDumpOn &&
 				c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+				pcapFlags := PcapMsgHdrTimestampF
+				if newCall {
+					pcapFlags |= PcapDumpNewFileF
+				}
 				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
 					dstIP, int(dstPort),
 					c.sipmsg.PV.GetCallID().CallID, nil,
-					0, smsg)
+					ts, pcapFlags, smsg)
 				if e != nil {
 					ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
 						"%s:%d -> %s:%d payload len: %d\n",
@@ -752,18 +765,20 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			*/
 			ERR("ipfix tcp: CallTrack failed\n")
 			stats.Inc(sCnts.callTrErrTCP)
-			if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
-				c.sipmsg.PV.GetCallID().CallID.Len > 4 {
-				e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
-					dstIP, int(dstPort),
-					c.sipmsg.PV.GetCallID().CallID, nil,
-					PcapDumpAppendOnlyF, smsg)
-				if e != nil {
-					ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
-						"%s:%d -> %s:%d payload len: %d\n",
-						e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			/*
+				if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
+					c.sipmsg.PV.GetCallID().CallID.Len > 4 {
+					e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+						dstIP, int(dstPort),
+						c.sipmsg.PV.GetCallID().CallID, nil,
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
+					if e != nil {
+						ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+							"%s:%d -> %s:%d payload len: %d\n",
+							e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+					}
 				}
-			}
+			*/
 		}
 		if o != len(smsg) {
 			stats.Inc(sCnts.offsetErr)
@@ -796,14 +811,20 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			[]byte("missing Content-Length"))
 		if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
 			c.sipmsg.PV.GetCallID().CallID.Len > 4 {
-			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
-				dstIP, int(dstPort),
-				c.sipmsg.PV.GetCallID().CallID, nil,
-				PcapDumpAppendOnlyF, smsg)
-			if e != nil {
-				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
-					"%s:%d -> %s:%d payload len: %d\n",
-					e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			if c.sipmsg.HL.PFlags.Test(sipsp.HdrCallID) {
+				c.sipmsg.Buf = smsg // tmp. hack
+				callTracked, _ := calltr.TrackedMsg(&c.sipmsg, endPoints)
+				if callTracked {
+					e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+						dstIP, int(dstPort),
+						c.sipmsg.PV.GetCallID().CallID, nil,
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
+					if e != nil {
+						ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+							"%s:%d -> %s:%d payload len: %d\n",
+							e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+					}
+				}
 			}
 		}
 
@@ -858,14 +879,20 @@ func (c *AcmeIPFIXconn) handleSIPtcp(
 			smsg[:rep])
 		if processPktCfg.WpcapDumpOn && processPktCfg.WpcapOnErr &&
 			c.sipmsg.PV.GetCallID().CallID.Len > 4 {
-			e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
-				dstIP, int(dstPort),
-				c.sipmsg.PV.GetCallID().CallID, nil,
-				PcapDumpAppendOnlyF, smsg)
-			if e != nil {
-				ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
-					"%s:%d -> %s:%d payload len: %d\n",
-					e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+			if c.sipmsg.HL.PFlags.Test(sipsp.HdrCallID) {
+				c.sipmsg.Buf = smsg // tmp. hack
+				callTracked, _ := calltr.TrackedMsg(&c.sipmsg, endPoints)
+				if callTracked {
+					e := pcapDumper.WriteUDPmsg(srcIP, int(srcPort),
+						dstIP, int(dstPort),
+						c.sipmsg.PV.GetCallID().CallID, nil,
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, smsg)
+					if e != nil {
+						ERR("pcapDumper ipfix tcp WriteUDpmsg error %v: "+
+							"%s:%d -> %s:%d payload len: %d\n",
+							e, srcIP, srcPort, dstIP, dstPort, len(smsg))
+					}
+				}
 			}
 		}
 	}

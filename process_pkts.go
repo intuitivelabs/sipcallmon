@@ -444,7 +444,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	// allocs)
 	var sipmsg sipsp.PSIPMsg
 	var siphdrs [100]sipsp.Hdr // parse max. 100 headers by default
-	var callid [80]byte        // temporary callid buffer (rtp pcap)
+	//var callid [80]byte        // temporary callid buffer (rtp pcap)
 	/* needed layers */
 	// link layers
 	var sll layers.LinuxSLL // e.g.: pcap files captured on any interface
@@ -466,7 +466,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 
 	// init sipmsg
 	sipmsg.Init(nil, siphdrs[:], nil)
-	rtpHash := calltr.GetRTPStreamHash()
+	//rtpHash := calltr.GetRTPStreamHash()
 
 	//var appl gopacket.Payload
 	// space for decoded layers:
@@ -639,7 +639,7 @@ nextpkt:
 				}
 				// PDBG("replay: final %s\n", wait)
 				replayTS = replayTS.Add(wait)
-				now := time.Now()
+				now = time.Now() // update "now"
 				if replayTS.Before(now) {
 					wait = 0
 					diff := now.Sub(replayTS)
@@ -676,12 +676,17 @@ nextpkt:
 						}
 						break nextpkt
 					}
+					// update "now" to the real time after waiting (replay)
+					// (alternative set it to replayTS, the target time)
+					now = time.Now()
+
 				}
 			} else {
 				// initial, 0 ts => intialize replayTS
 				replayTS = time.Now()
 			}
-		}
+		} // end if replay
+
 		lastPCAPts = ci.Timestamp // pcap timestamp of the last packet
 		n++
 		stats.Inc(sCnts.n)
@@ -817,56 +822,16 @@ nextpkt:
 
 				var payload []byte = tl.LayerPayload()
 
-				// check if configured sip port
-				if cfg.RTP && len(cfg.SIPports) != 0 &&
-					!checkPortsList(sport, dport, cfg.SIPports) {
-					// non sip
-					// process as RTP
-					var endPoints [2]calltr.NetInfo
-					endPoints[0].SetIP(sip)
-					endPoints[0].Port = uint16(sport)
-					endPoints[0].SetProto(calltr.NProtoUDP)
-					endPoints[1].SetIP(dip)
-					endPoints[1].Port = uint16(dport)
-					endPoints[1].SetProto(calltr.NProtoUDP)
-					match, clen, needed := rtpHash.ProcessPkt(
-						endPoints[0], endPoints[1],
-						timestamp.Timestamp(now), payload,
-						callid[:])
-					if needed > clen {
-						DBG("returned call-id too big: %d, copied %d\n",
-							needed, clen)
-					} else if match != calltr.RTPNoMatch {
-						/*
-							DBG("rtp packet match %d call: %s\n",
-								match, unsafeconv.Str(callid[:clen]))
-						*/
-
-						if cfg.WpcapDumpOn && cfg.WpcapDumpRTP {
-							/* in the RTP Stream case the CallID is not
-							   part of the message (as for SIP) =>
-							   path separate key buffer */
-							key :=
-								sipsp.PField{Offs: 0, Len: sipsp.OffsT(clen)}
-							e := pcapDumper.WriteUDPmsg(
-								sip, sport,
-								dip, dport,
-								key, callid[:clen],
-								PcapDumpAppendOnlyF, payload)
-							if e != nil {
-								ERR("pcapDumper WriteUDPmsg error %v: "+
-									"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
-									e, n, sip, sport, dip, dport, len(buf))
-							}
-						}
-					}
+				// check and process RTP
+				if isRTP, _, _, _ := processRTP(cfg, sip, sport, dip, dport,
+					timestamp.Timestamp(now), payload); isRTP {
 					break nextlayer // exit loop
 				}
 				// sport or dport listed in SIPports or no SIPports configured
 				stats.Inc(sCnts.seen)
 				if !nonSIP(payload, sip, sport, dip, dport) {
 					udpSIPMsg(ioutil.Discard, &sipmsg, payload, n, sip, sport,
-						dip, dport, cfg)
+						dip, dport, timestamp.Timestamp(now), cfg)
 				} else {
 					// not sip -> probe
 					pktErrEvHandler(calltr.EvNonSIPprobe,
@@ -1001,13 +966,14 @@ nextpkt:
 //	sport   - source port
 //	dip     - destination ip
 //	dport   - destination port
+//	ts      - packet receive timestamp
 //	cfg     - Config pointer (Verbose, WpcapDumpOn, WpcapOnErr used)
 //	          the log)
 //
 // return: true on success
 func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 	n uint64, sip net.IP, sport int,
-	dip net.IP, dport int, cfg *Config) bool {
+	dip net.IP, dport int, ts timestamp.TS, cfg *Config) bool {
 	ret := true
 	verbose := cfg.Verbose
 	if verbose && (Plog.DBGon() || w != ioutil.Discard) {
@@ -1017,6 +983,13 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 	// sipmsg.Init(nil, siphdrs[:], nil)
 	o, err := sipsp.ParseSIPMsg(buf, 0, sipmsg, sipsp.SIPMsgNoMoreDataF)
 	if len(buf) > 12 || (len(buf) <= 12 && err != sipsp.ErrHdrTrunc) {
+		var endPoints [2]calltr.NetInfo
+		endPoints[0].SetIP(sip)
+		endPoints[0].Port = uint16(sport)
+		endPoints[0].SetProto(calltr.NProtoUDP)
+		endPoints[1].SetIP(dip)
+		endPoints[1].Port = uint16(dport)
+		endPoints[1].SetProto(calltr.NProtoUDP)
 		if !verbose && (err != 0 || o != len(buf)) &&
 			(Plog.L(slog.LNOTICE) || w != ioutil.Discard) {
 			Plog.LogMux(w, true, slog.LNOTICE,
@@ -1061,13 +1034,19 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 				buf[:rep])
 			if cfg.WpcapDumpOn && cfg.WpcapOnErr &&
 				sipmsg.PV.GetCallID().CallID.Len > 4 {
-				e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
-					sipmsg.PV.GetCallID().CallID, nil, /*callid part of buf*/
-					PcapDumpAppendOnlyF, buf)
-				if e != nil {
-					ERR("pcapDumper WriteUDPmsg error %v: "+
-						"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
-						e, n, sip, sport, dip, dport, len(buf))
+				if sipmsg.HL.PFlags.Test(sipsp.HdrCallID) {
+					sipmsg.Buf = buf // tmp. hack
+					callTracked, _ := calltr.TrackedMsg(sipmsg, endPoints)
+					if callTracked {
+						e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
+							sipmsg.PV.GetCallID().CallID, nil, /*callid part of buf*/
+							ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, buf)
+						if e != nil {
+							ERR("pcapDumper WriteUDPmsg error %v: "+
+								"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
+								e, n, sip, sport, dip, dport, len(buf))
+						}
+					}
 				}
 			}
 			ret = false
@@ -1083,41 +1062,42 @@ func udpSIPMsg(w io.Writer, sipmsg *sipsp.PSIPMsg, buf []byte,
 					stats.Inc(sCnts.repl[sipmsg.FL.Status/100])
 				}
 			}
-			var endPoints [2]calltr.NetInfo
-			endPoints[0].SetIP(sip)
-			endPoints[0].Port = uint16(sport)
-			endPoints[0].SetProto(calltr.NProtoUDP)
-			endPoints[1].SetIP(dip)
-			endPoints[1].Port = uint16(dport)
-			endPoints[1].SetProto(calltr.NProtoUDP)
 
-			ret = CallTrack(sipmsg, endPoints)
+			var newCall bool
+			ret, newCall, _ = CallTrack(sipmsg, endPoints)
 			if ret {
 				stats.Inc(sCnts.callTrUDP)
 				if cfg.WpcapDumpOn &&
 					sipmsg.PV.GetCallID().CallID.Len > 4 {
+					pcapFlags := PcapMsgHdrTimestampF
+					if newCall {
+						pcapFlags |= PcapDumpNewFileF
+					}
 					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
 						sipmsg.PV.GetCallID().CallID, nil, /* part of buf*/
-						0, buf)
+						ts, pcapFlags, buf)
 					if e != nil {
 						ERR("pcapDumper WriteUDPmsg error %v: "+
-							"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
-							e, n, sip, sport, dip, dport, len(buf))
+							"%d. %s:%d -> %s:%d UDP	payload len: %d callid: %q\n",
+							e, n, sip, sport, dip, dport, len(buf),
+							sipmsg.PV.GetCallID().CallID.Get(buf))
 					}
 				}
 			} else {
 				stats.Inc(sCnts.callTrErrUDP)
+				/* (don't capture
 				if cfg.WpcapDumpOn && cfg.WpcapOnErr &&
 					sipmsg.PV.GetCallID().CallID.Len > 4 {
 					e := pcapDumper.WriteUDPmsg(sip, sport, dip, dport,
-						sipmsg.PV.GetCallID().CallID, nil, /* part of buf */
-						PcapDumpAppendOnlyF, buf)
+						sipmsg.PV.GetCallID().CallID, nil, // part of buf
+						ts, PcapMsgHdrTimestampF|PcapDumpAppendOnlyF, buf)
 					if e != nil {
 						ERR("pcapDumper WriteUDPmsg error %v: "+
 							"%d. %s:%d -> %s:%d UDP	payload len: %d\n",
 							e, n, sip, sport, dip, dport, len(buf))
 					}
 				}
+				*/
 			}
 
 		}
@@ -1402,6 +1382,9 @@ func pktErrEvHandler(evt calltr.EventType,
 	}
 }
 
-func CallTrack(m *sipsp.PSIPMsg, n [2]calltr.NetInfo) bool {
-	return calltr.Track(m, n, nil /*evHandler*/)
+func CallTrack(m *sipsp.PSIPMsg, n [2]calltr.NetInfo) (ok bool, isNew bool,
+	match calltr.CallMatchType) {
+	ok, match = calltr.Track(m, n, nil /*evHandler*/)
+	isNew = (ok && match == calltr.CallNoMatch) // new call, call-id not seen before
+	return
 }

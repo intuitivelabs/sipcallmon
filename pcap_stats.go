@@ -32,13 +32,15 @@ func pcapGlobalStatsInit() (error, *pcapStatsT) {
 type pcapStatsT struct {
 	cnts *counters.Group
 
-	hTQueuedMsgs  counters.Handle
-	hQueuedMsgs   counters.Handle
-	hWrittenMsgs  counters.Handle
-	hWrittenBytes counters.Handle
-	hAllocMsgs    counters.Handle
-	hAllocBytes   counters.Handle
-	hAllocHits    counters.Handle
+	hTQueuedMsgs   counters.Handle
+	hQueuedMsgs    counters.Handle
+	hWrittenMsgs   counters.Handle
+	hWrittenBytes  counters.Handle
+	hUploadedMsgs  counters.Handle
+	hUploadedBytes counters.Handle
+	hAllocMsgs     counters.Handle
+	hAllocBytes    counters.Handle
+	hAllocHits     counters.Handle
 
 	hDroppedQueue counters.Handle
 	hDroppedWr    counters.Handle
@@ -47,16 +49,21 @@ type pcapStatsT struct {
 	hMinMsgsWorker counters.Handle
 	hAvgMsgsWorker counters.Handle
 
-	hNewSubdir counters.Handle
-	hNewFile   counters.Handle
+	hNewSubdir      counters.Handle
+	hNewFile        counters.Handle
+	hFileExists     counters.Handle
+	hNewMissingFile counters.Handle
+	hNewUpldFhdr    counters.Handle
 
-	hErrMkSubdir counters.Handle
-	hErrNewFile  counters.Handle
-	hErrNoFile   counters.Handle
-	hErrWrHdr    counters.Handle
-	hErrWrMsg    counters.Handle
-	hErrOther    counters.Handle
-	hBUG         counters.Handle
+	hErrMkSubdir   counters.Handle
+	hErrNewFile    counters.Handle
+	hErrAppendOnly counters.Handle
+	hErrWrHdr      counters.Handle
+	hErrWrMsg      counters.Handle
+	hErrUpload     counters.Handle
+	hRejUpload     counters.Handle
+	hErrOther      counters.Handle
+	hBUG           counters.Handle
 }
 
 func (s *pcapStatsT) Init() bool {
@@ -71,6 +78,10 @@ func (s *pcapStatsT) Init() bool {
 			"total number of messages written to pcap files"},
 		{&s.hWrittenBytes, 0, nil, nil, "bytes_written",
 			"total bytes written to pcap files"},
+		{&s.hUploadedMsgs, 0, nil, nil, "uploaded_msgs",
+			"total number of messages uploaded over http"},
+		{&s.hUploadedBytes, 0, nil, nil, "bytes_uploaded",
+			"total bytes uploaded over http"},
 		{&s.hAllocMsgs, counters.CntNonMonoF | counters.CntMaxF,
 			nil, nil, "crt_alloc_msgs",
 			"currently allocated messages"},
@@ -84,7 +95,7 @@ func (s *pcapStatsT) Init() bool {
 		{&s.hDroppedQueue, 0, nil, nil, "dropped_queue",
 			"number of messages dropped due to full write queue"},
 		{&s.hDroppedWr, 0, nil, nil, "dropped_write",
-			"number of messages dropped due file write errors"},
+			"number of messages dropped due to file or network write errors"},
 
 		{&s.hMaxMsgsWorker, counters.CntNonMonoF,
 			nil, nil, "max_msgs_wrk",
@@ -100,17 +111,27 @@ func (s *pcapStatsT) Init() bool {
 			"number of created subdirectories"},
 		{&s.hNewFile, 0, nil, nil, "new_files",
 			"number of created pcap dump files"},
+		{&s.hFileExists, 0, nil, nil, "file_already_exists",
+			"number of create file attempts for which the file already exists"},
+		{&s.hNewMissingFile, 0, nil, nil, "new_missing_files",
+			"number of created pcap dump files when the target file is missing"},
+		{&s.hNewUpldFhdr, 0, nil, nil, "new_uploaded_files",
+			"number of uploaded start of file pcap headers"},
 
 		{&s.hErrMkSubdir, 0, nil, nil, "err_subdirs",
 			"errors creating new subdirectories"},
 		{&s.hErrNewFile, 0, nil, nil, "err_new_file",
 			"errors creating new files"},
-		{&s.hErrNoFile, 0, nil, nil, "err_missing_file",
-			"errors opening existing files / append only mode"},
+		{&s.hErrAppendOnly, 0, nil, nil, "err_append_only",
+			"errors appending to existing files in append only mode"},
 		{&s.hErrWrHdr, 0, nil, nil, "err_wr_header",
 			"errors while writing initial pcap file header"},
 		{&s.hErrWrMsg, 0, nil, nil, "err_wr_msg",
 			"errors while writing a message to pcap file (I/O)"},
+		{&s.hErrUpload, 0, nil, nil, "err_upload",
+			"errors (network) while uploading messages"},
+		{&s.hRejUpload, 0, nil, nil, "rejected_upload",
+			"rejected message upload attempts"},
 		{&s.hErrOther, 0, nil, nil, "err_other",
 			"other errors (dbg)"},
 		{&s.hBUG, 0, nil, nil, "err_bug",

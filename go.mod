@@ -1,13 +1,18 @@
 module github.com/intuitivelabs/sipcallmon
 
-go 1.19
+go 1.23.0
+
+toolchain go1.23.5
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/google/gopacket v1.1.19
+	github.com/valyala/fasthttp v1.65.0
+	github.com/zeebo/blake3 v0.2.4
 	github.com/zeebo/xxh3 v1.0.2
 	github.com/intuitivelabs/bytescase v1.0.3
 	github.com/intuitivelabs/bytespool v0.0.4
-	github.com/intuitivelabs/calltr v1.1.15
+	github.com/intuitivelabs/calltr v1.1.16
 	github.com/intuitivelabs/counters v0.3.3
 	github.com/intuitivelabs/httpsp v0.0.10
 	github.com/intuitivelabs/sipsp v1.1.6
@@ -19,10 +24,13 @@ require (
 )
 
 require (
-	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
+	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sdp/v3 v3.0.9 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/intuitivelabs/mallocs/qmalloc v0.0.4 // indirect
-	golang.org/x/net v0.23.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/net v0.43.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 )

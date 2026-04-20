@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"hash/maphash"
 	"net"
-	"net/url"
+	//"net/url"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
 	//"github.com/intuitivelabs/calltr" // GetHash
+	"github.com/intuitivelabs/bytescase"
 	"github.com/intuitivelabs/sipsp"
+	"github.com/intuitivelabs/timestamp"
 	"github.com/intuitivelabs/unsafeconv"
 
 	"github.com/zeebo/xxh3"
@@ -26,12 +28,59 @@ var errorPcapWNewMsgFailed = errors.New("pcap dumper message alloc failed")
 
 var pcapSubDirChrSet = []byte("0123456789abcdefghijklmnopqrstuvwxyz")
 
+type PcapIdHashT uint8
+
+const (
+	PcapIdHashNone PcapIdHashT = iota
+	PcapIdHashMD5
+	PcapIdHashSHA256
+	PcapIdHashXXHash
+	PcapIdHashXXHash128
+	PcapIdHashBlake256
+	PcapIdHashBlake384
+	PcapIdHashInvalid // marker
+)
+
+var pcapIdHashNames = [...][]string{
+	PcapIdHashNone:      {"none"},
+	PcapIdHashMD5:       {"md5"},
+	PcapIdHashSHA256:    {"sha256"},
+	PcapIdHashXXHash:    {"xxhash64", "xxhash"},
+	PcapIdHashXXHash128: {"xxhash128"},
+	PcapIdHashBlake256:  {"blake3_256", "blake256", "blake3"},
+	PcapIdHashBlake384:  {"blake3_384", "blake384"},
+}
+
+var errPcapWrCfgInvHash = errors.New("pcap dump config: invalid id hash type")
+
+func (h PcapIdHashT) String() string {
+	if int(h) < len(pcapIdHashNames) {
+		return pcapIdHashNames[h][0]
+	}
+	return "invalid"
+}
+
+func ParsePcapIdHashT(s string) PcapIdHashT {
+	val := unsafeconv.Bytes(s)
+	for h, names := range pcapIdHashNames {
+		for _, n := range names {
+			if bytescase.CmpEq(unsafeconv.Bytes(n), val) {
+				return PcapIdHashT(h)
+			}
+		}
+	}
+	return PcapIdHashInvalid
+}
+
 type PcapWriterCfg struct {
-	NWorkers int    // number of worker threads started
-	QueueLen int    // queue size per worker
-	Dir      string // should contain the parent directory for the pcap files
-	Prefix   string // should contain a file prefix (optional)
-	Suffix   string // should contain file suffix + extension
+	NWorkers int         // number of worker threads started
+	QueueLen int         // queue size per worker
+	Dir      string      // should contain the parent directory for the pcap files
+	Prefix   string      // should contain a file prefix (optional)
+	Suffix   string      // should contain file suffix + extension
+	Upload   string      // upload URL
+	RestCfg  RESTcfg     // config for pcap uploader over http
+	IdHash   PcapIdHashT // hash used when generating the upload id
 
 	init    bool
 	wSeed   maphash.Seed // seed for workers dist.: init to random hash seed
@@ -40,6 +89,12 @@ type PcapWriterCfg struct {
 
 func (pcfg *PcapWriterCfg) Init() {
 	pcfg.wSeed = maphash.MakeSeed()
+	if pcfg.RestCfg.Method == "" {
+		pcfg.RestCfg.Method = "POST"
+	}
+	if pcfg.RestCfg.ContentType == "" {
+		pcfg.RestCfg.ContentType = "application/octet-stream"
+	}
 
 	pcfg.init = true
 }
@@ -72,20 +127,119 @@ func (pcfg *PcapWriterCfg) InitSubDirs(flags int, no int) error {
 	return nil
 }
 
-func (pcfg PcapWriterCfg) PcapFileName(key []byte) string {
-	escKey := url.PathEscape(unsafeconv.Str(key))
-	return pcfg.Prefix + escKey + pcfg.Suffix
+// PcapMaxFileNameLen will return the maximum lenght for the
+// filename produced by PcapFileName.
+func (pcfg PcapWriterCfg) PcapMaxFileNameLen(key []byte) int {
+	return len(pcfg.Prefix) + 3*len(key) + len(pcfg.Suffix)
+}
+
+// PcapMinFileNameLen will return the minimum lenght for the
+// filename produced by PcapFileName.
+func (pcfg PcapWriterCfg) PcapMinFileNameLen(key []byte) int {
+	return len(pcfg.Prefix) + len(key) + len(pcfg.Suffix)
+}
+
+// PcapFileName will create a filename based on the provided key.
+// The result is written in dst (which has to provide enough space).
+// It returns the number of bytes written and an error.
+func (pcfg PcapWriterCfg) PcapFileName(dst, key []byte) (int, error) {
+	if pcfg.PcapMinFileNameLen(key) > len(dst) {
+		return 0, errFileEscDstTooSmall
+	}
+	flen, err := FileEscapeSafe(dst[len(pcfg.Prefix):], key)
+	if err != nil {
+		return 0, err
+	}
+	copy(dst[0:], pcfg.Prefix)
+	copy(dst[len(pcfg.Prefix)+flen:], pcfg.Suffix)
+	return len(pcfg.Prefix) + flen + len(pcfg.Suffix), nil
+}
+
+// Returns the number of bytes written into dst or an error if
+// dst was too small or the hash id was wrong.
+func (pcfg PcapWriterCfg) PcapUploadId(dst []byte, key []byte) (int, error) {
+
+	switch pcfg.IdHash {
+	case PcapIdHashNone:
+		if len(key) > len(dst) {
+			return 0, errUrlEncDstTooSmall
+		}
+		return UploadIdEscape(dst, key)
+		//return URLEscape(dst, key)
+		/*
+			k := url.QueryEscape(unsafeconv.Str(key))
+			n := copy(dst, k)
+			if len(k) > len(dst) {
+				return n, errUrlEncDstTooSmall
+			}
+			return n, nil
+		*/
+	case PcapIdHashMD5:
+		return MD5URLSafe(dst, key)
+	case PcapIdHashSHA256:
+		return SHA256URLSafe(dst, key)
+	case PcapIdHashXXHash:
+		return XXHashURLSafe(dst, key)
+	case PcapIdHashXXHash128:
+		return XXHash128URLSafe(dst, key)
+	case PcapIdHashBlake256:
+		return Blake3URLSafe256(dst, key)
+	case PcapIdHashBlake384:
+		return Blake3URLSafe384(dst, key)
+	}
+	return 0, errPcapWrCfgInvHash
 }
 
 // PcapFileRelPath returns the relative path to pcfg.Dir of the output
 // pcap file  corresponding to "key". It includes the file name.
-func (pcfg PcapWriterCfg) PcapFileRelPath(key []byte) string {
-	return pcfg.PcapFileSubDir(key) + pcfg.PcapFileName(key)
+func (pcfg PcapWriterCfg) PcapFileRelPath(dst, key []byte) (int, error) {
+
+	subdir := pcfg.PcapFileSubDir(key)
+	if len(subdir)+pcfg.PcapMinFileNameLen(key) > len(dst) {
+		return 0, errPathEscDstTooSmall
+	}
+	flen, err := pcfg.PcapFileName(dst[len(subdir):], key)
+	if err != nil {
+		return 0, err
+	}
+	copy(dst[0:], subdir)
+	return len(subdir) + flen, nil
 }
 
-func (pcfg PcapWriterCfg) PcapFileFullPath(key []byte) (fpath, dirpath string) {
-	dirpath = pcfg.Dir + pcfg.PcapFileSubDir(key)
-	fpath = dirpath + pcfg.PcapFileName(key)
+// PcapMaxDirPathLen will return the maximum length for the
+// directory path produced by PcapFileFullPath
+func (pcfg PcapWriterCfg) PcapMaxDirPathLen(key []byte) int {
+	subdir := pcfg.PcapFileSubDir(key)
+	return len(pcfg.Dir) + len(subdir)
+}
+
+// PcapMaxFullPathLen will return the maximum length for the
+// the full file path (including directories and filename)
+// produced by PcapFileFullPath
+func (pcfg PcapWriterCfg) PcapMaxFullPathLen(key []byte) int {
+	return pcfg.PcapMaxDirPathLen(key) + pcfg.PcapMaxFileNameLen(key)
+}
+
+// PcapFileFullPath will fill fpath with the full pcap file path
+// (including directories) for the given key.
+// The result is written into fpath  (which has to provide enough space).
+// It returns the number of bytes written in fpath, the  length of the directory path
+// and an error.
+// fpath[:flen] will contain the full file path, complete with directories
+// fpath[:dlen] will contain only the directories
+// fpath[dlen:] will contain only the filename
+func (pcfg PcapWriterCfg) PcapFileFullPath(fpath, key []byte) (flen, dlen int,
+	err error) {
+	subdir := pcfg.PcapFileSubDir(key)
+	if len(pcfg.Dir)+len(subdir)+pcfg.PcapMinFileNameLen(key) > len(fpath) {
+		return 0, 0, errFileEscDstTooSmall
+	}
+	dlen = copy(fpath, pcfg.Dir)
+	dlen += copy(fpath[dlen:], subdir)
+	flen, err = pcfg.PcapFileName(fpath[dlen:], key)
+	if err == nil {
+		flen += dlen
+	}
 	return
 }
 
@@ -139,12 +293,25 @@ func (pw *PcapWriter) Init(cfg PcapWriterCfg) bool {
 	}
 	pw.wrWorkers = make([]PcapWrWorker, pw.cfg.NWorkers)
 	pw.init = true
+	wrFlags := PcapWrWorkerEmptyF
+	if len(cfg.Upload) != 0 {
+		wrFlags |= PcapWrWorkerUploadF
+	} else {
+		// no upload configured => to file
+		wrFlags |= PcapWrWorkerFileF
+	}
+	if len(cfg.Dir) != 0 {
+		// if dir configured force write also to file
+		wrFlags |= PcapWrWorkerFileF
+	}
 	for i := 0; i < len(pw.wrWorkers); i++ {
 		name := fmt.Sprintf("pcap_writer_%03d", i)
-		if err := pw.wrWorkers[i].Init(name, &pw.cfg, pw.stats); err != nil {
+		if err := pw.wrWorkers[i].Init(name, wrFlags, &pw.cfg, pw.stats); err != nil {
 			pw.wrWorkers = pw.wrWorkers[0:i]
 			return false // some init error
 		}
+		// TODO: if both PcapWrWorkerUploadF and PcapWrWorkerFileF are set start
+		//       separate workers and send a copy of the packet to both of them
 	}
 	return true
 }
@@ -190,7 +357,7 @@ func (pw *PcapWriter) MinMsgWorker() uint64 {
 
 // key points inside keyBuf or inside msg (if keyBuf == nil)
 func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
-	flags PcapWrMsgFlags, msg []byte) error {
+	ts timestamp.TS, flags PcapWrMsgFlags, msg []byte) error {
 	var keyVal []byte
 
 	if pw.running < 1 {
@@ -205,7 +372,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
 	h := maphash.Bytes(pw.cfg.wSeed, keyVal)
 	//h := calltr.GetHash2(keyVal, int(key.Offs), int(key.Len))
 	i := uint64(h) % uint64(pw.running)
-	m := NewPcapWrMsg(key, keyBuf, flags, msg)
+	m := NewPcapWrMsg(key, keyBuf, ts, flags, msg)
 	// DBG("msg key: %q h: %d i: %d (running %d)\n", keyVal, h, i, pw.running)
 	// DBG("worker queued0: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)
 	if m != nil {
@@ -231,7 +398,7 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
 func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 	dip net.IP, dport int,
 	key sipsp.PField, keyBuf []byte,
-	flags PcapWrMsgFlags, payload []byte) error {
+	ts timestamp.TS, flags PcapWrMsgFlags, payload []byte) error {
 
 	var err error
 	var keySrc []byte
@@ -242,7 +409,15 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 		keySrc = payload
 	}
 
-	if key.Len < 8 || len(keySrc) < int(uint(key.Len)) {
+	if key.Len < 4 || len(keySrc) < int(uint(key.Offs+key.Len)) {
+		if len(keySrc) < int(uint(key.Offs+key.Len)) {
+			BUG("PcapWriter::WriteUDPmsg: key outside payload: (%d, %d) len(p) = %d\n",
+				key.Offs, key.Len, len(payload))
+			pw.stats.cnts.Inc(pw.stats.hBUG)
+			return fmt.Errorf("BUG: PcapWriter::WriteUDPmsg:"+
+				" key (%d, %d) outside keybuf/payload (%d, %d, %d)",
+				key.Offs, key.Len, len(payload), len(keySrc), key.Len)
+		}
 		// key or payload too small
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
 		return fmt.Errorf("PcapWriter::WriteUDPmsg:"+
@@ -324,5 +499,5 @@ func (pw *PcapWriter) WriteUDPmsg(sip net.IP, sport int,
 		// adjust key offset, but only if it points inside the payload
 		k.Offs += sipsp.OffsT(hlen)
 	}
-	return pw.WriteRawMsg(k, keyBuf, flags, sbuf.Bytes())
+	return pw.WriteRawMsg(k, keyBuf, ts, flags, sbuf.Bytes())
 }

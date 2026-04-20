@@ -62,8 +62,20 @@ type pcapStatsT struct {
 	hErrWrMsg      counters.Handle
 	hErrUpload     counters.Handle
 	hRejUpload     counters.Handle
+	hErrFdLimit    counters.Handle
 	hErrOther      counters.Handle
 	hBUG           counters.Handle
+
+	hFdTrackHits       counters.Handle
+	hFdTrackMisses     counters.Handle
+	hFdTrackEntries    counters.Handle
+	hFdTrackRotations  counters.Handle
+	hFdTrackRenames    counters.Handle
+	hFdTrackHeapAlloc  counters.Handle
+	hFdTrackHeapFree   counters.Handle
+	hFdTrackLimitEx      counters.Handle
+	hFdTrackNameConflict counters.Handle
+	hErrFdTrackRename    counters.Handle
 }
 
 func (s *pcapStatsT) Init() bool {
@@ -132,10 +144,34 @@ func (s *pcapStatsT) Init() bool {
 			"errors (network) while uploading messages"},
 		{&s.hRejUpload, 0, nil, nil, "rejected_upload",
 			"rejected message upload attempts"},
+		{&s.hErrFdLimit, 0, nil, nil, "err_fd_limit",
+			"os.OpenFile failed with EMFILE or ENFILE (fd limit exceeded)"},
 		{&s.hErrOther, 0, nil, nil, "err_other",
 			"other errors (dbg)"},
 		{&s.hBUG, 0, nil, nil, "err_bug",
 			"number of detected BUGs (dbg)"},
+
+		{&s.hFdTrackHits, 0, nil, nil, "fd_track_hits",
+			"fd tracker hash table hits (cached fd reused)"},
+		{&s.hFdTrackMisses, 0, nil, nil, "fd_track_misses",
+			"fd tracker hash table misses (new fd opened)"},
+		{&s.hFdTrackEntries, counters.CntNonMonoF | counters.CntMaxF,
+			nil, nil, "fd_track_entries",
+			"current number of tracked open file descriptors"},
+		{&s.hFdTrackRotations, 0, nil, nil, "fd_track_rotations",
+			"fd tracker entries rotated by timer"},
+		{&s.hFdTrackRenames, 0, nil, nil, "fd_track_renames",
+			"successful file renames on fd tracker eviction"},
+		{&s.hFdTrackHeapAlloc, 0, nil, nil, "fd_track_heap_alloc",
+			"fd tracker entries allocated outside pre-alloc pool"},
+		{&s.hFdTrackHeapFree, 0, nil, nil, "fd_track_heap_free",
+			"fd tracker heap entries freed (not returned to free list)"},
+		{&s.hFdTrackLimitEx, 0, nil, nil, "fd_track_limit_exceeded",
+			"fd tracker add rejected due to global open fd limit"},
+		{&s.hFdTrackNameConflict, 0, nil, nil, "fd_track_name_conflict",
+			"rename conflicts resolved by retry with unique suffix"},
+		{&s.hErrFdTrackRename, 0, nil, nil, "err_fd_track_rename",
+			"errors renaming files on fd tracker eviction"},
 	}
 
 	entries := len(cntDefs)

@@ -105,6 +105,27 @@ It can either capture live packets or replay pcap files.
     	number of subdirectories for spreading the pcap dump files
   -pcap_dump_workers int
     	number of pcap dump worker threads (default 16)
+  -pcap_dump_fd_buckets int
+    	number of hash buckets for the per-worker fd tracker, 0 disables
+    	fd tracking and reverts to open/write/close per message (default 0)
+  -pcap_dump_fd_prealloc int
+    	number of pre-allocated fd tracker entries per worker (default 2048)
+  -pcap_dump_fd_max_open int
+    	maximum globally tracked open pcap file descriptors across all
+    	workers, 0 means unlimited (default 0)
+  -pcap_dump_rotate_interval string
+    	pcap file rotation interval from first open, e.g. 10s (default "10s")
+  -pcap_dump_rotate_suffix string
+    	rename rotated pcap files with this extension, e.g. ".pcap"
+  -pcap_dump_rotate_dir string
+    	move rotated pcap files to this directory
+  -pcap_dump_rotate_fmt string
+    	format string for rotated filenames (default "" uses "%b_%s%e").
+    	Specifiers: %b=base name, %e=extension, %f=full filename,
+    	%s=unix seconds, %ms=milliseconds, %ns=nanoseconds,
+    	%t{layout}=Go time format, %r=random hex, %i=upload id,
+    	%n=monotonic counter, %R=conflict-only random, %N=conflict-only
+    	counter, %U=conflict-only retry number, %%=literal %
   -reg_del_delay int
     	RegDel event generation delay to work around quick reg.del re-reg
   -reg_exp_delta uint

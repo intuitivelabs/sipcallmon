@@ -47,9 +47,16 @@ type Config struct {
 	WpcapDumpOn    bool          `config:"pcap_dump_on"`
 	WpcapOnErr     bool          `config:"pcap_dump_onerr"`
 	WpcapDumpRTP   bool          `config:"pcap_dump_rtp"`
-	WpcapWorkers   int           `config:"pcap_dump_workers"`
-	WpcapQueueLen  int           `config:"pcap_dump_queue_len"`
-	Replay         bool          `config:"replay"`
+	WpcapWorkers    int           `config:"pcap_dump_workers"`
+	WpcapQueueLen   int           `config:"pcap_dump_queue_len"`
+	WpcapFdBuckets  int           `config:"pcap_dump_fd_buckets"`
+	WpcapFdPrealloc int           `config:"pcap_dump_fd_prealloc"`
+	WpcapFdMaxOpen  int           `config:"pcap_dump_fd_max_open"`
+	WpcapRotateInt  time.Duration `config:"pcap_dump_rotate_interval"`
+	WpcapRotateSfx  string        `config:"pcap_dump_rotate_suffix"`
+	WpcapRotateDir  string        `config:"pcap_dump_rotate_dir"`
+	WpcapRotateFmt  string        `config:"pcap_dump_rotate_fmt"`
+	Replay          bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
 	ReplayScale    float64       `config:"replay_scale"`
@@ -206,8 +213,12 @@ var defaultConfigVals = Config{
 	WpcapExt:      "pcap",
 	WpcapOnErr:    false,
 	WpcapDumpRTP:  true,
-	WpcapWorkers:  16,
-	WpcapQueueLen: 10000, // TODO: replace with higher value after testing
+	WpcapWorkers:    16,
+	WpcapQueueLen:   10000, // TODO: replace with higher value after testing
+	WpcapFdBuckets:  0, // disabled by default
+	WpcapFdPrealloc: 2048,
+	WpcapFdMaxOpen:  0, // unlimited
+	WpcapRotateInt:  10 * time.Second,
 
 	ReplayMinDelay: 250 * time.Millisecond,
 	ReplayMaxDelay: 0,
@@ -413,6 +424,22 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"number of pcap dump worker threads")
 	flag.IntVar(&cfg.WpcapQueueLen, "pcap_dump_queue_len", c.WpcapQueueLen,
 		"message queue length for each of the pcap dump worker threads")
+	flag.IntVar(&cfg.WpcapFdBuckets, "pcap_dump_fd_buckets", c.WpcapFdBuckets,
+		"number of hash buckets for the per-worker fd tracker (0 = disabled)")
+	flag.IntVar(&cfg.WpcapFdPrealloc, "pcap_dump_fd_prealloc", c.WpcapFdPrealloc,
+		"number of pre-allocated fd tracker entries per worker")
+	flag.IntVar(&cfg.WpcapFdMaxOpen, "pcap_dump_fd_max_open", c.WpcapFdMaxOpen,
+		"maximum globally tracked open pcap file descriptors (0 = unlimited)")
+	rotateIntS := flag.String("pcap_dump_rotate_interval",
+		c.WpcapRotateInt.String(),
+		"pcap file rotation interval (e.g. 10s)")
+	flag.StringVar(&cfg.WpcapRotateSfx, "pcap_dump_rotate_suffix", c.WpcapRotateSfx,
+		"rename rotated pcap files with this extension (e.g. .pcap)")
+	flag.StringVar(&cfg.WpcapRotateDir, "pcap_dump_rotate_dir", c.WpcapRotateDir,
+		"move rotated pcap files to this directory")
+	flag.StringVar(&cfg.WpcapRotateFmt, "pcap_dump_rotate_fmt", c.WpcapRotateFmt,
+		"format for the rotated pcap files name (e.g. %d/%b.%e), "+
+		"default: empty (equivalent to %d/%b_%s%e)" )
 
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")
@@ -591,6 +618,13 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		if perr != nil {
 			e := fmt.Errorf("invalid pcap_upload_wr_timeout interval: %s: %v\n",
 				*pcapUpldWToS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.WpcapRotateInt, perr = time.ParseDuration(*rotateIntS)
+		if perr != nil {
+			e := fmt.Errorf("invalid pcap_dump_rotate_interval: %s: %v\n",
+				*rotateIntS, perr)
 			errs++
 			return cfg, e
 		}

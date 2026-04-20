@@ -20,7 +20,7 @@ require (
 	github.com/intuitivelabs/timestamp v0.0.4
 	github.com/intuitivelabs/unsafeconv v0.0.3
 	github.com/intuitivelabs/websocket v0.0.2
-	github.com/intuitivelabs/wtimer v0.0.4
+	github.com/intuitivelabs/wtimer v0.0.5
 )
 
 require (

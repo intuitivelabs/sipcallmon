@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -28,6 +29,7 @@ const (
 	PcapDumpAppendDefF   PcapWrMsgFlags = 0
 	PcapDumpAppendOnlyF  PcapWrMsgFlags = 1
 	PcapDumpNewFileF     PcapWrMsgFlags = 2        // new callid -> new file
+	PcapDumpCloseFileF   PcapWrMsgFlags = 4        // close+rotate file
 	PcapMsgHdrKeyFieldF  PcapWrMsgFlags = 0x010000 // key in header and not in msg
 	PcapMsgHdrKeyPaddedF PcapWrMsgFlags = 0x020000 // if set key size will be padded to 4b
 	PcapMsgHdrTimestampF PcapWrMsgFlags = 0x040000 // header contains a 64 bit timestamp
@@ -411,6 +413,26 @@ func (pwr *PcapWrWorker) run() bool {
 			pwr.name, pwr)
 		return false
 	}
+
+	var tracker pcapFdTracker
+	var rotateTicker *time.Ticker
+	var rotateCh <-chan time.Time
+
+	if pwr.flags&PcapWrWorkerFileF != 0 && pwr.cfg.FdBuckets > 0 {
+		err := tracker.Init(pwr.cfg.FdBuckets, pwr.cfg.FdPrealloc,
+			pwr.cfg.FdMaxOpen,
+			pwr.cfg.RotateInterval, pwr.cfg.RotateSuffix,
+			pwr.cfg.RotateDir,
+			pwr.cfg, pwr.stats)
+		if err != nil {
+			ERR("pcap worker %s: fd tracker init failed: %v\n",
+				pwr.name, err)
+		} else {
+			rotateTicker = time.NewTicker(pwr.cfg.RotateInterval)
+			rotateCh = rotateTicker.C
+		}
+	}
+
 loop:
 	for {
 		select {
@@ -423,16 +445,30 @@ loop:
 			// DBG("worker %s  tmsg: %d\n", pwr.name, v)
 			pwr.stats.cnts.Max(pwr.stats.hMaxMsgsWorker, counters.Val(v))
 			if pwr.flags&PcapWrWorkerFileF != 0 {
-				pwr.writeMsg(m)
+				if tracker.h.size > 0 {
+					pwr.writeMsgTracked(m, &tracker)
+				} else {
+					pwr.writeMsg(m)
+				}
 			}
 			if pwr.flags&PcapWrWorkerUploadF != 0 {
 				pwr.uploadMsg(m)
 			}
 			FreePcapWrMsg(m)
 			continue
+		case <-rotateCh:
+			tracker.RunTimers(timestamp.Now())
+			continue
 		case <-pwr.stop:
 			break loop
 		}
+	}
+	// graceful shutdown: close all tracked FDs
+	if tracker.h.size > 0 {
+		tracker.CloseAll()
+	}
+	if rotateTicker != nil {
+		rotateTicker.Stop()
 	}
 	close(pwr.msgs)
 	pwr.msgs = nil
@@ -519,13 +555,18 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 					pwr.stats.cnts.Inc(pwr.stats.hErrMkSubdir)
 					goto err_cleanup
 				}
-				DBG("PCAP Dumper %s: created dir %q for %q (file %q)\n",
-					pwr.name, dirname, key, fname)
-				pwr.stats.cnts.Inc(pwr.stats.hNewSubdir)
+				if err == nil {
+					DBG("PCAP Dumper %s: created dir %q for %q"+
+					 " (file %q)\n", pwr.name, dirname, key, fname)
+					pwr.stats.cnts.Inc(pwr.stats.hNewSubdir)
+				} // else do nothing for os.ErrExist
 				continue // retry OpenFile
 			} else {
 				DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
 					pwr.name, key, err, err)
+				if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) {
+					pwr.stats.cnts.Inc(pwr.stats.hErrFdLimit)
+				}
 				if (flags & PcapDumpAppendOnlyF) == 0 {
 					// if not in append only mode => new file error
 					pwr.stats.cnts.Inc(pwr.stats.hErrNewFile)
@@ -566,16 +607,18 @@ func (pwr *PcapWrWorker) writeMsg(m PcapWrMsg) error {
 			time.Now(), ciTime, pwr.name, fname)
 		pwr.stats.cnts.Inc(pwr.stats.hFileExists)
 	}
-	err = pcapDump.WritePacket(ci, content)
-	if err != nil {
-		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
-			pwr.name, key, err, err)
-		pwr.stats.cnts.Inc(pwr.stats.hErrWrMsg)
-		goto err_cleanup
+	if len(content) > 0 {
+		err = pcapDump.WritePacket(ci, content)
+		if err != nil {
+			DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+				pwr.name, key, err, err)
+			pwr.stats.cnts.Inc(pwr.stats.hErrWrMsg)
+			goto err_cleanup
+		}
+		pwr.stats.cnts.Inc(pwr.stats.hWrittenMsgs)
+		pwr.stats.cnts.Add(pwr.stats.hWrittenBytes,
+			counters.Val(len(content)))
 	}
-	pwr.stats.cnts.Inc(pwr.stats.hWrittenMsgs)
-	pwr.stats.cnts.Add(pwr.stats.hWrittenBytes,
-		counters.Val(len(content)))
 
 	// TODO: add to cache if new
 	// TODO: don't open/close file every time
@@ -584,6 +627,210 @@ err_cleanup:
 		f.Close()
 	}
 
+	if err != nil {
+		pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)
+		DBG("PCAP Dumper %s: ERROR for message %q flags 0x%0x  len %d type %T"+
+			": %v\n",
+			pwr.name, key, flags, len(content), err, err)
+	}
+	return err
+}
+
+// writeMsgTracked writes a pcap message using the fd tracker.
+// On cache hit, it writes directly to the cached fd.
+// On cache miss, it opens the file (same logic as writeMsg), writes,
+// and adds the fd to the tracker.
+// If rotate mode is active, PcapDumpAppendOnlyF is ignored
+// TODO: cache the filename after a "rotation" for some time with
+//       no fd, just to be able to have the append only mode
+func (pwr *PcapWrWorker) writeMsgTracked(m PcapWrMsg,
+	tracker *pcapFdTracker) error {
+
+	var err error
+	var ciTime time.Time
+
+	key, flags, ts, content := m.Parse()
+	if len(key) == 0 {
+		BUG("PCAP Dumper %s: bad message flags 0%0x len %d total %d\n",
+			pwr.name, flags, len(content), len(m))
+		return ErrBadPcapIntMsg
+	}
+
+	if flags&PcapMsgHdrTimestampF != 0 {
+		ciTime = ts.Time()
+	} else {
+		ciTime = time.Now()
+	}
+	ci := gopacket.CaptureInfo{
+		Timestamp:      ciTime,
+		CaptureLength:  len(content),
+		Length:         len(content),
+		InterfaceIndex: 0,
+	}
+
+	// cache lookup
+	e := tracker.Lookup(key)
+	if e != nil {
+		// cache hit: write directly (no timer reset - rotation timer)
+		pwr.stats.cnts.Inc(pwr.stats.hFdTrackHits)
+		if len(content) > 0 {
+			err = e.pcapW.WritePacket(ci, content)
+			if err != nil {
+				DBG("PCAP Dumper %s: ERROR tracked write for %q: %v\n",
+					pwr.name, key, err)
+				pwr.stats.cnts.Inc(pwr.stats.hErrWrMsg)
+				pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)
+				return err
+			}
+			e.nWritten++
+			pwr.stats.cnts.Inc(pwr.stats.hWrittenMsgs)
+			pwr.stats.cnts.Add(pwr.stats.hWrittenBytes,
+				counters.Val(len(content)))
+		}
+		if flags&PcapDumpCloseFileF != 0 {
+			tracker.CloseEntry(key)
+		}
+		return nil
+	}
+
+	// cache miss: open file (same logic as writeMsg)
+	pwr.stats.cnts.Inc(pwr.stats.hFdTrackMisses)
+	var f *os.File
+	var pcapDump *pcapgo.Writer
+	var offs int64
+	var fPathBuf [256]byte
+	var fPathLen, dirnameLen int
+	var fname, dirname string
+
+	if tracker.RotateActive() {
+		// clear AppendOnly
+		// TODO: cache the key and ignore AppendOnly only if previously
+		//       rotated a file for the same key
+		flags &= ^PcapDumpAppendOnlyF
+	}
+
+	fPathLen, dirnameLen, err = pwr.cfg.PcapFileFullPath(fPathBuf[:], key)
+	if err != nil {
+		ERR("error obtaining output pcap filename for %q buf size %d max %d: %v\n",
+			key, len(fPathBuf), pwr.cfg.PcapMaxFullPathLen(key), err)
+		pwr.stats.cnts.Inc(pwr.stats.hErrOther)
+		goto err_cleanup
+	}
+	fname = unsafeconv.Str(fPathBuf[:fPathLen])
+	dirname = unsafeconv.Str(fPathBuf[:dirnameLen])
+
+	// CloseFileF cache-miss with empty content: just rename on disk, no file open
+	if flags&PcapDumpCloseFileF != 0 && len(content) == 0 {
+		if tracker.RotateActive() {
+			tracker.renameFile(fPathBuf[:fPathLen], key)
+		}
+		return nil
+	}
+
+	for tries := 0; tries < 2; tries++ {
+		if (flags & PcapDumpAppendOnlyF) != 0 {
+			f, err = os.OpenFile(fname, os.O_WRONLY, 0644)
+		} else {
+			f, err = os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, 0644)
+		}
+		if err != nil {
+			if tries == 0 && errors.Is(err, os.ErrNotExist) {
+				err = os.MkdirAll(dirname, 0700)
+				if err != nil && !errors.Is(err, os.ErrExist) {
+					DBG("error creating dir %q: %v (%T)\n", dirname, err, err)
+					pwr.stats.cnts.Inc(pwr.stats.hErrMkSubdir)
+					goto err_cleanup
+				}
+				if err == nil {
+					DBG("PCAP Dumper %s: created dir %q for %q"+
+						" (file %q)\n", pwr.name, dirname, key, fname)
+					pwr.stats.cnts.Inc(pwr.stats.hNewSubdir)
+				} // else do nothing for os.ErrExist
+				continue // retry OpenFile
+			} else {
+				DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+					pwr.name, key, err, err)
+				if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) {
+					pwr.stats.cnts.Inc(pwr.stats.hErrFdLimit)
+				}
+				if (flags & PcapDumpAppendOnlyF) == 0 {
+					pwr.stats.cnts.Inc(pwr.stats.hErrNewFile)
+				} else {
+					pwr.stats.cnts.Inc(pwr.stats.hErrAppendOnly)
+				}
+				goto err_cleanup
+			}
+		}
+	}
+	// seek to end
+	if offs, err = f.Seek(0, os.SEEK_END); err != nil {
+		DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+			pwr.name, key, err, err)
+		goto err_cleanup
+	}
+	pcapDump = pcapgo.NewWriter(f)
+	if offs == 0 {
+		if flags&PcapDumpNewFileF == 0 {
+			DBG("PCAP Dumper %s: missing file %q -> created, writing pcap header.\n",
+				pwr.name, fname)
+			pwr.stats.cnts.Inc(pwr.stats.hNewMissingFile)
+		}
+		pwr.stats.cnts.Inc(pwr.stats.hNewFile)
+		err = pcapDump.WriteFileHeader(65536, layers.LinkTypeEthernet)
+		if err != nil {
+			DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+				pwr.name, key, err, err)
+			pwr.stats.cnts.Inc(pwr.stats.hErrWrHdr)
+			goto err_cleanup
+		}
+	} else if flags&PcapDumpNewFileF != 0 {
+		DBG("PCAP Dumper %s: new file requested (now %v ts %v ),"+
+			" but file %q already present\n",
+			time.Now(), ciTime, pwr.name, fname)
+		pwr.stats.cnts.Inc(pwr.stats.hFileExists)
+	}
+	if len(content) > 0 {
+		err = pcapDump.WritePacket(ci, content)
+		if err != nil {
+			DBG("PCAP Dumper %s: ERROR for message %q (err type %T): %v\n",
+				pwr.name, key, err, err)
+			pwr.stats.cnts.Inc(pwr.stats.hErrWrMsg)
+			goto err_cleanup
+		}
+		pwr.stats.cnts.Inc(pwr.stats.hWrittenMsgs)
+		pwr.stats.cnts.Add(pwr.stats.hWrittenBytes,
+			counters.Val(len(content)))
+	}
+
+	// CloseFileF cache-miss with content: close and rename, skip tracker
+	if flags&PcapDumpCloseFileF != 0 {
+		f.Close()
+		f = nil
+		if tracker.RotateActive() {
+			tracker.renameFile(fPathBuf[:fPathLen], key)
+		}
+		return nil
+	}
+
+	// add to tracker (file stays open, rotation timer starts)
+	{
+		te := tracker.Add(key, fPathBuf[:fPathLen], f, pcapDump, timestamp.Now())
+		if te == nil {
+			// at global FD limit — uncached write, close immediately
+			f.Close()
+			pwr.stats.cnts.Inc(pwr.stats.hFdTrackLimitEx)
+		} else {
+			if len(content) > 0 {
+				te.nWritten = 1 // first packet already written
+			}
+		}
+	}
+	return nil
+
+err_cleanup:
+	if f != nil {
+		f.Close()
+	}
 	if err != nil {
 		pwr.stats.cnts.Inc(pwr.stats.hDroppedWr)
 		DBG("PCAP Dumper %s: ERROR for message %q flags 0x%0x  len %d type %T"+
@@ -630,6 +877,10 @@ func (pwr *PcapWrWorker) uploadMsg(m PcapWrMsg) error {
 			pwr.name, flags, len(content), len(m))
 		pwr.stats.cnts.Inc(pwr.stats.hBUG)
 		return ErrBadPcapIntMsg
+	}
+	// nothing to upload for empty packets (e.g. CloseFileF control messages)
+	if len(content) == 0 {
+		return nil
 	}
 
 	//	DBG("PCAP Dumper %s: message %q flags 0x%0x  len %d\n",

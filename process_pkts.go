@@ -464,6 +464,7 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	var tls layers.TLS
 	var vxlan layers.VXLAN
 
+	live := len(cfg.PCAPs) == 0 // live processing
 	// init sipmsg
 	sipmsg.Init(nil, siphdrs[:], nil)
 	//rtpHash := calltr.GetRTPStreamHash()
@@ -554,6 +555,37 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	tcpAssembler.MaxBufferedPagesTotal = 1024 * 25
 	tcpAssembler.MaxBufferedPagesPerConnection = 256
 
+	// setup ipfix reassembly if in file mode (non-live) and
+	// ipfix configured
+	var tcpIPFIXStreamPool *tcpassembly.StreamPool
+	var tcpIPFIXAssembler *tcpassembly.Assembler
+	if !live && cfg.IPFIXport != 0 {
+		ipfixCfg := AcmeIPFIXconnCfg{
+			TimeoutMin:    cfg.IPFIXminTo,
+			TimeoutMax:    cfg.IPFIXmaxTo,
+			IgnoreIngress: cfg.IPFIXignIn,
+			IgnoreEgress:  cfg.IPFIXignOut,
+			RTPfastEvent:  cfg.IPFIXqRTPev,
+		}
+		ipfixStreamOpts := ipfixStreamOptions{
+			bufSize:    cfg.TCPMsgBufSz, // re-use from tcp
+			bufMaxSize: cfg.TCPMsgBufMaxSz,
+			Verbose:    cfg.Verbose,
+			W:          ioutil.Discard,
+			IPFIXcfg:   ipfixCfg,
+		}
+		var tcpIPFIXStreamFactory ipfixStreamFactory
+		if err = tcpIPFIXStreamFactory.Init(ipfixStreamOpts, cfg); err != nil {
+			ERR("ipfix: failed to init stats: %v\n", err)
+			return 0, 0, 0, err // 0 packets, 0 time spent, error
+		}
+		tcpIPFIXStreamPool = tcpassembly.NewStreamPool(tcpIPFIXStreamFactory)
+		tcpIPFIXAssembler = tcpassembly.NewAssembler(tcpIPFIXStreamPool)
+		// same as for normal tcp for now
+		tcpIPFIXAssembler.MaxBufferedPagesTotal = 1024 * 25
+		tcpIPFIXAssembler.MaxBufferedPagesPerConnection = 256
+	} // end of ipfix tcp assembler setup for pcap files
+
 	startTS := time.Now()
 	tcpGCInt := TCPstartupGCInt
 	tcpGCRun := time.Now().Add(tcpGCInt)
@@ -594,6 +626,30 @@ nextpkt:
 				})
 			stats.Add(sCnts.tcpExpReorder, counters.Val(flushed))
 			stats.Add(sCnts.tcpStreamTo, counters.Val(closed))
+
+			// process the ipfix tcp packets for pcap file mode here too, on
+			// the same timer with normal tcp traffic
+			// (it's a testing option so keep it simple)
+			if tcpIPFIXAssembler != nil {
+				flushed, closed := tcpIPFIXAssembler.FlushWithOptions(
+					tcpassembly.FlushOptions{
+						T:        now.Add(-tcpConnTo),
+						CloseAll: true,
+					})
+				ipfixTCPreassStats.cnts.Add(ipfixTCPreassStats.tcpExpReorder,
+					counters.Val(flushed))
+				ipfixTCPreassStats.cnts.Add(ipfixTCPreassStats.tcpStreamTo,
+					counters.Val(closed))
+				flushed, closed = tcpIPFIXAssembler.FlushWithOptions(
+					tcpassembly.FlushOptions{
+						T:        now.Add(-tcpReorderTo),
+						CloseAll: false,
+					})
+				ipfixTCPreassStats.cnts.Add(ipfixTCPreassStats.tcpExpReorder,
+					counters.Val(flushed))
+				ipfixTCPreassStats.cnts.Add(ipfixTCPreassStats.tcpStreamTo,
+					counters.Val(closed))
+			} // end of ipfix tcp reassembly
 		}
 		if now.After(statsUpd) {
 			statsUpd = now.Add(5 * time.Second)
@@ -887,7 +943,23 @@ nextpkt:
 				}
 				printTLPacket(os.Stdout, cfg, n, ipl, tl)
 				//DBG("DBG: %q\n", tcp.Payload)
+				ts := ci.Timestamp
+				if replay {
+					ts = now
+				}
 
+				// check if ipfix
+				if cfg.IPFIXport != 0 &&
+					(dport == cfg.IPFIXport || sport == cfg.IPFIXport) {
+					// TODO: check for ipfix address too
+					if dport == cfg.IPFIXport && tcpIPFIXAssembler != nil {
+						// assemble only incoming packets, ignore outgoing
+						tcpIPFIXAssembler.AssembleWithTimestamp(
+							ipl.NetworkFlow(), &tcp, ts)
+					}
+					// ipfix packet => non sip and non websocket => ignore
+					break nextlayer // exit loop
+				}
 				// check if configured sip port
 				if len(cfg.SIPports) != 0 && !ws &&
 					!checkPortsList(sport, dport, cfg.SIPports) {
@@ -896,10 +968,6 @@ nextpkt:
 					break nextlayer // exit loop
 				}
 				// tcp reassembly
-				ts := ci.Timestamp
-				if replay {
-					ts = now
-				}
 				tcpAssembler.AssembleWithTimestamp(ipl.NetworkFlow(), &tcp, ts)
 				break nextlayer
 			case layers.LayerTypeSCTP:
@@ -950,6 +1018,10 @@ nextpkt:
 	// interval, no tcp data for on-going connections will be processed in
 	// the loop above, everything will be buffered...
 	tcpAssembler.FlushAll()
+	if tcpIPFIXAssembler != nil {
+		tcpIPFIXAssembler.FlushAll()
+	}
+
 	return n, endTS.Sub(startTS), lastPCAPts.Sub(startPCAPts), err
 }
 

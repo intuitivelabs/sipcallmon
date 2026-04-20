@@ -38,6 +38,10 @@ var stopCh chan struct{}  // stop channel used by Stop() to stop threads a.s.o.
 var gcTicker *time.Ticker
 var httpSrv *http.Server
 var acmeIPFIXsrv *AcmeIPFIXcollector
+
+// list pcap-tcp-reassembled ipfix conns (for listing purpose)
+var acmeIPFIXreassLst AcmeIPFIXconnLst
+
 var stopLock sync.Mutex // avoid running Stop() in parallel
 
 // pcap per call-id dump
@@ -500,11 +504,13 @@ func Run(cfg *Config) error {
 				TimeoutMax:    cfg.IPFIXmaxTo,
 				IgnoreIngress: cfg.IPFIXignIn,
 				IgnoreEgress:  cfg.IPFIXignOut,
+				RTPfastEvent:  cfg.IPFIXqRTPev,
 			})
 		if err != nil {
 			acmeIPFIXsrv = nil
 			return err
 		}
+		acmeIPFIXreassLst.Init() // for pcap replay mode (cfg.PCAPs != "")
 	}
 
 	stopLock.Lock()

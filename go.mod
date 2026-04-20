@@ -6,6 +6,7 @@ toolchain go1.23.5
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/gopacket v1.1.19
 	github.com/valyala/fasthttp v1.65.0
 	github.com/zeebo/blake3 v0.2.4
@@ -21,6 +22,7 @@ require (
 	github.com/intuitivelabs/unsafeconv v0.0.3
 	github.com/intuitivelabs/websocket v0.0.2
 	github.com/intuitivelabs/wtimer v0.0.5
+	golang.org/x/sys v0.35.0
 )
 
 require (
@@ -32,5 +34,4 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/intuitivelabs/mallocs/qmalloc v0.0.4 // indirect
 	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
 )

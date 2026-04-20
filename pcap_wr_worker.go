@@ -337,6 +337,10 @@ type PcapWrWorker struct {
 	stats       *pcapStatsT
 	tmsgs       atomic.Uint64          // total messages handled
 	tmpWriteBuf [maxWriterBufSize]byte // tmp buffer for constructing msgs
+
+	// file uploader: set by PcapWriter.Init if uploader is configured
+	upldCh   chan<- *pcapFileUpldReq
+	upldPool *pcapFileUpldPool
 }
 
 func (pwr *PcapWrWorker) Init(name string, flags PcapWrWorkerFlags, cfg *PcapWriterCfg,
@@ -430,6 +434,8 @@ func (pwr *PcapWrWorker) run() bool {
 		} else {
 			rotateTicker = time.NewTicker(pwr.cfg.RotateInterval)
 			rotateCh = rotateTicker.C
+			tracker.upldCh = pwr.upldCh
+			tracker.upldPool = pwr.upldPool
 		}
 	}
 
@@ -722,7 +728,8 @@ func (pwr *PcapWrWorker) writeMsgTracked(m PcapWrMsg,
 	// CloseFileF cache-miss with empty content: just rename on disk, no file open
 	if flags&PcapDumpCloseFileF != 0 && len(content) == 0 {
 		if tracker.RotateActive() {
-			tracker.renameFile(fPathBuf[:fPathLen], key)
+			// TODO: toTS = time.Now()
+			tracker.renameFile(fPathBuf[:fPathLen], key, 0, 0)
 		}
 		return nil
 	}
@@ -807,7 +814,8 @@ func (pwr *PcapWrWorker) writeMsgTracked(m PcapWrMsg,
 		f.Close()
 		f = nil
 		if tracker.RotateActive() {
-			tracker.renameFile(fPathBuf[:fPathLen], key)
+			// TODO: toTS = time.Now()
+			tracker.renameFile(fPathBuf[:fPathLen], key, 0, 0)
 		}
 		return nil
 	}

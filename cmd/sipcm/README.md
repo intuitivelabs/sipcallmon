@@ -126,6 +126,16 @@ It can either capture live packets or replay pcap files.
     	%t{layout}=Go time format, %r=random hex, %i=upload id,
     	%n=monotonic counter, %R=conflict-only random, %N=conflict-only
     	counter, %U=conflict-only retry number, %%=literal %
+  -pcap_dump_file_upload_workers int
+    	number of upload worker goroutines for rotated pcap files, 0 = disabled (default 0)
+  -pcap_dump_file_upload_queue int
+    	upload channel and pool size for rotated pcap file uploads (default 1000)
+  -pcap_dump_file_upload_done_dir string
+    	post-upload success action: "" = delete, "leave" = keep, or path to move directory
+  -pcap_dump_file_upload_err_dir string
+    	post-upload error action: "" = leave, "delete" = remove, or path to move directory
+  -pcap_dump_file_upload_notify string
+    	upload trigger mode: "channel" (default), "watch" (fsnotify), or "both"
   -reg_del_delay int
     	RegDel event generation delay to work around quick reg.del re-reg
   -reg_exp_delta uint

@@ -76,6 +76,10 @@ type pcapStatsT struct {
 	hFdTrackLimitEx      counters.Handle
 	hFdTrackNameConflict counters.Handle
 	hErrFdTrackRename    counters.Handle
+
+	hErrFileUpldStat   counters.Handle
+	hFileUpldPoolEmpty counters.Handle
+	hFileUpldQueueFull counters.Handle
 }
 
 func (s *pcapStatsT) Init() bool {
@@ -172,6 +176,13 @@ func (s *pcapStatsT) Init() bool {
 			"rename conflicts resolved by retry with unique suffix"},
 		{&s.hErrFdTrackRename, 0, nil, nil, "err_fd_track_rename",
 			"errors renaming files on fd tracker eviction"},
+
+		{&s.hErrFileUpldStat, 0, nil, nil, "err_file_upld_stat",
+			"errors calling stat on rotated pcap files before upload"},
+		{&s.hFileUpldPoolEmpty, 0, nil, nil, "file_upld_pool_empty",
+			"upload request pool exhausted (file stays for next scan)"},
+		{&s.hFileUpldQueueFull, 0, nil, nil, "file_upld_queue_full",
+			"upload request channel full (file stays for next scan)"},
 	}
 
 	entries := len(cntDefs)

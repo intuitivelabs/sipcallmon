@@ -39,6 +39,7 @@ type pcapFdEntry struct {
 	f     *os.File
 	pcapW *pcapgo.Writer
 	nWritten uint32 // number of packets written (0 => empty, skip rename)
+	openTS   int64  // unix seconds when file was opened (for upload timestamps)
 	state    uint8
 	flags    uint8
 	// key stored inline (SIP Call-IDs < 256 bytes)
@@ -173,6 +174,7 @@ func (h *pcapFdHash) Free(e *pcapFdEntry) bool {
 	e.pcapW = nil
 	e.state = 0
 	e.nWritten = 0
+	e.openTS = 0
 	e.keyLen = 0
 	e.fnameLen = 0
 	// do not clear tracker pointer, it stays valid

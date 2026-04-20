@@ -56,6 +56,11 @@ type Config struct {
 	WpcapRotateSfx  string        `config:"pcap_dump_rotate_suffix"`
 	WpcapRotateDir  string        `config:"pcap_dump_rotate_dir"`
 	WpcapRotateFmt  string        `config:"pcap_dump_rotate_fmt"`
+	WpcapFileUpldWorkers  int    `config:"pcap_dump_file_upload_workers"`
+	WpcapFileUpldQueueLen int    `config:"pcap_dump_file_upload_queue"`
+	WpcapFileUpldDoneDir  string `config:"pcap_dump_file_upload_done_dir"`
+	WpcapFileUpldErrDir   string `config:"pcap_dump_file_upload_err_dir"`
+	WpcapFileUpldNotify   string `config:"pcap_dump_file_upload_notify"`
 	Replay          bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
@@ -219,6 +224,7 @@ var defaultConfigVals = Config{
 	WpcapFdPrealloc: 2048,
 	WpcapFdMaxOpen:  0, // unlimited
 	WpcapRotateInt:  10 * time.Second,
+	WpcapFileUpldQueueLen: 1000,
 
 	ReplayMinDelay: 250 * time.Millisecond,
 	ReplayMaxDelay: 0,
@@ -440,6 +446,21 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.StringVar(&cfg.WpcapRotateFmt, "pcap_dump_rotate_fmt", c.WpcapRotateFmt,
 		"format for the rotated pcap files name (e.g. %d/%b.%e), "+
 		"default: empty (equivalent to %d/%b_%s%e)" )
+	flag.IntVar(&cfg.WpcapFileUpldWorkers, "pcap_dump_file_upload_workers",
+		c.WpcapFileUpldWorkers,
+		"number of upload worker goroutines for rotated pcap files (0 = disabled)")
+	flag.IntVar(&cfg.WpcapFileUpldQueueLen, "pcap_dump_file_upload_queue",
+		c.WpcapFileUpldQueueLen,
+		"upload channel and pool size for rotated pcap file uploads")
+	flag.StringVar(&cfg.WpcapFileUpldDoneDir, "pcap_dump_file_upload_done_dir",
+		c.WpcapFileUpldDoneDir,
+		`post-upload success action: "" = delete, "leave" = keep, or dir path to move to`)
+	flag.StringVar(&cfg.WpcapFileUpldErrDir, "pcap_dump_file_upload_err_dir",
+		c.WpcapFileUpldErrDir,
+		`post-upload error action: "" = leave, "delete" = remove, or dir path to move to`)
+	flag.StringVar(&cfg.WpcapFileUpldNotify, "pcap_dump_file_upload_notify",
+		c.WpcapFileUpldNotify,
+		`upload trigger mode: "channel" (default), "watch" (fsnotify), or "both"`)
 
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")

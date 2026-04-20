@@ -2,6 +2,7 @@ package sipcallmon
 
 import (
 	"crypto/tls"
+	"io"
 	"strings"
 	"time"
 
@@ -65,6 +66,55 @@ func (rc *RESTclient) RESTsend(url string, body string) (int, error) {
 		}
 	}
 	req.SetBodyString(body)
+
+	resp := rc.resp
+	if resp == nil {
+		resp = fasthttp.AcquireResponse()
+	}
+	client := rc.c
+
+	rstatus := 600
+	httpErr := client.DoRedirects(req, resp, cfg.MaxRedirects)
+	if httpErr == nil {
+		rstatus = resp.StatusCode()
+	}
+
+	if rc.req == nil {
+		fasthttp.ReleaseRequest(req)
+	} else {
+		req.Reset()
+	}
+	if rc.resp == nil {
+		fasthttp.ReleaseResponse(resp)
+	} else {
+		resp.Reset()
+	}
+	return rstatus, httpErr
+}
+
+// RESTsendStream performs an HTTP request with a streaming body.
+// The body is read from r with the given content length.
+// Same semantics as RESTsend: returns (status, error).
+func (rc *RESTclient) RESTsendStream(url string, body io.Reader,
+	contentLength int64) (int, error) {
+	cfg := &rc.cfg
+	req := rc.req
+	if req == nil {
+		req = fasthttp.AcquireRequest()
+	}
+	req.SetRequestURI(url)
+	req.Header.SetMethod(cfg.Method)
+	req.Header.SetContentType(cfg.ContentType)
+	if len(cfg.XHeaders) > 0 {
+		req.Header.DisableNormalizing()
+		for _, h := range cfg.XHeaders {
+			cpos := strings.IndexByte(h, ':')
+			if cpos > 0 {
+				req.Header.Add(h[:cpos], h[(cpos+1):])
+			}
+		}
+	}
+	req.SetBodyStream(body, int(contentLength))
 
 	resp := rc.resp
 	if resp == nil {

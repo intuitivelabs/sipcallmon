@@ -92,6 +92,13 @@ type PcapWriterCfg struct {
 	RotateDir      string        // move rotated files to this directory
 	RotateFmt      string        // format string for rotated filenames
 
+	// file uploader config
+	FileUpldWorkers  int    // number of file upload workers (0 = disabled)
+	FileUpldQueueLen int    // upload channel + pool size
+	FileUpldDoneDir  string // post-upload success: "" = delete, "leave", or dir path
+	FileUpldErrDir   string // post-upload error: "" = leave, "delete", or dir path
+	FileUpldNotify   string // "channel", "watch", "both"
+
 	rotateFmtSegs     []pcapRotFmtSeg // compiled format (parsed once in Init)
 	rotateFmtHasRetry bool            // true if format contains %R, %N, or %U
 
@@ -366,8 +373,9 @@ func (pcfg PcapWriterCfg) Hash(key []byte) uint64 {
 type PcapWriter struct {
 	cfg PcapWriterCfg
 
-	wrWorkers []PcapWrWorker // internal workers
-	running   int            // number of running workers
+	wrWorkers []PcapWrWorker      // internal workers
+	uploader  *pcapFileUploader   // file upload worker pool (nil if disabled)
+	running   int                 // number of running workers
 	init      bool
 	stats     *pcapStatsT
 }
@@ -397,11 +405,25 @@ func (pw *PcapWriter) Init(cfg PcapWriterCfg) bool {
 		// if dir configured force write also to file
 		wrFlags |= PcapWrWorkerFileF
 	}
+	// init file upload workers if configured
+	if pw.cfg.FileUpldWorkers > 0 && len(pw.cfg.Upload) > 0 {
+		pw.uploader = &pcapFileUploader{}
+		if err := pw.uploader.Init(&pw.cfg, pw.stats); err != nil {
+			ERR("pcap file uploader init failed: %v\n", err)
+			pw.uploader = nil
+		}
+	}
+
 	for i := 0; i < len(pw.wrWorkers); i++ {
 		name := fmt.Sprintf("pcap_writer_%03d", i)
 		if err := pw.wrWorkers[i].Init(name, wrFlags, &pw.cfg, pw.stats); err != nil {
 			pw.wrWorkers = pw.wrWorkers[0:i]
 			return false // some init error
+		}
+		// set upload channel on worker if channel mode is active
+		if pw.uploader != nil {
+			pw.wrWorkers[i].upldCh = pw.uploader.UpldCh()
+			pw.wrWorkers[i].upldPool = pw.uploader.Pool()
 		}
 		// TODO: if both PcapWrWorkerUploadF and PcapWrWorkerFileF are set start
 		//       separate workers and send a copy of the packet to both of them
@@ -410,6 +432,10 @@ func (pw *PcapWriter) Init(cfg PcapWriterCfg) bool {
 }
 
 func (pw *PcapWriter) Start() bool {
+	// start uploader first so channel is ready before workers send
+	if pw.uploader != nil {
+		pw.uploader.Start()
+	}
 	for i := 0; i < len(pw.wrWorkers); i++ {
 		if !pw.wrWorkers[i].Start() {
 			pw.running = i
@@ -423,8 +449,13 @@ func (pw *PcapWriter) Start() bool {
 // Stop will signal all the processing go routines to stop and exit.
 func (pw *PcapWriter) Stop() bool {
 	DBG("PcapWriter Stop() called: %d workers\n", pw.running)
+	// stop workers first (they may still send to uploadCh)
 	for i := 0; i < pw.running; i++ {
 		pw.wrWorkers[i].Stop()
+	}
+	// then stop uploader (drains remaining upload requests)
+	if pw.uploader != nil {
+		pw.uploader.Stop()
 	}
 	return true
 }

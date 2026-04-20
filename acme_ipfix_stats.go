@@ -56,11 +56,11 @@ type acmeIPFIXstatsT struct {
 
 func (s *acmeIPFIXstatsT) Init() bool {
 	cntDefs := [...]counters.Def{
-		{&s.hActiveConns, counters.CntMaxF, nil, nil, "conns_active",
-			"active acme ipfix connections"},
+		{&s.hActiveConns, counters.CntNonMonoF | counters.CntMaxF, nil, nil,
+			"conns_active", "active acme ipfix connections"},
 		{&s.hTotalConns, 0, nil, nil, "conns_total",
 			"total opened acme ipfix connections"},
-		{&s.hPoolConns, 0, nil, nil, "conns_pool",
+		{&s.hPoolConns, counters.CntNonMonoF, nil, nil, "conns_pool",
 			"total acme ipfix connections in pool (dbg)"},
 
 		{&s.hTemplateSet, 0, nil, nil, "template_sets",

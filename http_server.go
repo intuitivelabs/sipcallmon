@@ -46,6 +46,7 @@ var httpInitHandlers = [...]httpHandler{
 	{"/counters", "", httpPrintCounters},
 	{"/counters/avg", "", httpPrintCountersAvg},
 	{"/debug/options", "", httpDbgOptions},
+	{"/metrics", "prometheus metrics", httpPrometheusMetrics},
 	{"/debug/pprof", "", nil},
 	{"/debug/forcetimeout", "", httpForceAllTimeout},
 	{"/events", "", httpEventsList},

@@ -64,6 +64,10 @@ var httpInitHandlers = [...]httpHandler{
 	{"/regs/cfg", "", httpRegCfg},
 	{"/regs/list", "", httpRegBindingsList},
 	{"/regs/list/query", "", httpRegBindingsListQuery},
+	{"/rtp", "", httpRTPStreamsStats},
+	{"/rtp/list", "", httpRTPStreamsList},
+	{"/rtp/list/query", "", httpRTPStreamsListQuery},
+	{"/sdp/mem", "", httpSDPstats},
 	{"/stats", "", httpPrintStats},
 	{"/stats/avg", "", httpPrintStatsAvg},
 	{"/stats/avg?d=10s", "/stats/avg 10s", httpPrintStatsAvg},
@@ -456,34 +460,42 @@ func httpEvRateBlstStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
-	fmt.Fprintf(w, "Memory Stats:\n"+
+	fmt.Fprintf(w, "Memory Stats (%s):\n"+
 		"	TotalSize: %d NewCalls: %d FreeCalls: %d Failures: %d\n",
+		ms.Name,
 		atomic.LoadUint64((*uint64)(&ms.TotalSize)),
 		atomic.LoadUint64((*uint64)(&ms.NewCalls)),
 		atomic.LoadUint64((*uint64)(&ms.FreeCalls)),
 		atomic.LoadUint64((*uint64)(&ms.Failures)),
 	)
-	v := atomic.LoadUint64((*uint64)(&ms.ZeroSize))
-	if v != 0 {
-		fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: 0!\n",
-			v,
-			v*100/(calltr.AllocCallsPerEntry*
-				atomic.LoadUint64((*uint64)(&ms.NewCalls))))
-	}
-	for i := 0; i < len(ms.Sizes); i++ {
-		v := atomic.LoadUint64((*uint64)(&ms.Sizes[i]))
+	// for now all alloc count as only one call
+	// even if the alloc 2 blocks -- calltr alloc FIXME
+	allocCallsPerEntry := 1
+	allocsNo := atomic.LoadUint64((*uint64)(&ms.NewCalls)) -
+		atomic.LoadUint64((*uint64)(&ms.Failures))
+	if allocsNo > 0 {
+		v := atomic.LoadUint64((*uint64)(&ms.ZeroSize))
 		if v != 0 {
-			if i < (len(ms.Sizes) - 1) {
-				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: %6d -%6d\n",
-					v,
-					v*100/(calltr.AllocCallsPerEntry*
-						atomic.LoadUint64((*uint64)(&ms.NewCalls))),
-					i*calltr.AllocRoundTo+1,
-					(i+1)*calltr.AllocRoundTo)
-			} else {
-				fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: >=   %6d\n",
-					v, v*100/2*atomic.LoadUint64((*uint64)(&ms.NewCalls)),
-					i*calltr.AllocRoundTo+1)
+			fmt.Fprintf(w, "	%9d allocs (%3d%%)     size: 0!\n",
+				v,
+				v*100/(uint64(allocCallsPerEntry)*allocsNo))
+		}
+		for i := 0; i < len(ms.Sizes); i++ {
+			v := atomic.LoadUint64((*uint64)(&ms.Sizes[i]))
+			if v != 0 {
+				if i < (len(ms.Sizes) - 1) {
+					fmt.Fprintf(w,
+						"	%9d allocs (%3d%%)     size: %6d -%6d\n",
+						v,
+						v*100/(uint64(allocCallsPerEntry)*allocsNo),
+						i*int(ms.AllocRoundTo)+1,
+						(i+1)*int(ms.AllocRoundTo))
+				} else {
+					fmt.Fprintf(w,
+						"	%9d allocs (%3d%%)     size: >=   %6d\n",
+						v, v*100/(uint64(allocCallsPerEntry)*allocsNo),
+						i*int(ms.AllocRoundTo)+1)
+				}
 			}
 		}
 	}
@@ -498,7 +510,7 @@ func memStats(w http.ResponseWriter, r *http.Request, ms *calltr.AllocStats) {
 			fmt.Fprintf(w, "	%9d / %9d pool hits/miss (%3d%% / %3d%%)"+
 				" size: %6d\n",
 				h, m, h*100/(h+m), m*100/(h+m),
-				(i+1)*calltr.AllocRoundTo)
+				(i+1)*int(ms.AllocRoundTo))
 		}
 	}
 	if (tHits + tMiss) > 0 {
@@ -738,7 +750,7 @@ func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
 			rVal = -rVal
 		default:
 			fmt.Fprintf(w, "Error: invalid rop value %q"+
-				" (expected &gt= or &lt)\n")
+				" (expected &gt= or &lt)\n", paramRop[0])
 		}
 	}
 	if len(paramRateIdx) > 0 && len(paramRateIdx[0]) > 0 {
@@ -1775,7 +1787,7 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 
 	cfg := RunningCfg
 	if acmeIPFIXsrv == nil {
-		fmt.Fprintf(w, "Error: IPFIX disabled (addr: %q port:%p)\n",
+		fmt.Fprintf(w, "Error: IPFIX disabled (addr: %q port:%d)\n",
 			cfg.IPFIXaddr, cfg.IPFIXport)
 		return
 	}
@@ -1845,6 +1857,121 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
+}
+
+func httpSDPstats(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "SDP Entries Mem Stats:\n")
+	fmt.Fprintln(w)
+	memStats(w, r, &calltr.SDPsessAllocStats)
+}
+
+func httpRTPStreamsStats(w http.ResponseWriter, r *http.Request) {
+	stats := calltr.RTPStreamsHashStats()
+	fmt.Fprintf(w, "RTP Streams  Hash Stats: %+v\n", stats)
+
+	/* RTP streams have no entries limits and the memory
+	   used (by the parent RTPSession) is shared with the SDP
+	*/
+	cCfg := calltr.GetCfg()
+	limit := uint64(0)
+	limitMem := cCfg.Mem.SDPtotalMem
+	crt := stats.Crt
+	crtMem := calltr.RTPSessAllocStats.TotalSize.Get()
+	printEntriesLimits(w, r, crt, crtMem, limit, limitMem)
+
+	fmt.Fprintln(w)
+	memStats(w, r, &calltr.RTPSessAllocStats)
+}
+
+func httpRTPStreamsList(w http.ResponseWriter, r *http.Request) {
+	n := 100 // default
+	s := 0
+	rVal := 0 // no rate comp. by default
+	var ipnet *net.IPNet
+	var re *regexp.Regexp
+
+	tst := ""
+
+	paramN := r.URL.Query()["n"]   // max entries
+	paramS := r.URL.Query()["s"]   // start
+	paramIP := r.URL.Query()["ip"] // match against
+	paramRate := r.URL.Query()["rate"]
+	paramRop := r.URL.Query()["rop"]
+	if len(paramIP) > 0 && len(paramIP[0]) > 0 && len(tst) == 0 {
+		tst = paramIP[0]
+	}
+	paramRe, isRe := r.URL.Query()["re"]
+	if len(paramN) > 0 && len(paramN[0]) > 0 {
+		if i, err := strconv.Atoi(paramN[0]); err == nil {
+			n = i
+		} else {
+			fmt.Fprintf(w, "Error: n is non-number %q: %s\n", paramN[0], err)
+		}
+	}
+	if len(paramS) > 0 && len(paramS[0]) > 0 {
+		if i, err := strconv.Atoi(paramS[0]); err == nil {
+			s = i
+		} else {
+			fmt.Fprintf(w, "Error: s is non-number %q: %s\n", paramS[0], err)
+		}
+	}
+	if len(paramRe) > 0 {
+		if i, err := strconv.Atoi(paramRe[0]); err == nil {
+			if i > 0 {
+				isRe = true
+			} else {
+				isRe = false
+			}
+		}
+	}
+	if len(paramRate) > 0 && len(paramRate[0]) > 0 {
+		if i, err := strconv.Atoi(paramRate[0]); err == nil {
+			rVal = i
+		} else {
+			fmt.Fprintf(w, "Error: rate is non-integer %q: %s\n",
+				paramRate[0], err)
+		}
+	}
+	if len(paramRop) > 0 && len(paramRop[0]) > 0 {
+		switch paramRop[0] {
+		case ">=":
+			// do nothing
+		case "<":
+			rVal = -rVal
+		default:
+			fmt.Fprintf(w, "Error: invalid rop value %q"+
+				" (expected &gt= or &lt)\n")
+		}
+	}
+	if len(tst) > 0 {
+		if isRe {
+			var err error
+			re, err = regexp.CompilePOSIX(tst)
+			if err != nil {
+				fmt.Fprintf(w, "Error bad regexp %q: %s\n", tst, err)
+				return
+			}
+		} else {
+			// ! RE, try to convert to IPNet or IP
+			var err error
+			_, ipnet, err = net.ParseCIDR(tst)
+			if err != nil {
+				ip := net.ParseIP(tst)
+				if ip != nil {
+					ipnet = &net.IPNet{ip, net.CIDRMask(len(ip)*8, len(ip)*8)}
+				}
+			}
+		}
+	}
+	fmt.Fprintf(w, "RTP Streams (filter: from %d max %d matches,"+
+		" match against %q regexp %v ip %v):\n\n",
+		s, n, tst, isRe, ipnet != nil)
+
+	calltr.PrintRTPStreamsFilter(w, s, n, rVal, ipnet, re)
+}
+
+func httpRTPStreamsListQuery(w http.ResponseWriter, r *http.Request) {
+	htmlQueryRTPStreams(w)
 }
 
 func unescapeMsg(msg string, format string) ([]byte, error) {

@@ -41,6 +41,7 @@ type Config struct {
 	WpcapFlags     int           `config:"pcap_dump_flags"`
 	WpcapDumpOn    bool          `config:"pcap_dump_on"`
 	WpcapOnErr     bool          `config:"pcap_dump_onerr"`
+	WpcapDumpRTP   bool          `config:"pcap_dump_rtp"`
 	WpcapWorkers   int           `config:"pcap_dump_workers"`
 	WpcapQueueLen  int           `config:"pcap_dump_queue_len"`
 	Replay         bool          `config:"replay"`
@@ -48,9 +49,12 @@ type Config struct {
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
 	ReplayScale    float64       `config:"replay_scale"`
 	RunForever     bool          `config:"run_forever"`
+	NoPromisc      bool          `config:"no_promiscuous_mode"`
 	Iface          string        `config:"iface"`
 	PCAPBufKb      int           `config:"pcap_buf_kb"` // pcap cap buf in kb
 	BPF            string        `config:"bpf"`         // packet filter
+	// sip ports (packets to this ports are treated as sip)
+	SIPports       []uint16      `config:"sip_ports"`
 	IPFIXaddr      string        `config:"ipfix_addr"`
 	IPFIXport      int           `config:"ipfix_port"`
 	IPFIXminTo     int           `config:"ipfix_timeout_min"`
@@ -166,6 +170,12 @@ type Config struct {
 
 	GeoIPdb     string `config:"geo_ip_db"`
 	GeoIPLookup bool   `config:"geo_ip_on"`
+
+	// SDP config
+	SDPparse       bool   `config:"sdp"`
+	SDPtotalMem    uint64 `config:"sdp_total_mem"`
+	SDPmaxEntryMem uint64 `config:"sdp_max_entry_mem"`
+	RTP            bool   `config:"rtp"` // RTP enable/ disable
 }
 
 var defaultConfigVals = Config{
@@ -175,15 +185,19 @@ var defaultConfigVals = Config{
 	ParseLogOpt: uint64(slog.LOptNone),
 	DbgCalltr:   uint64(calltr.DefaultConfig.Dbg),
 
+	NoPromisc: false,
+
 	WpcapPrefix:   "callid_",
 	WpcapSuffix:   "",
 	WpcapExt:      "pcap",
 	WpcapOnErr:    false,
+	WpcapDumpRTP:  true,
 	WpcapWorkers:  16,
 	WpcapQueueLen: 10000, // TODO: replace with higher value after testing
 
 	ReplayMinDelay: 250 * time.Millisecond,
 	ReplayMaxDelay: 0,
+	SIPports:       nil, // empty by default, everything is SIP
 	TCPGcInt:       30 * time.Second,
 	TCPReorderTo:   60 * time.Second,
 	TCPConnTo:      3600 * time.Second,
@@ -213,6 +227,10 @@ var defaultConfigVals = Config{
 	EncryptUA:          false,
 	ClearTxtCountryISO: false,
 	ClearTxtCityID:     false,
+	SDPparse:           false,
+	SDPtotalMem:        0,
+	SDPmaxEntryMem:     65535,
+	RTP:                true,
 }
 
 func (cfg Config) UseIPAnonymization() bool {
@@ -270,6 +288,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	var evTblst string
 	var evRmaxVals string
 	var evRIntvls string
+	var sipPorts string
 	var vxlanPorts string
 	var wsPorts string
 	var statsGrps string
@@ -289,6 +308,14 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			defaultEvRIntvls += ","
 		}
 		defaultEvRIntvls += v.String()
+	}
+
+	defaultSIPPorts := "" // format "port1[,port2]*", e.g.: "5060,5061"
+	for i, v := range c.SIPports {
+		if i != 0 {
+			defaultSIPPorts += ","
+		}
+		defaultSIPPorts += strconv.FormatUint(uint64(v), 10)
 	}
 
 	defaultVXLANPorts := "" // format "port1[,port2]*", e.g.: "4789,4790"
@@ -353,6 +380,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.BoolVar(&cfg.WpcapOnErr, "pcap_dump_onerr", c.WpcapOnErr,
 		"enable/disable appending error/bad messages to pcap per call files"+
 			" (pcap_dump_on must also be set)")
+	flag.BoolVar(&cfg.WpcapDumpRTP, "pcap_dump_rtp", c.WpcapDumpRTP,
+		"enable/disable appending RTP messages to pcap per call files"+
+			" (pcap_dump_on must also be set)")
 	flag.IntVar(&cfg.WpcapWorkers, "pcap_dump_workers", c.WpcapWorkers,
 		"number of pcap dump worker threads")
 	flag.IntVar(&cfg.WpcapQueueLen, "pcap_dump_queue_len", c.WpcapQueueLen,
@@ -369,11 +399,17 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.BoolVar(&cfg.RunForever, "run_forever", c.RunForever,
 		"keep web server running")
 
+	flag.BoolVar(&cfg.NoPromisc, "no_promiscuous_mode", c.NoPromisc,
+		"do not put the interface into promiscuous mode")
 	flag.StringVar(&cfg.Iface, "iface", c.Iface,
 		"interface to capture packets from")
 	flag.IntVar(&cfg.PCAPBufKb, "pcap_buf_kb", c.PCAPBufKb,
 		"size for pcap buffer in kb")
 	flag.StringVar(&cfg.BPF, "bpf", c.BPF, "berkley packet filter for capture")
+
+	flag.StringVar(&sipPorts, "sip_ports", defaultSIPPorts,
+		"sip ports list, comma or space separated"+
+			" (if empty everything is treated as SIP)")
 
 	flag.IntVar(&cfg.IPFIXport, "ipfix_port", c.IPFIXport,
 		"port for receiving oracle/acme sbc IPFIX messages, 0 == disable")
@@ -469,11 +505,51 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.StringVar(&statsGrps, "stats_groups", defaultStatsGrps,
 		"counter groups reported on exit, comma or space separated")
 
+	flag.BoolVar(&cfg.SDPparse, "sdp", c.SDPparse, "turn on sdp support")
+	flag.Uint64Var(&cfg.SDPtotalMem, "sdp_total_mem", c.SDPtotalMem,
+		"total memory reserved for keeping SDP state in Mb")
+	flag.Uint64Var(&cfg.SDPmaxEntryMem, "sdp_max_entry_mem", c.SDPmaxEntryMem,
+		"maximum memory for one SDP state entry (offer or answer)")
+	flag.BoolVar(&cfg.RTP, "rtp", c.RTP, "turn on rtp support")
+
 	flag.Parse()
 	// fix cmd line params
 	{
 		var perr error
 		errs := 0
+
+		// parse the port lists, ev rate blacklist max and intervals lists
+		// function to check for valid separators
+		checkSep := func(r rune) bool {
+			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
+				r == rune('[') || r == rune(']') {
+				return true
+			}
+			return false
+		}
+
+		cfg.SIPports = c.SIPports
+		portsStr := strings.FieldsFunc(sipPorts, checkSep)
+		k := 0
+		portsNum := make([]uint16, 0, 10)
+		for _, s := range portsStr {
+			if len(s) == 0 {
+				continue
+			}
+			if v, perr := strconv.ParseUint(s, 10, 16); perr == nil {
+				portsNum = append(portsNum, uint16(v))
+			} else {
+				e := fmt.Errorf("invalid sip port %q in %q (pos %d)",
+					s, sipPorts, k)
+				errs++
+				return cfg, e
+			}
+			k++
+		}
+		if len(portsNum) > 0 {
+			cfg.SIPports = portsNum
+		}
+
 		cfg.ReplayMinDelay, perr = time.ParseDuration(*replMinDelayS)
 		if perr != nil {
 			e := fmt.Errorf("invalid minimum replay delay: %s: %v",
@@ -529,15 +605,6 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 			cfg.CallStTo[nt.Name] = nt.Intvl
 		}
 
-		// parse the ev rate blacklist max and intervals lists
-		// function to check for valid separators
-		checkSep := func(r rune) bool {
-			if r == rune(',') || r == rune('|') || unicode.IsSpace(r) ||
-				r == rune('[') || r == rune(']') {
-				return true
-			}
-			return false
-		}
 		cfg.EvTblst = c.EvTblst
 		blst_types := strings.FieldsFunc(evTblst, checkSep)
 		blst_vals := make([]string, 0, 10)
@@ -553,7 +620,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 		cfg.EvRblstMaxVals = c.EvRblstMaxVals
 		rate_vals := strings.FieldsFunc(evRmaxVals, checkSep)
-		k := 0
+		k = 0
 		for _, s := range rate_vals {
 			if len(s) == 0 {
 				continue
@@ -624,9 +691,9 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		}
 
 		cfg.VXLANports = c.VXLANports
-		portsStr := strings.FieldsFunc(vxlanPorts, checkSep)
+		portsStr = strings.FieldsFunc(vxlanPorts, checkSep)
 		k = 0
-		portsNum := make([]uint16, 0, 10)
+		portsNum = make([]uint16, 0, 10)
 		for _, s := range portsStr {
 			if len(s) == 0 {
 				continue
@@ -887,6 +954,10 @@ func CfgFix(cfg *Config) error {
 	}
 	if cfg.IPFIXmaxTo > 65535 {
 		cfg.IPFIXmaxTo = 65535 // limit to 16 bits
+	}
+	if !cfg.SDPparse {
+		// no RTP tracking if SDP is disabled
+		cfg.RTP = false
 	}
 	return nil
 }

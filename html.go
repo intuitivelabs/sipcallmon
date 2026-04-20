@@ -447,10 +447,11 @@ func htmlEvRatePerGCparams(w http.ResponseWriter, cfg *Config) {
 
 // print a form input field.
 // Parameters: n - name,
-//             nAlign - allign to this many chars
-//             defVal - default value (pre-filled)
-//             fSize  - field size
-//             comment - optional comment (printed after the input field)
+//
+//	nAlign - allign to this many chars
+//	defVal - default value (pre-filled)
+//	fSize  - field size
+//	comment - optional comment (printed after the input field)
 func htmlInputField(w http.ResponseWriter, n string, nAlign int,
 	defVal string, fSize int, comment string) {
 	align := ""
@@ -468,13 +469,14 @@ func htmlInputField(w http.ResponseWriter, n string, nAlign int,
 
 // print a form composed of 1 input field.
 // Parameters:
-//            actionUrl
-//             n       - name,
-//             nAlign  - allign to this many chars
-//             defVal  - default value (pre-filled)
-//             fSize   - field size
-//             comment - optional comment (printed after the input field)
-//             submit  - name for the submit button
+//
+//	actionUrl
+//	 n       - name,
+//	 nAlign  - allign to this many chars
+//	 defVal  - default value (pre-filled)
+//	 fSize   - field size
+//	 comment - optional comment (printed after the input field)
+//	 submit  - name for the submit button
 func htmlInputForm1V(w http.ResponseWriter, actionUrl, n string,
 	nAlign int, defVal string, fSize int, comment string, submit string) {
 
@@ -639,4 +641,30 @@ func htmlRegCfg(w http.ResponseWriter, ccfg *calltr.Config, footer string) {
 
 	fmt.Fprintln(w, footer)
 	fmt.Fprintln(w, httpFooter)
+}
+
+func htmlQueryRTPStreams(w http.ResponseWriter) {
+
+	fmt.Fprintln(w, httpHeader)
+	fmt.Fprintln(w, `<h2>Filter Displayed RTP Streams</h2>`)
+	fmt.Fprintln(w, `<form action="/rtp/list" method="get">`)
+
+	fmt.Fprintln(w, "Rate:")
+	fmt.Fprintln(w, ` <select name="rop">`)
+	fmt.Fprintf(w, "	<option value=\">=\">&gt=</option>\n")
+	fmt.Fprintf(w, "	<option value=\"<\">&lt</option>\n")
+	fmt.Fprintln(w, `</select>`)
+	fmt.Fprintln(w, `<input type="text" name="rate" size="4">`)
+
+	fmt.Fprintln(w, `	IP: <input type="text" name="ip" size="20">`)
+	fmt.Fprintln(w, `	<input type="checkbox" name="re" id="re" value="1">`)
+	fmt.Fprintln(w, `	<label for="re">RE</label><br>`)
+
+	fmt.Fprintln(w, `	Max matches: <input type="text" name="n" size="4">`)
+	fmt.Fprintln(w, `	Start: <input type="text" name="s" size="4">`)
+	fmt.Fprintln(w, `<input type="submit">`)
+	fmt.Fprintln(w, `</form>`)
+
+	fmt.Fprintln(w, httpFooter)
+
 }

@@ -226,7 +226,7 @@ var defaultConfigVals = Config{
 	WpcapRotateInt:  10 * time.Second,
 	WpcapFileUpldQueueLen: 1000,
 
-	ReplayMinDelay: 250 * time.Millisecond,
+	ReplayMinDelay: 0,
 	ReplayMaxDelay: 0,
 	SIPports:       nil, // empty by default, everything is SIP
 	TCPGcInt:       30 * time.Second,

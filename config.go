@@ -398,7 +398,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		"upload url for dumping pcap packets (using pcap uploader api)")
 	pcapUpldRToS := flag.String("pcap_dump_upload_rd_timeout", c.WpcapUpldRTO.String(),
 		"pcap uploader network read timeout")
-	pcapUpldWToS := flag.String("pcap_dump_upload_wd_timeout", c.WpcapUpldWTO.String(),
+	pcapUpldWToS := flag.String("pcap_dump_upload_wr_timeout", c.WpcapUpldWTO.String(),
 		"pcap uploader network write timeout")
 	flag.IntVar(&cfg.WpcapUpldRedir, "pcap_dump_upload_max_redir", c.WpcapUpldRedir,
 		"maximum number of redirects followed when uploading pcap packets")
@@ -464,7 +464,7 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")
-	replMinDelayS := flag.String("replay_min_delay", c.ReplayMaxDelay.String(),
+	replMinDelayS := flag.String("replay_min_delay", c.ReplayMinDelay.String(),
 		"minimum delay when replaying pcaps")
 	replMaxDelayS := flag.String("replay_max_delay", c.ReplayMaxDelay.String(),
 		"maximum delay when replaying pcaps")

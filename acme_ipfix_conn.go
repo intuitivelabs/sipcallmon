@@ -621,6 +621,13 @@ func (c *AcmeIPFIXconn) handleSIPudp(
 	var ipPayload []byte
 	var srcIP, dstIP net.IP
 
+	// make sure the message is not empty (extra check, the parsers already
+	//  reject msgLen == 0 with ErrIPFIXinvLen),
+	if len(msg) == 0 {
+		ERR("acme ipfix: sip udp4 set %d: zero-length message\n", setID)
+		c.gStats.cnts.Inc(c.gStats.hPktParseErr)
+		return ErrIPFIXinvLen
+	}
 	// try to handle IPv6 too (hopefully the same format is used as
 	// for IPv4)
 	ipVersion := uint8(msg[0]) >> 4

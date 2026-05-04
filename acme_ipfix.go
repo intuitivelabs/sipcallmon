@@ -175,6 +175,9 @@ func ParseAcmeIPFIXsipUDP4InSet(buf []byte, offs int,
 	} else {
 		s.Length2 = 0
 	}
+	if msgLen == 0 {
+		return offs, 0, ErrIPFIXinvLen
+	}
 	if len(data) < (msgStart + msgLen) {
 		return offs, msgStart + msgLen - len(data),
 			ErrIPFIXmoreBytes
@@ -237,6 +240,9 @@ func ParseAcmeIPFIXsipUDP4OutSet(buf []byte, offs int,
 		msgStart += 2
 	} else {
 		s.Length2 = 0
+	}
+	if msgLen == 0 {
+		return offs, 0, ErrIPFIXinvLen
 	}
 	if len(data) < (msgStart + msgLen) {
 		return offs, msgStart + msgLen - len(data),

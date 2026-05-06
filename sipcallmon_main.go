@@ -470,6 +470,7 @@ func Init(cfg *Config) error {
 			return err
 		}
 		PcapDumperCfg.Upload = cfg.WpcapUpload
+		PcapDumperCfg.UploadPacket = cfg.WpcapUploadPacket
 		PcapDumperCfg.RestCfg.ReadTimeout = cfg.WpcapUpldRTO
 		PcapDumperCfg.RestCfg.WriteTimeout = cfg.WpcapUpldWTO
 		PcapDumperCfg.RestCfg.MaxRedirects = cfg.WpcapUpldRedir

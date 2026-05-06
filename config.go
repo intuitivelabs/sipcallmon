@@ -38,6 +38,8 @@ type Config struct {
 	WpcapUpldWTO   time.Duration `config:"pcap_dump_upload_wr_timeout"`
 	WpcapUpldRedir int           `config:"pcap_dump_upload_max_redir"`
 	WpcapUpldHashN string        `config:"pcap_dump_upload_id_hash"`
+	WpcapUploadPacket bool       `config:"pcap_dump_upload_packet"`
+	WpcapUploadFile   bool       `config:"pcap_dump_upload_file"`
 	WpcapDir       string        `config:"pcap_dump_dir"`
 	WpcapPrefix    string        `config:"pcap_dump_prefix"`
 	WpcapSuffix    string        `config:"pcap_dump_suffix"`
@@ -407,6 +409,15 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.StringVar(&cfg.WpcapUpldHashN, "pcap_dump_upload_id_hash", c.WpcapUpldHashN,
 		"method for generating the per call id for pcap dump upload"+
 			" (none, md5, sha256, xxhash, xxhash128, blake3_256, blake3_384)")
+	flag.BoolVar(&cfg.WpcapUploadPacket, "pcap_dump_upload_packet",
+		c.WpcapUploadPacket,
+		"stream each captured packet via the per-call upload API (requires"+
+			" pcap_dump_upload; mutually exclusive with pcap_dump_upload_file)")
+	flag.BoolVar(&cfg.WpcapUploadFile, "pcap_dump_upload_file",
+		c.WpcapUploadFile,
+		"upload whole rotated pcap files (sets pcap_dump_file_upload_workers"+
+			" to 16 if 0; requires pcap_dump_upload; mutually exclusive with"+
+			" pcap_dump_upload_packet)")
 	flag.StringVar(&cfg.WpcapDir, "pcap_dump_dir", c.WpcapDir,
 		"write directory for the generated pcap per call files")
 	flag.StringVar(&cfg.WpcapPrefix, "pcap_dump_prefix", c.WpcapPrefix,
@@ -1067,6 +1078,17 @@ func CfgFix(cfg *Config) error {
 		cfg.RTP = false
 	}
 	if cfg.WpcapDumpOn {
+		// upload mode precedence (CfgCheck rejects packet+file both true)
+		if !(cfg.WpcapUploadPacket && cfg.WpcapUploadFile) {
+			if cfg.WpcapUploadPacket && cfg.WpcapFileUpldWorkers > 0 {
+				WARN("pcap_dump_upload_packet=true overrides" +
+					" pcap_dump_file_upload_workers; setting workers to 0\n")
+				cfg.WpcapFileUpldWorkers = 0
+			}
+			if cfg.WpcapUploadFile && cfg.WpcapFileUpldWorkers == 0 {
+				cfg.WpcapFileUpldWorkers = 16
+			}
+		}
 		if cfg.WpcapFileUpldNotify == "" {
 			cfg.WpcapFileUpldNotify = FileUpldNotifyChannel
 		}
@@ -1085,10 +1107,24 @@ func CfgCheck(cfg *Config) error {
 			" a configured IPFIX collector required")
 	}
 	if cfg.WpcapDumpOn {
-		if len(cfg.WpcapDir) == 0 && len(cfg.WpcapUpload) == 0 {
-			return fmt.Errorf("if pcap write mode is enabled it requires a" +
-				" either a non-empty write directory (pcap_dump_dir) or" +
-				" upload url (pcap_dump_upload)")
+		// at least one data path must be enabled
+		hasDir := len(cfg.WpcapDir) != 0
+		hasPktUpld := cfg.WpcapUploadPacket
+		hasFileUpld := cfg.WpcapFileUpldWorkers > 0 || cfg.WpcapUploadFile
+		if !hasDir && !hasPktUpld && !hasFileUpld {
+			return fmt.Errorf("pcap_dump_on requires at least one of:" +
+				" pcap_dump_dir (local files)," +
+				" pcap_dump_upload_packet=true (per-packet upload)," +
+				" pcap_dump_upload_file=true or" +
+				" pcap_dump_file_upload_workers>0 (whole-file upload)")
+		}
+		if cfg.WpcapUploadPacket && cfg.WpcapUploadFile {
+			return fmt.Errorf("pcap_dump_upload_packet and" +
+				" pcap_dump_upload_file are mutually exclusive")
+		}
+		if cfg.WpcapUploadPacket && len(cfg.WpcapUpload) == 0 {
+			return fmt.Errorf("pcap_dump_upload_packet=true requires" +
+				" pcap_dump_upload (URL) to be set")
 		}
 		if cfg.UseAnonymization() {
 			return fmt.Errorf("pcap write mode is incompatible with" +

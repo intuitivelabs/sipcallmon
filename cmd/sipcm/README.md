@@ -141,10 +141,14 @@ It can either capture live packets or replay pcap files.
     	suffix added to the name of the generated pcap per call files
   -pcap_dump_upload string
     	upload URL for per-call pcap packets (using pcap uploader API)
+  -pcap_dump_upload_file
+    	upload whole pcap files (sets pcap_dump_file_upload_workers to 16 if 0; requires pcap_dump_upload; mutually exclusive with pcap_dump_upload_packet)
   -pcap_dump_upload_id_hash string
     	method for generating the per call id for pcap dump upload (none, md5, sha256, xxhash, xxhash128, blake3_256, blake3_384) (default "none")
   -pcap_dump_upload_max_redir int
     	maximum number of redirects followed when uploading pcap packets (default 2)
+  -pcap_dump_upload_packet
+    	stream each captured packet via the per-call upload API (requires pcap_dump_upload; mutually exclusive with pcap_dump_upload_file)
   -pcap_dump_upload_rd_timeout string
     	pcap uploader network read timeout (default "10s")
   -pcap_dump_upload_wr_timeout string

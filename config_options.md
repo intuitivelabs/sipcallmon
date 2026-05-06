@@ -119,6 +119,8 @@
 * pcap_dump_upload_max_redir - maximum number of redirects followed when uploading (default 2)
 * pcap_dump_upload_id_hash - method for generating per-call ID for upload
   (none, md5, sha256, xxhash, xxhash128, blake3_256, blake3_384)
+* pcap_dump_upload_packet - stream each captured packet via the per-call upload API (default false; requires pcap_dump_upload; mutually exclusive with pcap_dump_upload_file)
+* pcap_dump_upload_file - upload whole pcap files (default false; sets pcap_dump_file_upload_workers to 16 if 0; requires pcap_dump_upload; mutually exclusive with pcap_dump_upload_packet)
 
 ### PCAP File Upload (Rotated Files)
 * pcap_dump_file_upload_workers - number of upload worker goroutines for rotated pcap files (0 = disabled)

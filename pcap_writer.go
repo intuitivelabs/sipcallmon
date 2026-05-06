@@ -92,6 +92,9 @@ type PcapWriterCfg struct {
 	RotateDir      string        // move rotated files to this directory
 	RotateFmt      string        // format string for rotated filenames
 
+	// per-packet upload toggle (controls PcapWrWorkerUploadF)
+	UploadPacket bool
+
 	// file uploader config
 	FileUpldWorkers  int    // number of file upload workers (0 = disabled)
 	FileUpldQueueLen int    // upload channel + pool size
@@ -396,14 +399,10 @@ func (pw *PcapWriter) Init(cfg PcapWriterCfg) bool {
 	pw.wrWorkers = make([]PcapWrWorker, pw.cfg.NWorkers)
 	pw.init = true
 	wrFlags := PcapWrWorkerEmptyF
-	if len(cfg.Upload) != 0 {
+	if cfg.UploadPacket && len(cfg.Upload) != 0 {
 		wrFlags |= PcapWrWorkerUploadF
-	} else {
-		// no upload configured => to file
-		wrFlags |= PcapWrWorkerFileF
 	}
 	if len(cfg.Dir) != 0 {
-		// if dir configured force write also to file
 		wrFlags |= PcapWrWorkerFileF
 	}
 	// init file upload workers if configured

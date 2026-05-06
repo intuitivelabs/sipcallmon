@@ -61,6 +61,7 @@ type Config struct {
 	WpcapFileUpldDoneDir  string `config:"pcap_dump_file_upload_done_dir"`
 	WpcapFileUpldErrDir   string `config:"pcap_dump_file_upload_err_dir"`
 	WpcapFileUpldNotify   string `config:"pcap_dump_file_upload_notify"`
+	WpcapFileUpldStartupScan bool `config:"pcap_dump_file_upload_startup_scan"`
 	Replay          bool          `config:"replay"`
 	ReplayMinDelay time.Duration `config:"replay_min_delay"`
 	ReplayMaxDelay time.Duration `config:"replay_max_delay"`
@@ -224,7 +225,8 @@ var defaultConfigVals = Config{
 	WpcapFdPrealloc: 2048,
 	WpcapFdMaxOpen:  0, // unlimited
 	WpcapRotateInt:  10 * time.Second,
-	WpcapFileUpldQueueLen: 1000,
+	WpcapFileUpldQueueLen:    1000,
+	WpcapFileUpldStartupScan: true,
 
 	ReplayMinDelay: 0,
 	ReplayMaxDelay: 0,
@@ -461,6 +463,11 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.StringVar(&cfg.WpcapFileUpldNotify, "pcap_dump_file_upload_notify",
 		c.WpcapFileUpldNotify,
 		`upload trigger mode: "channel" (default), "watch" (fsnotify), or "both"`)
+	flag.BoolVar(&cfg.WpcapFileUpldStartupScan,
+		"pcap_dump_file_upload_startup_scan",
+		c.WpcapFileUpldStartupScan,
+		"scan rotate dir on startup and upload pre-existing files (recover "+
+			"leftovers from previous runs)")
 
 	flag.BoolVar(&cfg.Replay, "replay", c.Replay, "replay packets from pcap "+
 		"keeping recorded delays between packets")

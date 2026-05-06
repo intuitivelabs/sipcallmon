@@ -98,6 +98,7 @@ type PcapWriterCfg struct {
 	FileUpldDoneDir  string // post-upload success: "" = delete, "leave", or dir path
 	FileUpldErrDir   string // post-upload error: "" = leave, "delete", or dir path
 	FileUpldNotify   string // "channel", "watch", "both"
+	FileUpldStartupScan bool // scan RotateDir on startup for leftovers
 
 	rotateFmtSegs     []pcapRotFmtSeg // compiled format (parsed once in Init)
 	rotateFmtHasRetry bool            // true if format contains %R, %N, or %U

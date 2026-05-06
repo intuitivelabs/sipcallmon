@@ -156,12 +156,19 @@ func (u *pcapFileUploader) Init(cfg *PcapWriterCfg, stats *pcapStatsT) error {
 		u.errDir = cfg.FileUpldErrDir
 	}
 
-	// build regex for watch mode
-	if u.notify == FileUpldNotifyWatch || u.notify == FileUpldNotifyBoth {
+	// build regex for watch mode and/or startup scan
+	watchEnabled := u.notify == FileUpldNotifyWatch ||
+		u.notify == FileUpldNotifyBoth
+	if watchEnabled || cfg.FileUpldStartupScan {
 		u.fmtRegex, u.idCapIdx, u.baseCapIdx = buildRotateFmtRegex(
 			cfg.rotateFmtSegs)
 		if u.fmtRegex == nil {
-			return fmt.Errorf("pcap file uploader: cannot build format regex for watch mode")
+			return fmt.Errorf("pcap file uploader: cannot build format regex" +
+				" for watch / startup scan")
+		}
+		if cfg.RotateDir == "" {
+			return fmt.Errorf("pcap file uploader: watch / startup scan" +
+				" requires pcap_dump_rotate_dir")
 		}
 	}
 	return nil
@@ -171,6 +178,10 @@ func (u *pcapFileUploader) Start() bool {
 	for i := 0; i < u.nWorkers; i++ {
 		u.wg.Add(1)
 		go u.worker(i)
+	}
+	// scan rotate dir for leftovers from a previous run
+	if u.cfg.FileUpldStartupScan && u.cfg.RotateDir != "" {
+		u.scanDir(u.cfg.RotateDir)
 	}
 	// start watch goroutine if configured
 	if u.notify == FileUpldNotifyWatch || u.notify == FileUpldNotifyBoth {
@@ -428,9 +439,6 @@ func (u *pcapFileUploader) watchDir() {
 		ERR("pcap file uploader: watch %q: %v\n", dir, err)
 		return
 	}
-
-	// on startup: scan directory for existing files
-	u.scanDir(dir)
 
 	for {
 		select {

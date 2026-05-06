@@ -1066,6 +1066,14 @@ func CfgFix(cfg *Config) error {
 		// no RTP tracking if SDP is disabled
 		cfg.RTP = false
 	}
+	if cfg.WpcapDumpOn {
+		if cfg.WpcapFileUpldNotify == "" {
+			cfg.WpcapFileUpldNotify = FileUpldNotifyChannel
+		}
+		if cfg.WpcapFileUpldQueueLen <= 0 {
+			cfg.WpcapFileUpldQueueLen = 1000
+		}
+	}
 	return nil
 }
 
@@ -1091,6 +1099,47 @@ func CfgCheck(cfg *Config) error {
 		ParsePcapIdHashT(cfg.WpcapUpldHashN) == PcapIdHashInvalid {
 		return fmt.Errorf("pcap_dump_upload_id_hash: invalid value %q",
 			cfg.WpcapUpldHashN)
+	}
+	if cfg.WpcapDumpOn {
+		switch cfg.WpcapFileUpldNotify {
+		case "", FileUpldNotifyChannel, FileUpldNotifyWatch, FileUpldNotifyBoth:
+		default:
+			return fmt.Errorf(`pcap_dump_file_upload_notify: invalid value`+
+				` %q (allowed: %q, %q, %q)`, cfg.WpcapFileUpldNotify,
+				FileUpldNotifyChannel, FileUpldNotifyWatch,
+				FileUpldNotifyBoth)
+		}
+		if cfg.WpcapFileUpldWorkers < 0 {
+			return fmt.Errorf("pcap_dump_file_upload_workers: must be >= 0")
+		}
+		if cfg.WpcapFileUpldQueueLen < 0 {
+			return fmt.Errorf("pcap_dump_file_upload_queue: must be >= 0")
+		}
+		if cfg.WpcapFileUpldWorkers > 0 {
+			if len(cfg.WpcapUpload) == 0 {
+				return fmt.Errorf("pcap_dump_file_upload_workers > 0" +
+					" requires a non-empty pcap_dump_upload URL")
+			}
+			watch := cfg.WpcapFileUpldNotify == FileUpldNotifyWatch ||
+				cfg.WpcapFileUpldNotify == FileUpldNotifyBoth
+			if cfg.WpcapFileUpldStartupScan || watch {
+				if cfg.WpcapRotateDir == "" {
+					return fmt.Errorf("pcap_dump_rotate_dir is required" +
+						" when pcap_dump_file_upload_startup_scan is set" +
+						" or pcap_dump_file_upload_notify is watch/both")
+				}
+				rfmt := cfg.WpcapRotateFmt
+				if rfmt == "" {
+					rfmt = "%b_%s%e"
+				}
+				segs, _ := parseRotateFmt(rfmt)
+				if re, _, _ := buildRotateFmtRegex(segs); re == nil {
+					return fmt.Errorf("pcap_dump_rotate_fmt %q: cannot"+
+						" build regex (required for upload watch /"+
+						" startup scan)", rfmt)
+				}
+			}
+		}
 	}
 
 	if cfg.UseAnonymization() {

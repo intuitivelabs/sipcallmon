@@ -206,24 +206,23 @@ It can either capture live packets or replay pcap files.
 The following options are read from the configuration file only (they
 are not registered as command-line flags):
 
-| Option | Description |
-| ------ | ----------- |
-| `cfg_ignore_unknown` | list of unknown config options to ignore |
-| `encrypt_call_ids` | enable Call-ID anonymization |
-| `encrypt_cbc_uri` | use AES CBC mode for URI encryption |
-| `encrypt_ip_addresses` | enable IP address anonymization |
-| `encrypt_ipcipher` | use ipcipher for IP address encryption |
-| `encrypt_ua` | enable User-Agent string anonymization |
-| `encrypt_uris` | enable URI anonymization |
-| `encryption_key` | direct encryption key in hexadecimal format |
-| `encryption_passphrase` | passphrase for key generation |
-| `encryption_salt` | salt for encryption key validation |
-| `geo_ip_db` | path to GeoIP database file |
-| `geo_ip_on` | enable GeoIP lookup |
-| `unencrypted_city_id` | keep city ID in plaintext (when using GeoIP) |
-| `unencrypted_country_iso` | keep country ISO in plaintext (when using GeoIP) |
+```
+  cfg_ignore_unknown        list of unknown config options to ignore
+  encrypt_call_ids          enable Call-ID anonymization
+  encrypt_cbc_uri           use AES CBC mode for URI encryption
+  encrypt_ip_addresses      enable IP address anonymization
+  encrypt_ipcipher          use ipcipher for IP address encryption
+  encrypt_ua                enable User-Agent string anonymization
+  encrypt_uris              enable URI anonymization
+  encryption_key            direct encryption key in hexadecimal format
+  encryption_passphrase     passphrase for key generation
+  encryption_salt           salt for encryption key validation
+  geo_ip_db                 path to GeoIP database file
+  geo_ip_on                 enable GeoIP lookup
+  unencrypted_city_id       keep city ID in plaintext (when using GeoIP)
+  unencrypted_country_iso   keep country ISO in plaintext (when using GeoIP)
+```
 
-See `docs/Commandline.md` for the long-form description of every option.
 
 
 ### HTTP URL Paths

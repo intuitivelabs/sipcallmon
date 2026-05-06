@@ -30,7 +30,7 @@
 * http_port - port for internal http server (0 means disable)
 * http_addr - listen ip address for the internal http server
 
-### TCP Connection Tracing
+### TCP Connection Tracking
 * tcp_gc_int - tcp garbage collection interval (default "30s")
 * tcp_reorder_timeout - tcp reorder timeout (default "1m0s")
 * tcp_connection_timeout - tcp stale connection timeout (default "1h0m0s")
@@ -56,7 +56,7 @@
 * ipfix_ignore_egress - ignore SIP-egress IPFIX messages
 * ipfix_rtp_quick_ev - generate RTP stats event immediately after receiving IPFIX stats (default true)
 
-### Call Tracing
+### Call Tracking
 * calls_max_entries - maximum tracked calls (0 for unlimited)
 * calls_max_mem - maximum memory for keeping call state in bytes (0 for unlimited)
 * calls_timeouts - timeouts for each call state, e.g. {inv_established:7200s,}
@@ -126,6 +126,7 @@
 * pcap_dump_file_upload_done_dir - post-upload success action: "" = delete, "leave" = keep, or dir path
 * pcap_dump_file_upload_err_dir - post-upload error action: "" = leave, "delete" = remove, or dir path
 * pcap_dump_file_upload_notify - upload trigger mode: "channel" (default), "watch" (fsnotify), or "both"
+* pcap_dump_file_upload_startup_scan - on startup, scan pcap_dump_rotate_dir and upload any pre-existing files left over from a previous run (default true; requires pcap_dump_rotate_dir)
 
 ### RTP
 * rtp - enable/disable RTP support (default true)

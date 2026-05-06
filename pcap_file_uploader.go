@@ -129,6 +129,10 @@ type pcapFileUploader struct {
 	baseCapIdx int            // regex capture index for %b (-1 if absent)
 }
 
+// Init configures the uploader. Config preconditions (notify enum,
+// queue/workers >= 0, RotateDir set when needed, regex-buildable
+// rotate format) are normally enforced by CfgFix/CfgCheck; the
+// fallbacks and error returns below are kept as defensive guards.
 func (u *pcapFileUploader) Init(cfg *PcapWriterCfg, stats *pcapStatsT) error {
 	u.cfg = cfg
 	u.stats = stats

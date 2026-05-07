@@ -1095,6 +1095,16 @@ func CfgFix(cfg *Config) error {
 		if cfg.WpcapFileUpldQueueLen <= 0 {
 			cfg.WpcapFileUpldQueueLen = 1000
 		}
+		if cfg.WpcapRotateInt <= 0 &&
+			(cfg.WpcapUploadFile || cfg.WpcapFileUpldWorkers > 0) {
+			WARN("pcap_dump_rotate_interval=0 disables file rotation;" +
+				" the file uploader will be disabled\n")
+		}
+		if cfg.WpcapFdBuckets == 0 && len(cfg.WpcapDir) != 0 &&
+			(cfg.WpcapUploadFile || cfg.WpcapFileUpldWorkers > 0) {
+			WARN("pcap_dump_fd_buckets=0 with pcap_dump_dir set disables" +
+				" file rotation; the file uploader will be disabled\n")
+		}
 	}
 	return nil
 }

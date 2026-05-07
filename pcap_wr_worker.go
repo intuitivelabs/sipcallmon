@@ -432,8 +432,10 @@ func (pwr *PcapWrWorker) run() bool {
 			ERR("pcap worker %s: fd tracker init failed: %v\n",
 				pwr.name, err)
 		} else {
-			rotateTicker = time.NewTicker(pwr.cfg.RotateInterval)
-			rotateCh = rotateTicker.C
+			if pwr.cfg.RotateInterval > 0 {
+				rotateTicker = time.NewTicker(pwr.cfg.RotateInterval)
+				rotateCh = rotateTicker.C
+			}
 			tracker.upldCh = pwr.upldCh
 			tracker.upldPool = pwr.upldPool
 		}

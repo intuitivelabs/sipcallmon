@@ -120,7 +120,9 @@ func (t *pcapFdTracker) Add(key, fname []byte, f *os.File,
 
 	// start rotation timer (fires once, not reset on writes)
 	t.lt.InitTimer(&e.timer)
-	t.lt.Add(&e.timer, t.rotateInterval, now, pcapFdTimerHandler, e)
+	if t.rotateInterval > 0 {
+		t.lt.Add(&e.timer, t.rotateInterval, now, pcapFdTimerHandler, e)
+	}
 	return e
 }
 

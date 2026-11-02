@@ -57,6 +57,10 @@ type pcapStatsT struct {
 	hErrWrMsg    counters.Handle
 	hErrOther    counters.Handle
 	hBUG         counters.Handle
+
+	hRTPSkipped     counters.Handle
+	hRTPOverflow    counters.Handle
+	hRTPSampleCalls counters.Handle
 }
 
 func (s *pcapStatsT) Init() bool {
@@ -115,6 +119,15 @@ func (s *pcapStatsT) Init() bool {
 			"other errors (dbg)"},
 		{&s.hBUG, 0, nil, nil, "err_bug",
 			"number of detected BUGs (dbg)"},
+
+		{&s.hRTPSkipped, 0, nil, nil, "rtp_sampled_out",
+			"RTP packets not written: stream already sampled" +
+				" (pcap_dump_rtp_max_pkts)"},
+		{&s.hRTPOverflow, 0, nil, nil, "rtp_sample_overflow",
+			"RTP packets not written: too many sampled streams per call"},
+		{&s.hRTPSampleCalls, counters.CntNonMonoF | counters.CntMaxF,
+			nil, nil, "rtp_sample_calls",
+			"calls with RTP sampling state"},
 	}
 
 	entries := len(cntDefs)

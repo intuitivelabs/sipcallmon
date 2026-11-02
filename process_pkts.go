@@ -467,6 +467,9 @@ func processPackets(h *pcap.Handle, cfg *Config, replay bool,
 	// init sipmsg
 	sipmsg.Init(nil, siphdrs[:], nil)
 	rtpHash := calltr.GetRTPStreamHash()
+	// first N packets per RTP stream in the pcap dumps (0 = all)
+	rtpSampler := NewRTPSampler(uint32(cfg.WpcapRTPMaxN), cfg.WpcapRTPIdle,
+		cfg.WpcapRTPStrms)
 
 	//var appl gopacket.Payload
 	// space for decoded layers:
@@ -842,7 +845,10 @@ nextpkt:
 								match, unsafeconv.Str(callid[:clen]))
 						*/
 
-						if cfg.WpcapDumpOn && cfg.WpcapDumpRTP {
+						if cfg.WpcapDumpOn && cfg.WpcapDumpRTP &&
+							rtpDumpSample(rtpSampler, callid[:clen],
+								sip, sport, dip, dport, payload,
+								ci.Timestamp) {
 							/* in the RTP Stream case the CallID is not
 							   part of the message (as for SIP) =>
 							   path separate key buffer */

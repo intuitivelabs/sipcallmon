@@ -42,6 +42,9 @@ type Config struct {
 	WpcapDumpOn    bool          `config:"pcap_dump_on"`
 	WpcapOnErr     bool          `config:"pcap_dump_onerr"`
 	WpcapDumpRTP   bool          `config:"pcap_dump_rtp"`
+	WpcapRTPMaxN   int           `config:"pcap_dump_rtp_max_pkts"`
+	WpcapRTPIdle   time.Duration `config:"pcap_dump_rtp_sample_idle"`
+	WpcapRTPStrms  int           `config:"pcap_dump_rtp_max_streams"`
 	WpcapWorkers   int           `config:"pcap_dump_workers"`
 	WpcapQueueLen  int           `config:"pcap_dump_queue_len"`
 	Replay         bool          `config:"replay"`
@@ -192,6 +195,9 @@ var defaultConfigVals = Config{
 	WpcapExt:      "pcap",
 	WpcapOnErr:    false,
 	WpcapDumpRTP:  true,
+	WpcapRTPMaxN:  10,
+	WpcapRTPIdle:  10 * time.Second,
+	WpcapRTPStrms: 32,
 	WpcapWorkers:  16,
 	WpcapQueueLen: 10000, // TODO: replace with higher value after testing
 
@@ -383,6 +389,21 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 	flag.BoolVar(&cfg.WpcapDumpRTP, "pcap_dump_rtp", c.WpcapDumpRTP,
 		"enable/disable appending RTP messages to pcap per call files"+
 			" (pcap_dump_on must also be set)")
+	flag.IntVar(&cfg.WpcapRTPMaxN, "pcap_dump_rtp_max_pkts",
+		c.WpcapRTPMaxN,
+		"write only the first N packets of each RTP stream"+
+			" (src, dst, SSRC, payload type) to the pcap per call files;"+
+			" RTCP is always written; 0 writes everything"+
+			" (pcap_dump_rtp must be set)")
+	rtpSampleIdleS := flag.String("pcap_dump_rtp_sample_idle",
+		c.WpcapRTPIdle.String(),
+		"an RTP stream idle for longer is sampled again when it resumes;"+
+			" a call's sampling state is freed after it"+
+			" (see pcap_dump_rtp_max_pkts)")
+	flag.IntVar(&cfg.WpcapRTPStrms, "pcap_dump_rtp_max_streams",
+		c.WpcapRTPStrms,
+		"maximum number of sampled RTP streams per call, packets of"+
+			" further streams are not written (see pcap_dump_rtp_max_pkts)")
 	flag.IntVar(&cfg.WpcapWorkers, "pcap_dump_workers", c.WpcapWorkers,
 		"number of pcap dump worker threads")
 	flag.IntVar(&cfg.WpcapQueueLen, "pcap_dump_queue_len", c.WpcapQueueLen,
@@ -561,6 +582,13 @@ func CfgFromOSArgs(c *Config) (Config, error) {
 		if perr != nil {
 			e := fmt.Errorf("invalid maximum replay delay: %s: %v",
 				*tcpGCIntS, perr)
+			errs++
+			return cfg, e
+		}
+		cfg.WpcapRTPIdle, perr = time.ParseDuration(*rtpSampleIdleS)
+		if perr != nil {
+			e := fmt.Errorf("invalid pcap_dump_rtp_sample_idle: %s: %v",
+				*rtpSampleIdleS, perr)
 			errs++
 			return cfg, e
 		}
@@ -973,6 +1001,18 @@ func CfgCheck(cfg *Config) error {
 		if len(cfg.WpcapDir) == 0 {
 			return fmt.Errorf("if pcap write mode is enabled it requires a" +
 				" non-empty write directory: pcap_dump_dir")
+		}
+		if cfg.WpcapRTPMaxN < 0 {
+			return fmt.Errorf("invalid pcap_dump_rtp_max_pkts %d:"+
+				" expected >= 0", cfg.WpcapRTPMaxN)
+		}
+		if cfg.WpcapRTPIdle <= 0 {
+			return fmt.Errorf("invalid pcap_dump_rtp_sample_idle %s:"+
+				" expected > 0", cfg.WpcapRTPIdle)
+		}
+		if cfg.WpcapRTPStrms < 1 {
+			return fmt.Errorf("invalid pcap_dump_rtp_max_streams %d:"+
+				" expected >= 1", cfg.WpcapRTPStrms)
 		}
 		if cfg.UseAnonymization() {
 			return fmt.Errorf("pcap write mode is incompatible with" +

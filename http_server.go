@@ -750,7 +750,7 @@ func httpEvRateBlstList(w http.ResponseWriter, r *http.Request) {
 			rVal = -rVal
 		default:
 			fmt.Fprintf(w, "Error: invalid rop value %q"+
-				" (expected &gt= or &lt)\n")
+				" (expected &gt= or &lt)\n", paramRop[0])
 		}
 	}
 	if len(paramRateIdx) > 0 && len(paramRateIdx[0]) > 0 {
@@ -1787,7 +1787,7 @@ func httpIPFIXconnList(w http.ResponseWriter, r *http.Request) {
 
 	cfg := RunningCfg
 	if acmeIPFIXsrv == nil {
-		fmt.Fprintf(w, "Error: IPFIX disabled (addr: %q port:%p)\n",
+		fmt.Fprintf(w, "Error: IPFIX disabled (addr: %q port:%d)\n",
 			cfg.IPFIXaddr, cfg.IPFIXport)
 		return
 	}
@@ -1940,7 +1940,7 @@ func httpRTPStreamsList(w http.ResponseWriter, r *http.Request) {
 			rVal = -rVal
 		default:
 			fmt.Fprintf(w, "Error: invalid rop value %q"+
-				" (expected &gt= or &lt)\n")
+				" (expected &gt= or &lt)\n", paramRop[0])
 		}
 	}
 	if len(tst) > 0 {

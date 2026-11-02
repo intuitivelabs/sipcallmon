@@ -217,9 +217,8 @@ func (pw *PcapWriter) WriteRawMsg(key sipsp.PField, keyBuf []byte,
 		// DBG("worker queued: %d : %q h: %d\n", i, pw.wrWorkers[i].name, h)
 	} else {
 		pw.stats.cnts.Inc(pw.stats.hErrOther)
-		return fmt.Errorf("PcapWrite::WriteRawMsg new msg failed for key %s",
-			keyVal)
-		return errorPcapWNewMsgFailed
+		return fmt.Errorf("PcapWrite::WriteRawMsg new msg failed for key %s:"+
+			" %w", keyVal, errorPcapWNewMsgFailed)
 	}
 	return nil
 }
